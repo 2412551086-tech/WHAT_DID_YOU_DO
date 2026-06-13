@@ -1,0 +1,15 @@
+{
+  "name": "what-did-you-do",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Monorepo for the What Did You Do Today app.",
+  "scripts": {
+    "backend:dev": "pnpm --filter @what-did-you-do/backend start:dev",
+    "backend:build": "pnpm --filter @what-did-you-do/backend build",
+    "backend:prisma:generate": "pnpm --filter @what-did-you-do/backend prisma:generate",
+    "backend:prisma:migrate": "pnpm --filter @what-did-you-do/backend prisma:migrate"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}
