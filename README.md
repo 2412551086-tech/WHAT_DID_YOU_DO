@@ -9,3 +9,7 @@ Monorepo for a family chore tracking app. The initial scope is:
 - `infra`: deployment and infrastructure notes.
 
 Business features are intentionally not implemented in this initialization step.
+
+## macOS Migration
+
+See `docs/MAC_MIGRATION.md` for the current macOS setup checklist and iOS migration notes.
