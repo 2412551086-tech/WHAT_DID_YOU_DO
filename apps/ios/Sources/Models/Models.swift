@@ -38,7 +38,8 @@ struct ChoreRecord: Identifiable, Hashable {
     let memberName: String
     let choreName: String
     let category: String
-    let minutes: Int
+    let standardMinutes: Int
+    let actualMinutes: Int
     let points: Int
     let note: String
     let createdAt: Date

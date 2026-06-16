@@ -24,6 +24,7 @@
 		1A0000010000000000000015 /* MainTabView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A0000010000000000001015 /* MainTabView.swift */; };
 		1A0000010000000000000016 /* FamilyDashboardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A0000010000000000001016 /* FamilyDashboardView.swift */; };
 		1A0000010000000000000017 /* ProfileView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A0000010000000000001017 /* ProfileView.swift */; };
+		1A0000010000000000000018 /* ChoreDurationPickerSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A0000010000000000001018 /* ChoreDurationPickerSheet.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -45,6 +46,7 @@
 		1A0000010000000000001015 /* MainTabView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainTabView.swift; sourceTree = "<group>"; };
 		1A0000010000000000001016 /* FamilyDashboardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FamilyDashboardView.swift; sourceTree = "<group>"; };
 		1A0000010000000000001017 /* ProfileView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProfileView.swift; sourceTree = "<group>"; };
+		1A0000010000000000001018 /* ChoreDurationPickerSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChoreDurationPickerSheet.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -182,6 +184,7 @@
 			isa = PBXGroup;
 			children = (
 				1A0000010000000000001013 /* ChoreSelectionView.swift */,
+				1A0000010000000000001018 /* ChoreDurationPickerSheet.swift */,
 			);
 			path = Chores;
 			sourceTree = "<group>";
@@ -273,6 +276,7 @@
 				1A0000010000000000000015 /* MainTabView.swift in Sources */,
 				1A0000010000000000000016 /* FamilyDashboardView.swift in Sources */,
 				1A0000010000000000000017 /* ProfileView.swift in Sources */,
+				1A0000010000000000000018 /* ChoreDurationPickerSheet.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

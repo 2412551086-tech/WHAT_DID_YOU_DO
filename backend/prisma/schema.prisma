@@ -19,5 +19,59 @@ model Chore {
   createdAt            DateTime @default(now())
   updatedAt            DateTime @updatedAt
 
+  records ChoreRecord[]
+
   @@index([isFreeCore, sortOrder])
+}
+
+model User {
+  id          String         @id @default(cuid())
+  displayName String
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+  memberships FamilyMember[]
+  records     ChoreRecord[]
+}
+
+model Family {
+  id                String         @id @default(cuid())
+  name              String
+  requirePhotoProof Boolean        @default(false)
+  inviteCode        String         @unique
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
+  members           FamilyMember[]
+  records           ChoreRecord[]
+}
+
+model FamilyMember {
+  id        String   @id @default(cuid())
+  userId    String
+  familyId  String
+  role      String   @default("member")
+  createdAt DateTime @default(now())
+  family    Family   @relation(fields: [familyId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, familyId])
+  @@index([familyId])
+}
+
+model ChoreRecord {
+  id            String   @id @default(cuid())
+  familyId      String
+  userId        String
+  choreId       String
+  note          String?
+  imageUrls     String[]
+  minutes       Int
+  actualMinutes Int
+  points        Int
+  createdAt     DateTime @default(now())
+  chore         Chore    @relation(fields: [choreId], references: [id])
+  family        Family   @relation(fields: [familyId], references: [id], onDelete: Cascade)
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([familyId, createdAt])
+  @@index([familyId, userId, createdAt])
 }

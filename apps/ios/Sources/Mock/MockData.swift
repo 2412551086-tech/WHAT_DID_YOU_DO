@@ -35,8 +35,8 @@ enum MockData {
     ]
 
     static let todayRecords: [ChoreRecord] = [
-        ChoreRecord(id: UUID(uuidString: "00000000-0000-0000-0000-000000002001")!, memberName: "我", choreName: "洗碗", category: "厨房类", minutes: 15, points: 15, note: "水槽终于重见天日", createdAt: Date().addingTimeInterval(-4_200), icon: "fork.knife", color: DSColor.yellow),
-        ChoreRecord(id: UUID(uuidString: "00000000-0000-0000-0000-000000002002")!, memberName: "小夏", choreName: "拖地", category: "清洁类", minutes: 20, points: 22, note: "地板亮到能照出理想", createdAt: Date().addingTimeInterval(-2_700), icon: "drop.fill", color: DSColor.lavender),
-        ChoreRecord(id: UUID(uuidString: "00000000-0000-0000-0000-000000002003")!, memberName: "豆豆", choreName: "浇花", category: "照顾类", minutes: 8, points: 8, note: "植物表示情绪稳定", createdAt: Date().addingTimeInterval(-1_100), icon: "leaf.fill", color: DSColor.mint),
+        ChoreRecord(id: UUID(uuidString: "00000000-0000-0000-0000-000000002001")!, memberName: "我", choreName: "洗碗", category: "厨房类", standardMinutes: 15, actualMinutes: 15, points: 15, note: "水槽终于重见天日", createdAt: Date().addingTimeInterval(-4_200), icon: "fork.knife", color: DSColor.yellow),
+        ChoreRecord(id: UUID(uuidString: "00000000-0000-0000-0000-000000002002")!, memberName: "小夏", choreName: "拖地", category: "清洁类", standardMinutes: 20, actualMinutes: 24, points: 26, note: "地板亮到能照出理想", createdAt: Date().addingTimeInterval(-2_700), icon: "drop.fill", color: DSColor.lavender),
+        ChoreRecord(id: UUID(uuidString: "00000000-0000-0000-0000-000000002003")!, memberName: "豆豆", choreName: "浇花", category: "照顾类", standardMinutes: 8, actualMinutes: 8, points: 8, note: "植物表示情绪稳定", createdAt: Date().addingTimeInterval(-1_100), icon: "leaf.fill", color: DSColor.mint),
     ]
 }

@@ -116,7 +116,7 @@ struct FamilyDashboardView: View {
                         VStack(alignment: .leading, spacing: 4) {
                             Text("\(record.memberName) 完成 \(record.choreName)")
                                 .font(.appHeadline(17))
-                            Text("\(record.minutes) 分钟 · +\(record.points) 分")
+                            Text("\(record.actualMinutes) 分钟 · +\(record.points) 分")
                                 .font(.appBody(13))
                                 .foregroundStyle(DSColor.mutedInk)
                         }

@@ -54,16 +54,19 @@ final class AppViewModel: ObservableObject {
         selectedTab = .record
     }
 
-    func record(_ chore: ChoreItem) {
+    func record(_ chore: ChoreItem, actualMinutes: Int? = nil, calculatedPoints: Int? = nil) {
         selectedChore = chore
+        let minutes = max(1, min(180, actualMinutes ?? chore.minutes))
+        let points = calculatedPoints ?? Self.estimatedPoints(for: chore, selectedMinutes: minutes)
 
         let record = ChoreRecord(
             id: UUID(),
             memberName: currentUserName,
             choreName: chore.name,
             category: chore.category,
-            minutes: chore.minutes,
-            points: chore.points,
+            standardMinutes: chore.minutes,
+            actualMinutes: minutes,
+            points: points,
             note: "\(chore.name)完成，家务宇宙记一笔",
             createdAt: Date(),
             icon: chore.icon,
@@ -71,9 +74,21 @@ final class AppViewModel: ObservableObject {
         )
 
         todayRecords.insert(record, at: 0)
-        addMonthlyPoints(chore.points, to: currentUserName)
+        addMonthlyPoints(points, to: currentUserName)
         selectedTab = .today
         path.removeAll { $0 == .choreSelection }
+    }
+
+    static func estimatedPoints(for chore: ChoreItem, selectedMinutes: Int) -> Int {
+        guard chore.minutes > 0 else {
+            return chore.points
+        }
+
+        if selectedMinutes == chore.minutes {
+            return chore.points
+        }
+
+        return max(1, Int((Double(chore.points) * Double(selectedMinutes) / Double(chore.minutes)).rounded()))
     }
 
     func logout() {

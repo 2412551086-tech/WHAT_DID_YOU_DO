@@ -2,6 +2,7 @@ import SwiftUI
 
 struct ChoreSelectionView: View {
     @EnvironmentObject private var viewModel: AppViewModel
+    @State private var choreForDurationPicker: ChoreItem?
 
     private let columns = [
         GridItem(.flexible(), spacing: 14),
@@ -17,7 +18,7 @@ struct ChoreSelectionView: View {
                     VStack(alignment: .leading, spacing: 8) {
                         Text("选择家务")
                             .font(.appTitle())
-                        Text("核心 10 项免费开放，点一个就会生成今日记录并回到首页。")
+                        Text("核心 10 项免费开放，先选家务，再按实际耗时记一笔。")
                             .font(.appBody())
                             .foregroundStyle(DSColor.mutedInk)
                     }
@@ -27,7 +28,7 @@ struct ChoreSelectionView: View {
                     LazyVGrid(columns: columns, spacing: 14) {
                         ForEach(viewModel.chores) { chore in
                             Button {
-                                viewModel.record(chore)
+                                choreForDurationPicker = chore
                             } label: {
                                 ChoreTile(chore: chore)
                             }
@@ -37,6 +38,24 @@ struct ChoreSelectionView: View {
                 }
                 .padding(20)
             }
+        }
+        .sheet(item: $choreForDurationPicker) { chore in
+            ChoreDurationPickerSheet(
+                chore: chore,
+                onCancel: {
+                    choreForDurationPicker = nil
+                },
+                onConfirm: { actualMinutes, calculatedPoints in
+                    viewModel.record(
+                        chore,
+                        actualMinutes: actualMinutes,
+                        calculatedPoints: calculatedPoints
+                    )
+                    choreForDurationPicker = nil
+                }
+            )
+            .presentationDetents([.height(620), .large])
+            .presentationDragIndicator(.hidden)
         }
     }
 }

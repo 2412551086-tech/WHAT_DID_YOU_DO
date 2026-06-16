@@ -104,7 +104,7 @@ struct HomeView: View {
                             Text("+\(record.points)")
                                 .font(.appHeadline(18))
                         }
-                        Text("\(record.category) · \(record.minutes) 分钟 · \(record.note)")
+                        Text("\(record.choreName) · \(record.actualMinutes) 分钟 · +\(record.points) 分")
                             .font(.appBody(14))
                             .foregroundStyle(DSColor.mutedInk)
                     }
