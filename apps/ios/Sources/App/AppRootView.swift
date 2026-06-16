@@ -11,7 +11,7 @@ struct AppRootView: View {
                     case .createFamily:
                         CreateFamilyView()
                     case .home:
-                        HomeView()
+                        MainTabView()
                     case .choreSelection:
                         ChoreSelectionView()
                     }

@@ -28,10 +28,10 @@ struct HomeView: View {
 
     private var header: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text(viewModel.familyName)
+            Text(viewModel.familyDisplayName)
                 .font(.appTitle(32))
                 .foregroundStyle(DSColor.ink)
-            Text("今日家庭劳动广播站已开机。")
+            Text("\(viewModel.currentUserName)，今日家庭劳动广播站已开机。")
                 .font(.appBody())
                 .foregroundStyle(DSColor.mutedInk)
         }
@@ -40,9 +40,9 @@ struct HomeView: View {
     private var metrics: some View {
         LazyVGrid(columns: columns, spacing: 14) {
             DSMetricPill(title: "今日积分", value: "\(viewModel.todayPoints)", color: DSColor.yellow)
-            DSMetricPill(title: "已记录", value: "\(viewModel.logs.count) 项", color: DSColor.mint)
+            DSMetricPill(title: "今日记录", value: "\(viewModel.todayRecordCount) 项", color: DSColor.mint)
             DSMetricPill(title: "榜首", value: viewModel.leader?.name ?? "-", color: DSColor.sky)
-            DSMetricPill(title: "图片凭证", value: viewModel.requiresPhotoProof ? "需要" : "不需要", color: DSColor.lavender)
+            DSMetricPill(title: "图片凭证", value: viewModel.currentFamily?.requiresPhotoProof == true ? "需要" : "不需要", color: DSColor.lavender)
         }
     }
 
@@ -54,7 +54,7 @@ struct HomeView: View {
                 Text("5 到 15 秒完成一次普通家务记录，先从核心 10 项开始。")
                     .font(.appBody(14))
                     .foregroundStyle(DSColor.mutedInk)
-                DSButton(title: "选择家务", systemImage: "plus.circle.fill", style: .primary) {
+                DSButton(title: "记一下", systemImage: "plus.circle.fill", style: .primary) {
                     viewModel.showChoreSelection()
                 }
             }
@@ -65,10 +65,10 @@ struct HomeView: View {
         VStack(alignment: .leading, spacing: 12) {
             Text("家庭排行")
                 .font(.appHeadline())
-            ForEach(viewModel.members) { member in
+            ForEach(Array(viewModel.monthlyRanking.enumerated()), id: \.element.id) { index, member in
                 DSCard(fill: member.color) {
                     HStack(spacing: 14) {
-                        Text(member.name.prefix(1))
+                        Text("\(index + 1)")
                             .font(.appHeadline(24))
                             .frame(width: 44, height: 44)
                             .background(DSColor.surface)
@@ -82,7 +82,7 @@ struct HomeView: View {
                                 .foregroundStyle(DSColor.mutedInk)
                         }
                         Spacer()
-                        Text("\(member.points)")
+                        Text("\(member.monthlyPoints)")
                             .font(.appHeadline(22))
                     }
                 }
@@ -94,17 +94,17 @@ struct HomeView: View {
         VStack(alignment: .leading, spacing: 12) {
             Text("家庭动态")
                 .font(.appHeadline())
-            ForEach(viewModel.logs) { log in
+            ForEach(viewModel.todayRecords) { record in
                 DSCard {
                     VStack(alignment: .leading, spacing: 7) {
                         HStack {
-                            Text("\(log.memberName) 完成 \(log.choreName)")
+                            Label("\(record.memberName) 完成 \(record.choreName)", systemImage: record.icon)
                                 .font(.appHeadline(17))
                             Spacer()
-                            Text("+\(log.points)")
+                            Text("+\(record.points)")
                                 .font(.appHeadline(18))
                         }
-                        Text(log.note)
+                        Text("\(record.category) · \(record.minutes) 分钟 · \(record.note)")
                             .font(.appBody(14))
                             .foregroundStyle(DSColor.mutedInk)
                     }
@@ -117,6 +117,6 @@ struct HomeView: View {
 #Preview {
     NavigationStack {
         HomeView()
-            .environmentObject(AppViewModel())
+            .environmentObject(AppViewModel.previewHomeAfterNewRecord())
     }
 }

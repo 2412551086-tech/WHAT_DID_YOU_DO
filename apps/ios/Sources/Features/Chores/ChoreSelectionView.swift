@@ -17,7 +17,7 @@ struct ChoreSelectionView: View {
                     VStack(alignment: .leading, spacing: 8) {
                         Text("选择家务")
                             .font(.appTitle())
-                        Text("核心 10 项免费开放，先把今天的战绩记下来。")
+                        Text("核心 10 项免费开放，点一个就会生成今日记录并回到首页。")
                             .font(.appBody())
                             .foregroundStyle(DSColor.mutedInk)
                     }
@@ -78,6 +78,6 @@ private struct ChoreTile: View {
 #Preview {
     NavigationStack {
         ChoreSelectionView()
-            .environmentObject(AppViewModel())
+            .environmentObject(AppViewModel.previewLoggedIn())
     }
 }

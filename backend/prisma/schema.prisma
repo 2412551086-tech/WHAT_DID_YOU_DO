@@ -6,4 +6,18 @@ datasource db {
   provider = "postgresql"
 }
 
-// Domain models will be added after the ERD is reviewed.
+model Chore {
+  id                   String   @id @default(cuid())
+  name                 String   @unique
+  category             String
+  standardMinutes      Int
+  difficultyMultiplier Float
+  defaultPoints        Int
+  icon                 String
+  isFreeCore           Boolean  @default(true)
+  sortOrder            Int
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  @@index([isFreeCore, sortOrder])
+}

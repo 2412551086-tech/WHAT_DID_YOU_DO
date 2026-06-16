@@ -18,6 +18,8 @@ corepack enable
 pnpm install
 cp backend/.env.example backend/.env
 pnpm backend:prisma:generate
+pnpm backend:prisma:migrate
+pnpm --filter @what-did-you-do/backend prisma:seed
 pnpm backend:dev
 ```
 
@@ -28,7 +30,9 @@ corepack enable
 pnpm install
 Copy-Item backend\.env.example backend\.env
 pnpm backend:prisma:generate
+pnpm backend:prisma:migrate
+pnpm --filter @what-did-you-do/backend prisma:seed
 pnpm backend:dev
 ```
 
-No business modules are implemented yet. The current files only establish the service skeleton and database tooling.
+Use pnpm for this workspace. Avoid mixing `npm install` with pnpm-managed `node_modules`.

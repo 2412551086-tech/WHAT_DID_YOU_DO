@@ -21,9 +21,9 @@ struct LoginView: View {
 
                     DSCard(fill: DSColor.yellow) {
                         VStack(alignment: .leading, spacing: 12) {
-                            Label("先假装已经接入登录", systemImage: "person.crop.circle.badge.checkmark")
+                            Label("Mock 登录已就位", systemImage: "person.crop.circle.badge.checkmark")
                                 .font(.appHeadline())
-                            Text("MVP 先用 Mock 账户走通创建家庭、首页和家务选择流程。")
+                            Text("点击任意登录按钮，会创建本地 Mock 用户并进入创建家庭流程。")
                                 .font(.appBody(15))
                                 .foregroundStyle(DSColor.mutedInk)
                         }
@@ -32,13 +32,13 @@ struct LoginView: View {
                     VStack(spacing: 14) {
                         DSTextField(title: "手机号", systemImage: "iphone", text: $viewModel.phoneNumber)
                         DSButton(title: "手机号登录", systemImage: "message.fill", style: .primary) {
-                            viewModel.continueFromLogin()
+                            viewModel.mockLogin()
                         }
                         DSButton(title: "Apple ID 登录", systemImage: "apple.logo", style: .secondary) {
-                            viewModel.continueFromLogin()
+                            viewModel.mockLogin()
                         }
                         DSButton(title: "微信登录", systemImage: "bubble.left.and.bubble.right.fill", style: .secondary) {
-                            viewModel.continueFromLogin()
+                            viewModel.mockLogin()
                         }
                     }
 
