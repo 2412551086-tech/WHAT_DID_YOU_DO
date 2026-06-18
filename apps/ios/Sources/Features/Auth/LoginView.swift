@@ -21,13 +21,15 @@ struct LoginView: View {
 
                     DSCard(fill: DSColor.yellow) {
                         VStack(alignment: .leading, spacing: 12) {
-                            Label("Mock 登录已就位", systemImage: "person.crop.circle.badge.checkmark")
+                            Label("\(viewModel.modeLabel) 已就位", systemImage: "person.crop.circle.badge.checkmark")
                                 .font(.appHeadline())
-                            Text("点击任意登录按钮，会创建本地 Mock 用户并进入创建家庭流程。")
+                            Text("点击任意登录按钮，会进入创建家庭流程；API 模式会调用本地后端。")
                                 .font(.appBody(15))
                                 .foregroundStyle(DSColor.mutedInk)
                         }
                     }
+
+                    statusBanner
 
                     VStack(spacing: 14) {
                         DSTextField(title: "手机号", systemImage: "iphone", text: $viewModel.phoneNumber)
@@ -41,6 +43,7 @@ struct LoginView: View {
                             viewModel.mockLogin()
                         }
                     }
+                    .disabled(viewModel.isLoading)
 
                     DSCard {
                         HStack(spacing: 12) {
@@ -56,9 +59,28 @@ struct LoginView: View {
         }
         .navigationBarBackButtonHidden(true)
     }
+
+    @ViewBuilder
+    private var statusBanner: some View {
+        if viewModel.isLoading {
+            DSCard(fill: DSColor.sky) {
+                Label(viewModel.loadingMessage ?? "正在处理", systemImage: "arrow.triangle.2.circlepath")
+                    .font(.appBody(15))
+                    .foregroundStyle(DSColor.ink)
+            }
+        }
+
+        if let errorMessage = viewModel.errorMessage {
+            DSCard(fill: DSColor.coral) {
+                Label(errorMessage, systemImage: "exclamationmark.triangle.fill")
+                    .font(.appBody(15))
+                    .foregroundStyle(DSColor.ink)
+            }
+        }
+    }
 }
 
 #Preview {
     LoginView()
-        .environmentObject(AppViewModel())
+        .environmentObject(AppViewModel(forceMockData: true))
 }

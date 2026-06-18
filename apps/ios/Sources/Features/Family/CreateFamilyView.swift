@@ -18,11 +18,13 @@ struct CreateFamilyView: View {
                         VStack(alignment: .leading, spacing: 10) {
                             Text("给家务现场起个响亮名字")
                                 .font(.appHeadline())
-                            Text("比如“周末厨房保卫处”或者“沙发塌陷研究所”。")
+                            Text("\(viewModel.modeLabel)：比如“周末厨房保卫处”或者“沙发塌陷研究所”。")
                                 .font(.appBody(15))
                                 .foregroundStyle(DSColor.mutedInk)
                         }
                     }
+
+                    statusBanner
 
                     VStack(spacing: 16) {
                         DSTextField(title: "家庭名称", systemImage: "house.fill", text: $viewModel.familyName)
@@ -44,12 +46,13 @@ struct CreateFamilyView: View {
                             viewModel.createFamily()
                         }
                     }
+                    .disabled(viewModel.isLoading)
 
                     DSCard(fill: DSColor.sky) {
                         VStack(alignment: .leading, spacing: 8) {
                             Text("MVP 规则")
                                 .font(.appHeadline(18))
-                            Text("先使用核心 10 个免费家务事项，成员和记录全部来自 Mock 数据。")
+                            Text("先使用核心家务事项；Mock/API 模式可在 APIConfig 中切换。")
                                 .font(.appBody(14))
                                 .foregroundStyle(DSColor.mutedInk)
                         }
@@ -59,11 +62,30 @@ struct CreateFamilyView: View {
             }
         }
     }
+
+    @ViewBuilder
+    private var statusBanner: some View {
+        if viewModel.isLoading {
+            DSCard(fill: DSColor.sky) {
+                Label(viewModel.loadingMessage ?? "正在处理", systemImage: "arrow.triangle.2.circlepath")
+                    .font(.appBody(15))
+                    .foregroundStyle(DSColor.ink)
+            }
+        }
+
+        if let errorMessage = viewModel.errorMessage {
+            DSCard(fill: DSColor.coral) {
+                Label(errorMessage, systemImage: "exclamationmark.triangle.fill")
+                    .font(.appBody(15))
+                    .foregroundStyle(DSColor.ink)
+            }
+        }
+    }
 }
 
 #Preview {
     NavigationStack {
         CreateFamilyView()
-            .environmentObject(AppViewModel())
+            .environmentObject(AppViewModel(forceMockData: true))
     }
 }

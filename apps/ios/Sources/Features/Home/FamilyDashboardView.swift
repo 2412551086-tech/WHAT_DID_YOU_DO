@@ -48,7 +48,7 @@ struct FamilyDashboardView: View {
                 VStack(alignment: .leading, spacing: 6) {
                     Text("\(monthlyTotalPoints) 分")
                         .font(.appHeadline(28))
-                    Text("本月全家总积分，先记账，后邀功。")
+                    Text(viewModel.monthlyReport?.headline ?? "本月全家总积分，先记账，后邀功。")
                         .font(.appBody(14))
                         .foregroundStyle(DSColor.mutedInk)
                 }
@@ -130,7 +130,7 @@ struct FamilyDashboardView: View {
     }
 
     private var monthlyTotalPoints: Int {
-        viewModel.monthlyRanking.reduce(0) { $0 + $1.monthlyPoints }
+        viewModel.monthlyReport?.totalPoints ?? viewModel.monthlyRanking.reduce(0) { $0 + $1.monthlyPoints }
     }
 }
 

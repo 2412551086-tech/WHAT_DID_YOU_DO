@@ -18,21 +18,26 @@ struct ChoreSelectionView: View {
                     VStack(alignment: .leading, spacing: 8) {
                         Text("选择家务")
                             .font(.appTitle())
-                        Text("核心 10 项免费开放，先选家务，再按实际耗时记一笔。")
+                        Text("\(viewModel.modeLabel)：先选家务，再按实际耗时记一笔。")
                             .font(.appBody())
                             .foregroundStyle(DSColor.mutedInk)
                     }
                     .foregroundStyle(DSColor.ink)
                     .padding(.top, 16)
 
+                    statusBanner
+
                     LazyVGrid(columns: columns, spacing: 14) {
                         ForEach(viewModel.chores) { chore in
                             Button {
-                                choreForDurationPicker = chore
+                                if !chore.isLocked {
+                                    choreForDurationPicker = chore
+                                }
                             } label: {
                                 ChoreTile(chore: chore)
                             }
                             .buttonStyle(.plain)
+                            .disabled(chore.isLocked || viewModel.isLoading)
                         }
                     }
                 }
@@ -56,6 +61,25 @@ struct ChoreSelectionView: View {
             )
             .presentationDetents([.height(620), .large])
             .presentationDragIndicator(.hidden)
+        }
+    }
+
+    @ViewBuilder
+    private var statusBanner: some View {
+        if viewModel.isLoading {
+            DSCard(fill: DSColor.sky) {
+                Label(viewModel.loadingMessage ?? "正在处理", systemImage: "arrow.triangle.2.circlepath")
+                    .font(.appBody(15))
+                    .foregroundStyle(DSColor.ink)
+            }
+        }
+
+        if let errorMessage = viewModel.errorMessage {
+            DSCard(fill: DSColor.coral) {
+                Label(errorMessage, systemImage: "exclamationmark.triangle.fill")
+                    .font(.appBody(15))
+                    .foregroundStyle(DSColor.ink)
+            }
         }
     }
 }
@@ -85,12 +109,23 @@ private struct ChoreTile: View {
                 HStack {
                     Label("\(chore.minutes)分", systemImage: "clock.fill")
                     Spacer()
-                    Text("+\(chore.points)")
+                    Text(chore.isLocked ? "锁定" : "+\(chore.points)")
                 }
                 .font(.appBody(13))
             }
-            .foregroundStyle(DSColor.ink)
+            .foregroundStyle(chore.isLocked ? DSColor.mutedInk : DSColor.ink)
+            .overlay(alignment: .topTrailing) {
+                if chore.isLocked {
+                    Image(systemName: "lock.fill")
+                        .font(.system(size: 16, weight: .black))
+                        .padding(8)
+                        .background(DSColor.surface)
+                        .clipShape(Circle())
+                        .overlay(Circle().stroke(DSColor.ink, lineWidth: 1.5))
+                }
+            }
         }
+        .opacity(chore.isLocked ? 0.72 : 1)
     }
 }
 

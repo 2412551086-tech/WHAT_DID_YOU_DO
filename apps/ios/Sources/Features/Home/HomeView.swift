@@ -24,6 +24,9 @@ struct HomeView: View {
             }
         }
         .navigationBarBackButtonHidden(true)
+        .task {
+            viewModel.refreshHomeDataIfNeeded()
+        }
     }
 
     private var header: some View {
@@ -57,6 +60,7 @@ struct HomeView: View {
                 DSButton(title: "记一下", systemImage: "plus.circle.fill", style: .primary) {
                     viewModel.showChoreSelection()
                 }
+                .disabled(viewModel.isLoading)
             }
         }
     }
@@ -94,6 +98,7 @@ struct HomeView: View {
         VStack(alignment: .leading, spacing: 12) {
             Text("家庭动态")
                 .font(.appHeadline())
+            statusBanner
             ForEach(viewModel.todayRecords) { record in
                 DSCard {
                     VStack(alignment: .leading, spacing: 7) {
@@ -109,6 +114,25 @@ struct HomeView: View {
                             .foregroundStyle(DSColor.mutedInk)
                     }
                 }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var statusBanner: some View {
+        if viewModel.isLoading {
+            DSCard(fill: DSColor.sky) {
+                Label(viewModel.loadingMessage ?? "正在同步", systemImage: "arrow.triangle.2.circlepath")
+                    .font(.appBody(15))
+                    .foregroundStyle(DSColor.ink)
+            }
+        }
+
+        if let errorMessage = viewModel.errorMessage {
+            DSCard(fill: DSColor.coral) {
+                Label(errorMessage, systemImage: "exclamationmark.triangle.fill")
+                    .font(.appBody(15))
+                    .foregroundStyle(DSColor.ink)
             }
         }
     }

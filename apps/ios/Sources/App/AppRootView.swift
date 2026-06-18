@@ -4,25 +4,27 @@ struct AppRootView: View {
     @EnvironmentObject private var viewModel: AppViewModel
 
     var body: some View {
-        NavigationStack(path: $viewModel.path) {
-            LoginView()
-                .navigationDestination(for: AppRoute.self) { route in
-                    switch route {
-                    case .createFamily:
-                        CreateFamilyView()
-                    case .home:
-                        MainTabView()
-                    case .choreSelection:
-                        ChoreSelectionView()
-                    }
+        Group {
+            switch viewModel.rootScreen {
+            case .login:
+                NavigationStack {
+                    LoginView()
                 }
+            case .createFamily:
+                NavigationStack {
+                    CreateFamilyView()
+                }
+            case .home:
+                MainTabView()
+            }
         }
         .tint(DSColor.ink)
+        .animation(.spring(response: 0.32, dampingFraction: 0.86), value: viewModel.rootScreen)
     }
 }
 
-enum AppRoute: Hashable {
+enum AppScreen: Hashable {
+    case login
     case createFamily
     case home
-    case choreSelection
 }

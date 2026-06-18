@@ -84,7 +84,7 @@ struct ProfileView: View {
             VStack(alignment: .leading, spacing: 12) {
                 Text("今天先撤")
                     .font(.appHeadline())
-                Text("退出只清空本地 Mock 登录态，不会影响任何真实数据。")
+                Text("退出会清空本地登录态；API 模式不会删除后端数据。")
                     .font(.appBody(14))
                     .foregroundStyle(DSColor.mutedInk)
                 DSButton(title: "退出登录", systemImage: "rectangle.portrait.and.arrow.right", style: .danger) {
