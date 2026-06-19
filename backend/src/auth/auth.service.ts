@@ -1,4 +1,4 @@
-import { Injectable, UnauthorizedException } from '@nestjs/common';
+import { BadRequestException, Injectable, UnauthorizedException } from '@nestjs/common';
 import { createHmac, timingSafeEqual } from 'node:crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuthUser } from './auth-user';
@@ -14,12 +14,23 @@ export class AuthService {
   constructor(private readonly prisma: PrismaService) {}
 
   async mockLogin(dto: MockLoginDto) {
-    const displayName = dto.displayName.trim();
-    const user = await this.prisma.user.create({
-      data: {
-        displayName,
-      },
-    });
+    const phoneNumber = dto.phoneNumber?.trim();
+    const requestedDisplayName = dto.displayName?.trim();
+
+    if (!phoneNumber && !requestedDisplayName) {
+      throw new BadRequestException('phoneNumber or displayName is required');
+    }
+
+    const displayName = requestedDisplayName || `用户${phoneNumber}`;
+    const user = phoneNumber
+      ? await this.prisma.user.upsert({
+          where: { phoneNumber },
+          update: requestedDisplayName ? { displayName } : {},
+          create: { phoneNumber, displayName },
+        })
+      : await this.prisma.user.create({
+          data: { displayName },
+        });
 
     return {
       user,

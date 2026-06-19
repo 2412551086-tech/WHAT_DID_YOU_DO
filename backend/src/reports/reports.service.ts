@@ -17,6 +17,7 @@ export class ReportsService {
     const records = await this.prisma.choreRecord.findMany({
       where: {
         familyId,
+        deletedAt: null,
         createdAt: {
           gte: start,
           lt: end,

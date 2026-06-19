@@ -12,16 +12,44 @@ struct HomeView: View {
         ZStack {
             DSColor.background.ignoresSafeArea()
 
-            ScrollView {
-                VStack(alignment: .leading, spacing: 22) {
-                    header
-                    metrics
-                    quickActions
-                    ranking
-                    activityFeed
+            List {
+                header.homeListRow()
+                metrics.homeListRow()
+                quickActions.homeListRow()
+                ranking.homeListRow()
+
+                Section {
+                    if viewModel.isLoading {
+                        DSCard(fill: DSColor.sky) {
+                            Label(viewModel.loadingMessage ?? "正在同步", systemImage: "arrow.triangle.2.circlepath")
+                                .font(.appBody(15))
+                                .foregroundStyle(DSColor.ink)
+                        }
+                        .homeListRow()
+                    }
+
+                    if let errorMessage = viewModel.errorMessage {
+                        DSCard(fill: DSColor.coral) {
+                            Label(errorMessage, systemImage: "exclamationmark.triangle.fill")
+                                .font(.appBody(15))
+                                .foregroundStyle(DSColor.ink)
+                        }
+                        .homeListRow()
+                    }
+
+                    ForEach(viewModel.todayRecords) { record in
+                        ActivityRow(record: record)
+                            .homeListRow()
+                    }
+                } header: {
+                    Text("家庭动态")
+                        .font(.appHeadline())
+                        .foregroundStyle(DSColor.ink)
+                        .textCase(nil)
                 }
-                .padding(20)
             }
+            .listStyle(.plain)
+            .scrollContentBackground(.hidden)
         }
         .navigationBarBackButtonHidden(true)
         .task {
@@ -34,10 +62,11 @@ struct HomeView: View {
             Text(viewModel.familyDisplayName)
                 .font(.appTitle(32))
                 .foregroundStyle(DSColor.ink)
-            Text("\(viewModel.currentUserName)，今日家庭劳动广播站已开机。")
+            Text("\(viewModel.currentIdentityDisplayName) · \(viewModel.currentUserName)，今日家庭劳动广播站已开机。")
                 .font(.appBody())
                 .foregroundStyle(DSColor.mutedInk)
         }
+        .padding(.top, 12)
     }
 
     private var metrics: some View {
@@ -94,47 +123,13 @@ struct HomeView: View {
         }
     }
 
-    private var activityFeed: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("家庭动态")
-                .font(.appHeadline())
-            statusBanner
-            ForEach(viewModel.todayRecords) { record in
-                DSCard {
-                    VStack(alignment: .leading, spacing: 7) {
-                        HStack {
-                            Label("\(record.memberName) 完成 \(record.choreName)", systemImage: record.icon)
-                                .font(.appHeadline(17))
-                            Spacer()
-                            Text("+\(record.points)")
-                                .font(.appHeadline(18))
-                        }
-                        Text("\(record.choreName) · \(record.actualMinutes) 分钟 · +\(record.points) 分")
-                            .font(.appBody(14))
-                            .foregroundStyle(DSColor.mutedInk)
-                    }
-                }
-            }
-        }
-    }
+}
 
-    @ViewBuilder
-    private var statusBanner: some View {
-        if viewModel.isLoading {
-            DSCard(fill: DSColor.sky) {
-                Label(viewModel.loadingMessage ?? "正在同步", systemImage: "arrow.triangle.2.circlepath")
-                    .font(.appBody(15))
-                    .foregroundStyle(DSColor.ink)
-            }
-        }
-
-        if let errorMessage = viewModel.errorMessage {
-            DSCard(fill: DSColor.coral) {
-                Label(errorMessage, systemImage: "exclamationmark.triangle.fill")
-                    .font(.appBody(15))
-                    .foregroundStyle(DSColor.ink)
-            }
-        }
+private extension View {
+    func homeListRow() -> some View {
+        listRowInsets(EdgeInsets(top: 8, leading: 20, bottom: 8, trailing: 20))
+            .listRowSeparator(.hidden)
+            .listRowBackground(Color.clear)
     }
 }
 

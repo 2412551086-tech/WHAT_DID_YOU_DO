@@ -29,6 +29,12 @@ struct CreateFamilyView: View {
                     VStack(spacing: 16) {
                         DSTextField(title: "家庭名称", systemImage: "house.fill", text: $viewModel.familyName)
 
+                        FamilyIdentityPicker(
+                            identityLabel: $viewModel.selectedIdentityLabel,
+                            customIdentity: $viewModel.customIdentity,
+                            avatarKey: $viewModel.selectedAvatarKey
+                        )
+
                         DSCard {
                             Toggle(isOn: $viewModel.requiresPhotoProof) {
                                 VStack(alignment: .leading, spacing: 5) {
@@ -44,6 +50,14 @@ struct CreateFamilyView: View {
 
                         DSButton(title: "创建并进入首页", systemImage: "arrow.right.circle.fill", style: .primary) {
                             viewModel.createFamily()
+                        }
+
+                        DSButton(title: "申请加入已有家庭", systemImage: "person.badge.plus", style: .secondary) {
+                            viewModel.showJoinFamily()
+                        }
+
+                        DSButton(title: "切换账号", systemImage: "person.2.fill", style: .secondary) {
+                            viewModel.logout()
                         }
                     }
                     .disabled(viewModel.isLoading)

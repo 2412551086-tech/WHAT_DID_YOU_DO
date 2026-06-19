@@ -29,6 +29,11 @@
 		1A0000010000000000000020 /* APIClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A0000010000000000001020 /* APIClient.swift */; };
 		1A0000010000000000000021 /* APIDTOs.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A0000010000000000001021 /* APIDTOs.swift */; };
 		1A0000010000000000000022 /* DebugPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A0000010000000000001022 /* DebugPanel.swift */; };
+		1A0000010000000000000023 /* AvatarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A0000010000000000001023 /* AvatarView.swift */; };
+		1A0000010000000000000024 /* FamilyIdentityPicker.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A0000010000000000001024 /* FamilyIdentityPicker.swift */; };
+		1A0000010000000000000025 /* JoinFamilyView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A0000010000000000001025 /* JoinFamilyView.swift */; };
+		1A0000010000000000000026 /* JoinRequestsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A0000010000000000001026 /* JoinRequestsView.swift */; };
+		1A0000010000000000000027 /* ActivityRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A0000010000000000001027 /* ActivityRow.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -55,6 +60,11 @@
 		1A0000010000000000001020 /* APIClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = APIClient.swift; sourceTree = "<group>"; };
 		1A0000010000000000001021 /* APIDTOs.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = APIDTOs.swift; sourceTree = "<group>"; };
 		1A0000010000000000001022 /* DebugPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DebugPanel.swift; sourceTree = "<group>"; };
+		1A0000010000000000001023 /* AvatarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AvatarView.swift; sourceTree = "<group>"; };
+		1A0000010000000000001024 /* FamilyIdentityPicker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FamilyIdentityPicker.swift; sourceTree = "<group>"; };
+		1A0000010000000000001025 /* JoinFamilyView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JoinFamilyView.swift; sourceTree = "<group>"; };
+		1A0000010000000000001026 /* JoinRequestsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JoinRequestsView.swift; sourceTree = "<group>"; };
+		1A0000010000000000001027 /* ActivityRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActivityRow.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -124,6 +134,7 @@
 				1A0000010000000000001004 /* DSCard.swift */,
 				1A0000010000000000001005 /* DSButton.swift */,
 				1A0000010000000000001006 /* DSTextField.swift */,
+				1A0000010000000000001023 /* AvatarView.swift */,
 			);
 			path = DesignSystem;
 			sourceTree = "<group>";
@@ -176,6 +187,9 @@
 			isa = PBXGroup;
 			children = (
 				1A0000010000000000001011 /* CreateFamilyView.swift */,
+				1A0000010000000000001024 /* FamilyIdentityPicker.swift */,
+				1A0000010000000000001025 /* JoinFamilyView.swift */,
+				1A0000010000000000001026 /* JoinRequestsView.swift */,
 			);
 			path = Family;
 			sourceTree = "<group>";
@@ -184,6 +198,7 @@
 			isa = PBXGroup;
 			children = (
 				1A0000010000000000001012 /* HomeView.swift */,
+				1A0000010000000000001027 /* ActivityRow.swift */,
 				1A0000010000000000001016 /* FamilyDashboardView.swift */,
 				1A0000010000000000001017 /* ProfileView.swift */,
 			);
@@ -317,6 +332,11 @@
 				1A0000010000000000000020 /* APIClient.swift in Sources */,
 				1A0000010000000000000021 /* APIDTOs.swift in Sources */,
 				1A0000010000000000000022 /* DebugPanel.swift in Sources */,
+				1A0000010000000000000023 /* AvatarView.swift in Sources */,
+				1A0000010000000000000024 /* FamilyIdentityPicker.swift in Sources */,
+				1A0000010000000000000025 /* JoinFamilyView.swift in Sources */,
+				1A0000010000000000000026 /* JoinRequestsView.swift in Sources */,
+				1A0000010000000000000027 /* ActivityRow.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

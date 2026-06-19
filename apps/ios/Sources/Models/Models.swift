@@ -23,6 +23,46 @@ struct FamilyMember: Identifiable, Hashable {
     let color: Color
 }
 
+enum FamilyMemberRole: String, Hashable {
+    case owner = "OWNER"
+    case member = "MEMBER"
+}
+
+enum FamilyMemberStatus: String, Hashable {
+    case pending = "PENDING"
+    case active = "ACTIVE"
+    case rejected = "REJECTED"
+}
+
+struct FamilyMembership: Identifiable, Hashable {
+    let id: String
+    let userId: String
+    let familyId: String
+    let identityLabel: String
+    let customIdentity: String?
+    let avatarKey: String?
+    let memberRole: FamilyMemberRole
+    let status: FamilyMemberStatus
+
+    var displayIdentity: String {
+        identityLabel == "自定义" ? (customIdentity ?? identityLabel) : identityLabel
+    }
+}
+
+struct JoinRequestItem: Identifiable, Hashable {
+    let id: String
+    let userId: String
+    let displayName: String
+    let identityLabel: String
+    let customIdentity: String?
+    let avatarKey: String?
+    let status: FamilyMemberStatus
+
+    var displayIdentity: String {
+        identityLabel == "自定义" ? (customIdentity ?? identityLabel) : identityLabel
+    }
+}
+
 struct ChoreItem: Identifiable, Hashable {
     let id: String
     let name: String
@@ -47,6 +87,17 @@ struct ChoreRecord: Identifiable, Hashable {
     let createdAt: Date
     let icon: String
     let color: Color
+    let creatorId: String?
+    let identityLabel: String
+    let customIdentity: String?
+    let avatarKey: String?
+    var likeCount: Int = 0
+    var likedByMe: Bool = false
+    var canDelete: Bool = false
+
+    var displayIdentity: String {
+        identityLabel == "自定义" ? (customIdentity ?? identityLabel) : identityLabel
+    }
 }
 
 struct MonthlyReport: Hashable {

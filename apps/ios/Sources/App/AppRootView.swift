@@ -14,6 +14,10 @@ struct AppRootView: View {
                 NavigationStack {
                     CreateFamilyView()
                 }
+            case .joinFamily:
+                NavigationStack {
+                    JoinFamilyView()
+                }
             case .home:
                 MainTabView()
             }
@@ -26,5 +30,6 @@ struct AppRootView: View {
 enum AppScreen: Hashable {
     case login
     case createFamily
+    case joinFamily
     case home
 }

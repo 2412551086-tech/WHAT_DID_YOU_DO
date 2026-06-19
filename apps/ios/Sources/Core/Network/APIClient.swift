@@ -55,6 +55,22 @@ actor APIClient {
         return try await request(path, method: "POST", body: data)
     }
 
+    func post<Response: Decodable>(_ path: String) async throws -> Response {
+        try await request(path, method: "POST", body: Optional<Data>.none)
+    }
+
+    func patch<RequestBody: Encodable, Response: Decodable>(
+        _ path: String,
+        body: RequestBody
+    ) async throws -> Response {
+        let data = try Self.encoder.encode(body)
+        return try await request(path, method: "PATCH", body: data)
+    }
+
+    func delete<Response: Decodable>(_ path: String) async throws -> Response {
+        try await request(path, method: "DELETE", body: Optional<Data>.none)
+    }
+
     private func request<Response: Decodable>(
         _ path: String,
         method: String,

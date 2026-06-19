@@ -23,7 +23,7 @@ struct LoginView: View {
                         VStack(alignment: .leading, spacing: 12) {
                             Label("\(viewModel.modeLabel) 已就位", systemImage: "person.crop.circle.badge.checkmark")
                                 .font(.appHeadline())
-                            Text("点击任意登录按钮，会进入创建家庭流程；API 模式会调用本地后端。")
+                            Text("同一手机号会回到同一个联调账号；手机号长度暂不限制。")
                                 .font(.appBody(15))
                                 .foregroundStyle(DSColor.mutedInk)
                         }

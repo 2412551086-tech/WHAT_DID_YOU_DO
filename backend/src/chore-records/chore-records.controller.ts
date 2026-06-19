@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Post, Query, UseGuards } from '@nestjs/common';
 import { AuthUser } from '../auth/auth-user';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { DevAuthGuard } from '../auth/guards/dev-auth.guard';
@@ -28,5 +28,20 @@ export class ChoreRecordsController {
     @Query() query: LeaderboardQueryDto,
   ) {
     return this.choreRecordsService.getLeaderboard(user, familyId, query.range ?? 'month');
+  }
+
+  @Delete('chore-records/:recordId')
+  deleteRecord(@CurrentUser() user: AuthUser, @Param('recordId') recordId: string) {
+    return this.choreRecordsService.deleteRecord(user, recordId);
+  }
+
+  @Post('chore-records/:recordId/like')
+  likeRecord(@CurrentUser() user: AuthUser, @Param('recordId') recordId: string) {
+    return this.choreRecordsService.likeRecord(user, recordId);
+  }
+
+  @Delete('chore-records/:recordId/like')
+  unlikeRecord(@CurrentUser() user: AuthUser, @Param('recordId') recordId: string) {
+    return this.choreRecordsService.unlikeRecord(user, recordId);
   }
 }

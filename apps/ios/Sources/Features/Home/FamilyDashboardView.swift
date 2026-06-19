@@ -101,30 +101,7 @@ struct FamilyDashboardView: View {
                 .foregroundStyle(DSColor.ink)
 
             ForEach(viewModel.todayRecords) { record in
-                DSCard {
-                    HStack(spacing: 13) {
-                        Image(systemName: record.icon)
-                            .font(.system(size: 20, weight: .black))
-                            .frame(width: 42, height: 42)
-                            .background(record.color)
-                            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                    .stroke(DSColor.ink, lineWidth: 2)
-                            )
-
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text("\(record.memberName) 完成 \(record.choreName)")
-                                .font(.appHeadline(17))
-                            Text("\(record.actualMinutes) 分钟 · +\(record.points) 分")
-                                .font(.appBody(13))
-                                .foregroundStyle(DSColor.mutedInk)
-                        }
-
-                        Spacer()
-                    }
-                    .foregroundStyle(DSColor.ink)
-                }
+                ActivityRow(record: record)
             }
         }
     }

@@ -1,7 +1,9 @@
 import SwiftUI
+import UIKit
 
 struct ProfileView: View {
     @EnvironmentObject private var viewModel: AppViewModel
+    @State private var didCopyFamilyID = false
 
     var body: some View {
         ZStack {
@@ -27,12 +29,11 @@ struct ProfileView: View {
     private var header: some View {
         DSCard(fill: DSColor.sky) {
             HStack(spacing: 16) {
-                Text(viewModel.currentUser?.avatarInitial ?? "我")
-                    .font(.appTitle(32))
-                    .frame(width: 64, height: 64)
-                    .background(DSColor.surface)
-                    .clipShape(Circle())
-                    .overlay(Circle().stroke(DSColor.ink, lineWidth: 2.5))
+                AvatarView(
+                    avatarKey: viewModel.currentMembership?.avatarKey,
+                    fallbackText: viewModel.currentUser?.avatarInitial ?? "我",
+                    size: 64
+                )
 
                 VStack(alignment: .leading, spacing: 7) {
                     Text(viewModel.currentUserName)
@@ -43,6 +44,9 @@ struct ProfileView: View {
                     Text(viewModel.familyDisplayName)
                         .font(.appBody(14))
                         .foregroundStyle(DSColor.ink)
+                    Text(viewModel.currentIdentityDisplayName)
+                        .font(.appBody(13))
+                        .foregroundStyle(DSColor.mutedInk)
                 }
             }
         }
@@ -72,12 +76,36 @@ struct ProfileView: View {
             DSCard {
                 VStack(alignment: .leading, spacing: 12) {
                     settingRow(title: "家庭名称", value: viewModel.familyDisplayName, icon: "house.fill")
+                    settingRow(title: "家庭 ID", value: viewModel.currentFamily?.id ?? "无", icon: "doc.on.doc.fill")
                     settingRow(title: "邀请码", value: viewModel.currentFamily?.inviteCode ?? MockData.family.inviteCode, icon: "number.square.fill")
                     settingRow(title: "图片凭证", value: viewModel.currentFamily?.requiresPhotoProof == true ? "需要" : "不需要", icon: "photo.fill")
                 }
             }
 
+            DSButton(
+                title: didCopyFamilyID ? "家庭 ID 已复制" : "复制家庭 ID",
+                systemImage: didCopyFamilyID ? "checkmark.circle.fill" : "doc.on.doc.fill",
+                style: .secondary
+            ) {
+                guard let familyID = viewModel.currentFamily?.id else { return }
+                UIPasteboard.general.string = familyID
+                didCopyFamilyID = true
+            }
+
             DSButton(title: "进入家庭设置", systemImage: "slider.horizontal.3", style: .secondary) {
+            }
+
+            if viewModel.isCurrentUserOwner {
+                NavigationLink {
+                    JoinRequestsView()
+                } label: {
+                    DSCard(fill: DSColor.mint) {
+                        Label("审核加入申请", systemImage: "person.crop.circle.badge.checkmark")
+                            .font(.appHeadline(18))
+                            .foregroundStyle(DSColor.ink)
+                    }
+                }
+                .buttonStyle(.plain)
             }
         }
     }

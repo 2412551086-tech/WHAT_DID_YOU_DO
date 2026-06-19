@@ -7,9 +7,16 @@ final class AppViewModel: ObservableObject {
     @Published var phoneNumber = ""
     @Published var familyName = MockData.family.name
     @Published var requiresPhotoProof = false
+    @Published var selectedIdentityLabel = "男主人"
+    @Published var customIdentity = ""
+    @Published var selectedAvatarKey = "avatar_01"
+    @Published var joinFamilyIdentifier = ""
+    @Published private(set) var joinRequestSubmitted = false
     @Published private(set) var accessToken: String?
     @Published private(set) var currentUser: AppUser?
     @Published private(set) var currentFamily: FamilySpace?
+    @Published private(set) var currentMembership: FamilyMembership?
+    @Published private(set) var joinRequests: [JoinRequestItem] = []
     @Published private(set) var chores = MockData.chores
     @Published private(set) var todayRecords = MockData.todayRecords
     @Published private(set) var monthlyRanking = MockData.members
@@ -38,6 +45,10 @@ final class AppViewModel: ObservableObject {
         currentUser?.displayName ?? MockData.currentUser.displayName
     }
 
+    var currentIdentityDisplayName: String {
+        currentMembership?.displayIdentity ?? selectedIdentityLabel
+    }
+
     var todayPoints: Int {
         todayRecords.reduce(0) { $0 + $1.points }
     }
@@ -62,8 +73,17 @@ final class AppViewModel: ObservableObject {
         !(accessToken?.isEmpty ?? true)
     }
 
+    var isCurrentUserOwner: Bool {
+        currentMembership?.memberRole == .owner && currentMembership?.status == .active
+    }
+
     func mockLogin() {
         clearError()
+
+        guard !normalizedPhoneNumber.isEmpty else {
+            errorMessage = AppStateError.missingPhoneNumber.localizedDescription
+            return
+        }
 
         guard !usesMockData else {
             loginWithMock()
@@ -75,8 +95,24 @@ final class AppViewModel: ObservableObject {
         }
     }
 
+    func showCreateFamily() {
+        joinRequestSubmitted = false
+        clearError()
+        rootScreen = .createFamily
+    }
+
+    func showJoinFamily() {
+        joinRequestSubmitted = false
+        clearError()
+        rootScreen = .joinFamily
+    }
+
     func createFamily() {
         clearError()
+
+        guard validateIdentitySelection() else {
+            return
+        }
 
         guard !usesMockData else {
             createFamilyWithMock()
@@ -85,6 +121,76 @@ final class AppViewModel: ObservableObject {
 
         Task {
             await createFamilyWithAPI()
+        }
+    }
+
+    func submitJoinRequest() {
+        clearError()
+
+        guard !joinFamilyIdentifier.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            errorMessage = AppStateError.missingFamilyIdentifier.localizedDescription
+            return
+        }
+
+        guard validateIdentitySelection() else {
+            return
+        }
+
+        guard !usesMockData else {
+            joinRequestSubmitted = true
+            return
+        }
+
+        Task {
+            await submitJoinRequestWithAPI()
+        }
+    }
+
+    func loadJoinRequests() {
+        clearError()
+
+        guard isCurrentUserOwner else {
+            errorMessage = AppStateError.ownerRequired.localizedDescription
+            return
+        }
+
+        guard !usesMockData else {
+            joinRequests = MockData.joinRequests
+            return
+        }
+
+        Task {
+            await performLoading("正在获取待审核成员") {
+                try await loadJoinRequestsFromAPI()
+            }
+        }
+    }
+
+    func reviewJoinRequest(_ request: JoinRequestItem, approve: Bool) {
+        clearError()
+
+        guard isCurrentUserOwner else {
+            errorMessage = AppStateError.ownerRequired.localizedDescription
+            return
+        }
+
+        guard !usesMockData else {
+            joinRequests.removeAll { $0.id == request.id }
+            return
+        }
+
+        Task {
+            await performLoading(approve ? "正在通过加入申请" : "正在拒绝加入申请") {
+                guard let familyId = currentFamily?.id else {
+                    throw AppStateError.missingFamily
+                }
+
+                let _: JoinRequestDTO = try await apiClient.patch(
+                    "families/\(familyId)/join-requests/\(request.id)",
+                    body: ReviewJoinRequestRequest(action: approve ? "approve" : "reject")
+                )
+                try await loadJoinRequestsFromAPI()
+            }
         }
     }
 
@@ -107,6 +213,50 @@ final class AppViewModel: ObservableObject {
 
         Task {
             await createRecordWithAPI(chore, actualMinutes: actualMinutes)
+        }
+    }
+
+    func toggleLike(_ record: ChoreRecord) {
+        clearError()
+
+        guard !usesMockData else {
+            guard let index = todayRecords.firstIndex(where: { $0.id == record.id }) else { return }
+            todayRecords[index].likedByMe.toggle()
+            todayRecords[index].likeCount += todayRecords[index].likedByMe ? 1 : -1
+            todayRecords[index].likeCount = max(0, todayRecords[index].likeCount)
+            return
+        }
+
+        Task {
+            await performLoading(record.likedByMe ? "正在取消点赞" : "正在点赞") {
+                if record.likedByMe {
+                    let _: LikeResponseDTO = try await apiClient.delete("chore-records/\(record.id)/like")
+                } else {
+                    let _: LikeResponseDTO = try await apiClient.post("chore-records/\(record.id)/like")
+                }
+                try await refreshActivityFromAPI()
+            }
+        }
+    }
+
+    func deleteRecord(_ record: ChoreRecord) {
+        clearError()
+
+        guard record.canDelete else {
+            errorMessage = AppStateError.deleteForbidden.localizedDescription
+            return
+        }
+
+        guard !usesMockData else {
+            deleteRecordWithMock(record)
+            return
+        }
+
+        Task {
+            await performLoading("正在删除家务记录") {
+                let _: DeleteRecordResponseDTO = try await apiClient.delete("chore-records/\(record.id)")
+                try await refreshHomeDataFromAPI()
+            }
         }
     }
 
@@ -138,10 +288,14 @@ final class AppViewModel: ObservableObject {
         accessToken = nil
         currentUser = nil
         currentFamily = nil
+        currentMembership = nil
+        joinRequests = []
+        joinRequestSubmitted = false
         selectedChore = nil
         selectedTab = .today
         phoneNumber = ""
         familyName = MockData.family.name
+        joinFamilyIdentifier = ""
         todayRecords = usesMockData ? MockData.todayRecords : []
         monthlyRanking = usesMockData ? MockData.members : []
         monthlyReport = usesMockData ? MockData.monthlyReport : nil
@@ -157,10 +311,26 @@ final class AppViewModel: ObservableObject {
         forceMockData || APIConfig.useMockData
     }
 
+    private var normalizedCustomIdentity: String? {
+        guard selectedIdentityLabel == "自定义" else { return nil }
+        let normalized = customIdentity.trimmingCharacters(in: .whitespacesAndNewlines)
+        return normalized.isEmpty ? nil : normalized
+    }
+
+    private func validateIdentitySelection() -> Bool {
+        if selectedIdentityLabel == "自定义" && normalizedCustomIdentity == nil {
+            errorMessage = AppStateError.missingCustomIdentity.localizedDescription
+            return false
+        }
+
+        return true
+    }
+
     private func loginWithMock() {
         accessToken = "mock-token"
         currentUser = MockData.currentUser
         currentFamily = nil
+        currentMembership = nil
         chores = MockData.chores
         todayRecords = MockData.todayRecords
         monthlyRanking = MockData.members
@@ -174,6 +344,16 @@ final class AppViewModel: ObservableObject {
             name: trimmedFamilyName,
             inviteCode: MockData.family.inviteCode,
             requiresPhotoProof: requiresPhotoProof
+        )
+        currentMembership = FamilyMembership(
+            id: "mock-membership-\(UUID().uuidString)",
+            userId: currentUser?.id ?? MockData.currentUser.id,
+            familyId: MockData.family.id,
+            identityLabel: selectedIdentityLabel,
+            customIdentity: normalizedCustomIdentity,
+            avatarKey: selectedAvatarKey,
+            memberRole: .owner,
+            status: .active
         )
         selectedTab = .today
         rootScreen = .home
@@ -195,35 +375,63 @@ final class AppViewModel: ObservableObject {
             note: "\(chore.name)完成，家务宇宙记一笔",
             createdAt: Date(),
             icon: chore.icon,
-            color: chore.color
+            color: chore.color,
+            creatorId: currentUser?.id,
+            identityLabel: currentMembership?.identityLabel ?? selectedIdentityLabel,
+            customIdentity: currentMembership?.customIdentity,
+            avatarKey: currentMembership?.avatarKey ?? selectedAvatarKey,
+            likeCount: 0,
+            likedByMe: false,
+            canDelete: true
         )
 
         todayRecords.insert(record, at: 0)
         addMonthlyPoints(points, to: currentUserName)
-        monthlyReport = MonthlyReport(
-            month: currentMonth,
-            totalPoints: monthlyRanking.reduce(0) { $0 + $1.monthlyPoints },
-            totalRecords: todayRecords.count,
-            headline: "今天又有一笔家务被记上功劳簿"
-        )
+        updateMockMonthlyReport()
         selectedTab = .today
         rootScreen = .home
     }
 
+    private func deleteRecordWithMock(_ record: ChoreRecord) {
+        todayRecords.removeAll { $0.id == record.id }
+
+        if let index = monthlyRanking.firstIndex(where: { $0.id == record.creatorId || $0.name == record.memberName }) {
+            monthlyRanking[index].monthlyPoints = max(0, monthlyRanking[index].monthlyPoints - record.points)
+            monthlyRanking.sort { $0.monthlyPoints > $1.monthlyPoints }
+        }
+
+        updateMockMonthlyReport()
+    }
+
+    private func updateMockMonthlyReport() {
+        monthlyReport = MonthlyReport(
+            month: currentMonth,
+            totalPoints: monthlyRanking.reduce(0) { $0 + $1.monthlyPoints },
+            totalRecords: todayRecords.count,
+            headline: "家庭互动已同步，功劳簿继续营业"
+        )
+    }
+
     private func loginWithAPI() async {
         await performLoading("正在连接本地后端") {
-            let displayName = loginDisplayName
             let response: LoginResponse = try await apiClient.post(
                 "auth/mock-login",
-                body: MockLoginRequest(displayName: displayName)
+                body: MockLoginRequest(phoneNumber: normalizedPhoneNumber)
             )
 
             accessToken = response.accessToken
             currentUser = mapUser(response.user)
             await apiClient.setAccessToken(response.accessToken)
             try await loadChoresFromAPI()
-            _ = try await loadMyFamiliesFromAPI()
-            rootScreen = .createFamily
+            let families = try await loadMyFamiliesFromAPI()
+
+            if families.isEmpty {
+                rootScreen = .createFamily
+            } else {
+                selectedTab = .today
+                rootScreen = .home
+                try await refreshHomeDataFromAPI()
+            }
         }
     }
 
@@ -231,15 +439,46 @@ final class AppViewModel: ObservableObject {
         await performLoading("正在创建家庭空间") {
             let family: FamilyDTO = try await apiClient.post(
                 "families",
-                body: CreateFamilyRequest(name: trimmedFamilyName, requirePhotoProof: requiresPhotoProof)
+                body: CreateFamilyRequest(
+                    name: trimmedFamilyName,
+                    requirePhotoProof: requiresPhotoProof,
+                    identityLabel: selectedIdentityLabel,
+                    customIdentity: normalizedCustomIdentity,
+                    avatarKey: selectedAvatarKey
+                )
             )
 
             currentFamily = mapFamily(family)
+            currentMembership = membership(from: family)
             _ = try await loadMyFamiliesFromAPI(preferredFamilyId: family.id)
             selectedTab = .today
             rootScreen = .home
             try await refreshHomeDataFromAPI()
         }
+    }
+
+    private func submitJoinRequestWithAPI() async {
+        await performLoading("正在提交加入申请") {
+            let familyId = joinFamilyIdentifier.trimmingCharacters(in: .whitespacesAndNewlines)
+            let _: JoinRequestDTO = try await apiClient.post(
+                "families/\(familyId)/join-requests",
+                body: CreateJoinRequestRequest(
+                    identityLabel: selectedIdentityLabel,
+                    customIdentity: normalizedCustomIdentity,
+                    avatarKey: selectedAvatarKey
+                )
+            )
+            joinRequestSubmitted = true
+        }
+    }
+
+    private func loadJoinRequestsFromAPI() async throws {
+        guard let familyId = currentFamily?.id else {
+            throw AppStateError.missingFamily
+        }
+
+        let response: [JoinRequestDTO] = try await apiClient.get("families/\(familyId)/join-requests")
+        joinRequests = response.map(mapJoinRequest)
     }
 
     private func createRecordWithAPI(_ chore: ChoreItem, actualMinutes: Int?) async {
@@ -276,14 +515,22 @@ final class AppViewModel: ObservableObject {
         let families: [FamilyDTO] = try await apiClient.get("families/me")
 
         if let preferredFamilyId, let family = families.first(where: { $0.id == preferredFamilyId }) {
-            currentFamily = mapFamily(family)
-        } else if currentFamily == nil, let family = families.first {
-            currentFamily = mapFamily(family)
-            familyName = family.name
-            requiresPhotoProof = family.requirePhotoProof
+            applyCurrentFamily(family)
+        } else if let family = families.first {
+            applyCurrentFamily(family)
+        } else {
+            currentFamily = nil
+            currentMembership = nil
         }
 
         return families
+    }
+
+    private func applyCurrentFamily(_ family: FamilyDTO) {
+        currentFamily = mapFamily(family)
+        currentMembership = membership(from: family)
+        familyName = family.name
+        requiresPhotoProof = family.requirePhotoProof
     }
 
     private func refreshHomeDataFromAPI() async throws {
@@ -318,6 +565,15 @@ final class AppViewModel: ObservableObject {
         monthlyReport = mapMonthlyReport(monthlyReportDTO)
     }
 
+    private func refreshActivityFromAPI() async throws {
+        guard let familyId = currentFamily?.id else {
+            throw AppStateError.missingFamily
+        }
+
+        let activity: [ActivityItemDTO] = try await apiClient.get("families/\(familyId)/activity")
+        todayRecords = activity.map(mapActivity)
+    }
+
     private func performLoading(_ message: String, operation: () async throws -> Void) async {
         isLoading = true
         loadingMessage = message
@@ -330,7 +586,6 @@ final class AppViewModel: ObservableObject {
         }
 
         await syncAPIDebugSnapshot()
-
         isLoading = false
         loadingMessage = nil
     }
@@ -346,13 +601,8 @@ final class AppViewModel: ObservableObject {
         errorMessage = nil
     }
 
-    private var loginDisplayName: String {
-        let trimmedPhone = phoneNumber.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedPhone.isEmpty else {
-            return "iOS联调用户"
-        }
-
-        return "用户\(trimmedPhone.suffix(4))"
+    private var normalizedPhoneNumber: String {
+        phoneNumber.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     private var trimmedFamilyName: String {
@@ -395,6 +645,68 @@ final class AppViewModel: ObservableObject {
         )
     }
 
+    private func membership(from family: FamilyDTO) -> FamilyMembership? {
+        if let membership = family.myMembership {
+            return mapMembership(membership)
+        }
+
+        if let currentUserId = currentUser?.id,
+           let membership = family.members?.first(where: { $0.userId == currentUserId }) {
+            return mapMembership(membership)
+        }
+
+        guard let userId = currentUser?.id,
+              let memberRole = family.memberRole ?? family.myRole?.uppercased(),
+              let role = FamilyMemberRole(rawValue: memberRole),
+              let status = FamilyMemberStatus(rawValue: family.status ?? "ACTIVE") else {
+            return nil
+        }
+
+        return FamilyMembership(
+            id: "membership-\(family.id)-\(userId)",
+            userId: userId,
+            familyId: family.id,
+            identityLabel: family.identityLabel ?? "家庭成员",
+            customIdentity: family.customIdentity,
+            avatarKey: family.avatarKey,
+            memberRole: role,
+            status: status
+        )
+    }
+
+    private func mapMembership(_ dto: FamilyMemberDTO) -> FamilyMembership? {
+        let roleValue = dto.memberRole ?? dto.role?.uppercased() ?? "MEMBER"
+        let statusValue = dto.status ?? "ACTIVE"
+
+        guard let role = FamilyMemberRole(rawValue: roleValue),
+              let status = FamilyMemberStatus(rawValue: statusValue) else {
+            return nil
+        }
+
+        return FamilyMembership(
+            id: dto.id,
+            userId: dto.userId,
+            familyId: dto.familyId,
+            identityLabel: dto.identityLabel ?? "家庭成员",
+            customIdentity: dto.customIdentity,
+            avatarKey: dto.avatarKey,
+            memberRole: role,
+            status: status
+        )
+    }
+
+    private func mapJoinRequest(_ dto: JoinRequestDTO) -> JoinRequestItem {
+        JoinRequestItem(
+            id: dto.id,
+            userId: dto.userId,
+            displayName: dto.user?.displayName ?? "待审核成员",
+            identityLabel: dto.identityLabel,
+            customIdentity: dto.customIdentity,
+            avatarKey: dto.avatarKey,
+            status: FamilyMemberStatus(rawValue: dto.status) ?? .pending
+        )
+    }
+
     private func mapChore(_ dto: ChoreDTO) -> ChoreItem {
         ChoreItem(
             id: dto.id,
@@ -410,10 +722,11 @@ final class AppViewModel: ObservableObject {
     }
 
     private func mapRecord(_ dto: ChoreRecordDTO) -> ChoreRecord {
-        ChoreRecord(
-            id: dto.id,
-            memberName: dto.user.displayName,
-            choreName: dto.chore.name,
+        let creator = dto.createdBy ?? dto.user
+        return ChoreRecord(
+            id: dto.recordId ?? dto.id,
+            memberName: creator.displayName,
+            choreName: dto.choreName ?? dto.chore.name,
             category: dto.chore.category,
             standardMinutes: dto.minutes,
             actualMinutes: dto.actualMinutes ?? dto.minutes,
@@ -421,15 +734,23 @@ final class AppViewModel: ObservableObject {
             note: dto.note ?? "",
             createdAt: dto.createdAt,
             icon: dto.chore.icon ?? Self.icon(forName: dto.chore.name, category: dto.chore.category),
-            color: Self.color(forCategory: dto.chore.category)
+            color: Self.color(forCategory: dto.chore.category),
+            creatorId: creator.id,
+            identityLabel: creator.identityLabel ?? "家庭成员",
+            customIdentity: creator.customIdentity,
+            avatarKey: creator.avatarKey,
+            likeCount: dto.likeCount ?? 0,
+            likedByMe: dto.likedByMe ?? false,
+            canDelete: dto.canDelete ?? true
         )
     }
 
     private func mapActivity(_ dto: ActivityItemDTO) -> ChoreRecord {
-        ChoreRecord(
-            id: dto.id,
-            memberName: dto.user.displayName,
-            choreName: dto.chore.name,
+        let creator = dto.createdBy ?? dto.user
+        return ChoreRecord(
+            id: dto.recordId ?? dto.id,
+            memberName: creator.displayName,
+            choreName: dto.choreName ?? dto.chore.name,
             category: dto.chore.category,
             standardMinutes: dto.minutes,
             actualMinutes: dto.actualMinutes ?? dto.minutes,
@@ -437,7 +758,14 @@ final class AppViewModel: ObservableObject {
             note: dto.note ?? "",
             createdAt: dto.createdAt,
             icon: dto.chore.icon ?? Self.icon(forName: dto.chore.name, category: dto.chore.category),
-            color: Self.color(forCategory: dto.chore.category)
+            color: Self.color(forCategory: dto.chore.category),
+            creatorId: creator.id,
+            identityLabel: creator.identityLabel ?? "家庭成员",
+            customIdentity: creator.customIdentity,
+            avatarKey: creator.avatarKey,
+            likeCount: dto.likeCount ?? 0,
+            likedByMe: dto.likedByMe ?? false,
+            canDelete: dto.canDelete ?? false
         )
     }
 
@@ -452,26 +780,16 @@ final class AppViewModel: ObservableObject {
 
     private static func icon(forName name: String, category: String) -> String {
         switch name {
-        case "洗碗":
-            return "fork.knife"
-        case "做饭":
-            return "flame.fill"
-        case "倒垃圾":
-            return "trash.fill"
-        case "扫地":
-            return "sparkles"
-        case "拖地":
-            return "drop.fill"
-        case "洗衣服":
-            return "washer.fill"
-        case "晾衣服":
-            return "wind"
-        case "叠衣服":
-            return "square.stack.3d.up.fill"
-        case "清理卫生间":
-            return "shower.fill"
-        case "浇花":
-            return "leaf.fill"
+        case "洗碗": return "fork.knife"
+        case "做饭": return "flame.fill"
+        case "倒垃圾": return "trash.fill"
+        case "扫地": return "sparkles"
+        case "拖地": return "drop.fill"
+        case "洗衣服": return "washer.fill"
+        case "晾衣服": return "wind"
+        case "叠衣服": return "square.stack.3d.up.fill"
+        case "清理卫生间": return "shower.fill"
+        case "浇花": return "leaf.fill"
         default:
             if category.contains("厨房") { return "fork.knife" }
             if category.contains("洗护") { return "washer.fill" }
@@ -513,6 +831,8 @@ final class AppViewModel: ObservableObject {
         let viewModel = AppViewModel(forceMockData: true)
         viewModel.currentUser = MockData.currentUser
         viewModel.currentFamily = MockData.family
+        viewModel.currentMembership = MockData.currentMembership
+        viewModel.joinRequests = MockData.joinRequests
         viewModel.accessToken = "mock-token"
         return viewModel
     }
@@ -525,12 +845,27 @@ final class AppViewModel: ObservableObject {
 }
 
 private enum AppStateError: LocalizedError {
+    case missingPhoneNumber
     case missingFamily
+    case missingFamilyIdentifier
+    case missingCustomIdentity
+    case ownerRequired
+    case deleteForbidden
 
     var errorDescription: String? {
         switch self {
+        case .missingPhoneNumber:
+            return "请输入手机号。联调账号不限制手机号长度。"
         case .missingFamily:
             return "还没有当前家庭，请先创建家庭"
+        case .missingFamilyIdentifier:
+            return "请输入家庭 ID。邀请码解析接口仍是占位。"
+        case .missingCustomIdentity:
+            return "选择自定义身份后，请填写身份名称"
+        case .ownerRequired:
+            return "只有一家之主可以审核加入申请"
+        case .deleteForbidden:
+            return "你没有权限删除这条家务记录"
         }
     }
 }

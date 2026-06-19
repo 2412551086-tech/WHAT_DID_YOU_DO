@@ -6,6 +6,17 @@ datasource db {
   provider = "postgresql"
 }
 
+enum MemberRole {
+  OWNER
+  MEMBER
+}
+
+enum MemberStatus {
+  PENDING
+  ACTIVE
+  REJECTED
+}
+
 model Chore {
   id                   String   @id @default(cuid())
   name                 String   @unique
@@ -25,12 +36,16 @@ model Chore {
 }
 
 model User {
-  id          String         @id @default(cuid())
-  displayName String
-  createdAt   DateTime       @default(now())
-  updatedAt   DateTime       @updatedAt
-  memberships FamilyMember[]
-  records     ChoreRecord[]
+  id                  String            @id @default(cuid())
+  phoneNumber         String?           @unique
+  displayName         String
+  createdAt           DateTime          @default(now())
+  updatedAt           DateTime          @updatedAt
+  memberships         FamilyMember[]
+  approvedMemberships FamilyMember[]    @relation("MembershipApprover")
+  records             ChoreRecord[]     @relation("RecordCreator")
+  deletedRecords      ChoreRecord[]     @relation("RecordDeletedBy")
+  recordLikes         ChoreRecordLike[]
 }
 
 model Family {
@@ -45,20 +60,28 @@ model Family {
 }
 
 model FamilyMember {
-  id        String   @id @default(cuid())
-  userId    String
-  familyId  String
-  role      String   @default("member")
-  createdAt DateTime @default(now())
-  family    Family   @relation(fields: [familyId], references: [id], onDelete: Cascade)
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id             String       @id @default(cuid())
+  userId         String
+  familyId       String
+  identityLabel  String       @default("家庭成员")
+  customIdentity String?
+  avatarKey      String?
+  memberRole     MemberRole   @default(MEMBER)
+  status         MemberStatus @default(ACTIVE)
+  approvedAt     DateTime?
+  approvedById   String?
+  createdAt      DateTime     @default(now())
+  family         Family       @relation(fields: [familyId], references: [id], onDelete: Cascade)
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  approvedBy     User?        @relation("MembershipApprover", fields: [approvedById], references: [id], onDelete: SetNull)
 
   @@unique([userId, familyId])
-  @@index([familyId])
+  @@index([familyId, status])
+  @@index([approvedById])
 }
 
 model ChoreRecord {
-  id            String   @id @default(cuid())
+  id            String            @id @default(cuid())
   familyId      String
   userId        String
   choreId       String
@@ -67,11 +90,28 @@ model ChoreRecord {
   minutes       Int
   actualMinutes Int
   points        Int
-  createdAt     DateTime @default(now())
-  chore         Chore    @relation(fields: [choreId], references: [id])
-  family        Family   @relation(fields: [familyId], references: [id], onDelete: Cascade)
-  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt     DateTime          @default(now())
+  deletedAt     DateTime?
+  deletedById   String?
+  chore         Chore             @relation(fields: [choreId], references: [id])
+  family        Family            @relation(fields: [familyId], references: [id], onDelete: Cascade)
+  user          User              @relation("RecordCreator", fields: [userId], references: [id], onDelete: Cascade)
+  deletedBy     User?             @relation("RecordDeletedBy", fields: [deletedById], references: [id], onDelete: SetNull)
+  likes         ChoreRecordLike[]
 
   @@index([familyId, createdAt])
   @@index([familyId, userId, createdAt])
+  @@index([deletedById])
+}
+
+model ChoreRecordLike {
+  id        String      @id @default(cuid())
+  recordId  String
+  userId    String
+  createdAt DateTime    @default(now())
+  record    ChoreRecord @relation(fields: [recordId], references: [id], onDelete: Cascade)
+  user      User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([recordId, userId])
+  @@index([userId])
 }

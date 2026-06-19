@@ -1,12 +1,25 @@
 import Foundation
 
 struct MockLoginRequest: Encodable {
-    let displayName: String
+    let phoneNumber: String
 }
 
 struct CreateFamilyRequest: Encodable {
     let name: String
     let requirePhotoProof: Bool
+    let identityLabel: String
+    let customIdentity: String?
+    let avatarKey: String?
+}
+
+struct CreateJoinRequestRequest: Encodable {
+    let identityLabel: String
+    let customIdentity: String?
+    let avatarKey: String?
+}
+
+struct ReviewJoinRequestRequest: Encodable {
+    let action: String
 }
 
 struct CreateChoreRecordRequest: Encodable {
@@ -24,6 +37,7 @@ struct LoginResponse: Decodable {
 
 struct UserDTO: Decodable {
     let id: String
+    let phoneNumber: String?
     let displayName: String
     let createdAt: Date?
     let updatedAt: Date?
@@ -38,13 +52,42 @@ struct FamilyDTO: Decodable {
     let updatedAt: Date?
     let members: [FamilyMemberDTO]?
     let myRole: String?
+    let identityLabel: String?
+    let customIdentity: String?
+    let avatarKey: String?
+    let memberRole: String?
+    let status: String?
+    let myMembership: FamilyMemberDTO?
 }
 
 struct FamilyMemberDTO: Decodable {
     let id: String
     let userId: String
     let familyId: String
-    let role: String
+    let role: String?
+    let identityLabel: String?
+    let customIdentity: String?
+    let avatarKey: String?
+    let memberRole: String?
+    let status: String?
+    let approvedAt: Date?
+    let approvedById: String?
+    let createdAt: Date?
+    let user: UserDTO?
+}
+
+struct JoinRequestDTO: Decodable {
+    let id: String
+    let userId: String
+    let familyId: String
+    let identityLabel: String
+    let customIdentity: String?
+    let avatarKey: String?
+    let memberRole: String
+    let status: String
+    let approvedAt: Date?
+    let approvedById: String?
+    let createdAt: Date
     let user: UserDTO?
 }
 
@@ -61,33 +104,48 @@ struct ChoreDTO: Decodable {
 
 struct ChoreRecordDTO: Decodable {
     let id: String
+    let recordId: String?
     let familyId: String
     let user: RecordUserDTO
+    let createdBy: RecordUserDTO?
     let chore: RecordChoreDTO
+    let choreName: String?
     let minutes: Int
     let actualMinutes: Int?
     let points: Int
     let note: String?
     let imageUrls: [String]
+    let likeCount: Int?
+    let likedByMe: Bool?
+    let canDelete: Bool?
     let createdAt: Date
 }
 
 struct ActivityItemDTO: Decodable {
     let id: String
+    let recordId: String?
     let familyId: String
     let user: RecordUserDTO
+    let createdBy: RecordUserDTO?
     let chore: RecordChoreDTO
+    let choreName: String?
     let minutes: Int
     let actualMinutes: Int?
     let points: Int
     let note: String?
     let imageUrls: [String]
+    let likeCount: Int?
+    let likedByMe: Bool?
+    let canDelete: Bool?
     let createdAt: Date
 }
 
 struct RecordUserDTO: Decodable {
     let id: String
     let displayName: String
+    let identityLabel: String?
+    let customIdentity: String?
+    let avatarKey: String?
 }
 
 struct RecordChoreDTO: Decodable {
@@ -95,6 +153,19 @@ struct RecordChoreDTO: Decodable {
     let name: String
     let category: String
     let icon: String?
+}
+
+struct LikeResponseDTO: Decodable {
+    let recordId: String
+    let likeCount: Int
+    let likedByMe: Bool
+}
+
+struct DeleteRecordResponseDTO: Decodable {
+    let recordId: String
+    let id: String
+    let deletedAt: Date?
+    let deletedById: String?
 }
 
 struct LeaderboardItemDTO: Decodable {
