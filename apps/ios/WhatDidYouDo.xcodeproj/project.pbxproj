@@ -28,6 +28,7 @@
 		1A0000010000000000000019 /* APIConfig.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A0000010000000000001019 /* APIConfig.swift */; };
 		1A0000010000000000000020 /* APIClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A0000010000000000001020 /* APIClient.swift */; };
 		1A0000010000000000000021 /* APIDTOs.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A0000010000000000001021 /* APIDTOs.swift */; };
+		1A0000010000000000000022 /* DebugPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A0000010000000000001022 /* DebugPanel.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -53,6 +54,7 @@
 		1A0000010000000000001019 /* APIConfig.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = APIConfig.swift; sourceTree = "<group>"; };
 		1A0000010000000000001020 /* APIClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = APIClient.swift; sourceTree = "<group>"; };
 		1A0000010000000000001021 /* APIDTOs.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = APIDTOs.swift; sourceTree = "<group>"; };
+		1A0000010000000000001022 /* DebugPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DebugPanel.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -133,6 +135,7 @@
 				1A0000010000000000004012 /* Family */,
 				1A0000010000000000004013 /* Home */,
 				1A0000010000000000004014 /* Chores */,
+				1A0000010000000000004017 /* Debug */,
 			);
 			path = Features;
 			sourceTree = "<group>";
@@ -212,6 +215,14 @@
 				1A0000010000000000001021 /* APIDTOs.swift */,
 			);
 			path = Network;
+			sourceTree = "<group>";
+		};
+		1A0000010000000000004017 /* Debug */ = {
+			isa = PBXGroup;
+			children = (
+				1A0000010000000000001022 /* DebugPanel.swift */,
+			);
+			path = Debug;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -305,6 +316,7 @@
 				1A0000010000000000000019 /* APIConfig.swift in Sources */,
 				1A0000010000000000000020 /* APIClient.swift in Sources */,
 				1A0000010000000000000021 /* APIDTOs.swift in Sources */,
+				1A0000010000000000000022 /* DebugPanel.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

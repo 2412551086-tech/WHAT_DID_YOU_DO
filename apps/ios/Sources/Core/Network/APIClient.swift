@@ -17,9 +17,16 @@ enum APIError: LocalizedError {
     }
 }
 
+struct APIDebugSnapshot: Sendable {
+    var lastRequestPath: String?
+    var lastStatusCode: Int?
+    var lastErrorMessage: String?
+}
+
 actor APIClient {
     private let baseURL: URL
     private var accessToken: String?
+    private var debugSnapshot = APIDebugSnapshot()
 
     init(baseURL: URL = APIConfig.baseURL) {
         self.baseURL = baseURL
@@ -27,6 +34,10 @@ actor APIClient {
 
     func setAccessToken(_ token: String?) {
         accessToken = token
+    }
+
+    func currentDebugSnapshot() -> APIDebugSnapshot {
+        debugSnapshot
     }
 
     func get<Response: Decodable>(
@@ -50,46 +61,69 @@ actor APIClient {
         queryItems: [URLQueryItem] = [],
         body: Data?
     ) async throws -> Response {
-        guard var components = URLComponents(
-            url: baseURL.appendingPathComponent(path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))),
-            resolvingAgainstBaseURL: false
-        ) else {
-            throw APIError.invalidURL
+        debugSnapshot = APIDebugSnapshot(lastRequestPath: Self.displayPath(path, queryItems: queryItems))
+
+        do {
+            guard var components = URLComponents(
+                url: baseURL.appendingPathComponent(path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))),
+                resolvingAgainstBaseURL: false
+            ) else {
+                throw APIError.invalidURL
+            }
+
+            if !queryItems.isEmpty {
+                components.queryItems = queryItems
+            }
+
+            guard let url = components.url else {
+                throw APIError.invalidURL
+            }
+
+            var request = URLRequest(url: url)
+            request.httpMethod = method
+            request.setValue("application/json", forHTTPHeaderField: "Accept")
+
+            if let body {
+                request.httpBody = body
+                request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            }
+
+            if let accessToken {
+                request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
+            }
+
+            let (data, response) = try await URLSession.shared.data(for: request)
+
+            guard let httpResponse = response as? HTTPURLResponse else {
+                throw APIError.invalidResponse
+            }
+
+            debugSnapshot.lastStatusCode = httpResponse.statusCode
+
+            guard (200..<300).contains(httpResponse.statusCode) else {
+                let message = Self.decodeErrorMessage(from: data)
+                throw APIError.requestFailed(statusCode: httpResponse.statusCode, message: message)
+            }
+
+            let decoded = try Self.decoder.decode(Response.self, from: data)
+            debugSnapshot.lastErrorMessage = nil
+            return decoded
+        } catch {
+            debugSnapshot.lastErrorMessage = error.localizedDescription
+            throw error
+        }
+    }
+
+    private static func displayPath(_ path: String, queryItems: [URLQueryItem]) -> String {
+        let normalizedPath = "/" + path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+
+        guard !queryItems.isEmpty else {
+            return normalizedPath
         }
 
-        if !queryItems.isEmpty {
-            components.queryItems = queryItems
-        }
-
-        guard let url = components.url else {
-            throw APIError.invalidURL
-        }
-
-        var request = URLRequest(url: url)
-        request.httpMethod = method
-        request.setValue("application/json", forHTTPHeaderField: "Accept")
-
-        if let body {
-            request.httpBody = body
-            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        }
-
-        if let accessToken {
-            request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
-        }
-
-        let (data, response) = try await URLSession.shared.data(for: request)
-
-        guard let httpResponse = response as? HTTPURLResponse else {
-            throw APIError.invalidResponse
-        }
-
-        guard (200..<300).contains(httpResponse.statusCode) else {
-            let message = Self.decodeErrorMessage(from: data)
-            throw APIError.requestFailed(statusCode: httpResponse.statusCode, message: message)
-        }
-
-        return try Self.decoder.decode(Response.self, from: data)
+        var components = URLComponents()
+        components.queryItems = queryItems
+        return normalizedPath + (components.percentEncodedQuery.map { "?\($0)" } ?? "")
     }
 
     private static let encoder: JSONEncoder = {

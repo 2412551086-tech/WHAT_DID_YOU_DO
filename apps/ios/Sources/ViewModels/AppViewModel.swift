@@ -17,6 +17,9 @@ final class AppViewModel: ObservableObject {
     @Published private(set) var isLoading = false
     @Published private(set) var loadingMessage: String?
     @Published var errorMessage: String?
+    @Published private(set) var lastRequestPath: String?
+    @Published private(set) var lastStatusCode: Int?
+    @Published private(set) var lastAPIErrorMessage: String?
     @Published var selectedChore: ChoreItem?
 
     private let apiClient: APIClient
@@ -49,6 +52,14 @@ final class AppViewModel: ObservableObject {
 
     var modeLabel: String {
         usesMockData ? "Mock 模式" : "API 模式"
+    }
+
+    var debugBaseURL: String {
+        APIConfig.baseURL.absoluteString
+    }
+
+    var hasAccessToken: Bool {
+        !(accessToken?.isEmpty ?? true)
     }
 
     func mockLogin() {
@@ -100,7 +111,7 @@ final class AppViewModel: ObservableObject {
     }
 
     func refreshHomeDataIfNeeded() {
-        guard !usesMockData, accessToken != nil, currentFamily != nil else {
+        guard !usesMockData, !isLoading, accessToken != nil, currentFamily != nil else {
             return
         }
 
@@ -318,8 +329,17 @@ final class AppViewModel: ObservableObject {
             errorMessage = error.localizedDescription
         }
 
+        await syncAPIDebugSnapshot()
+
         isLoading = false
         loadingMessage = nil
+    }
+
+    private func syncAPIDebugSnapshot() async {
+        let snapshot = await apiClient.currentDebugSnapshot()
+        lastRequestPath = snapshot.lastRequestPath
+        lastStatusCode = snapshot.lastStatusCode
+        lastAPIErrorMessage = snapshot.lastErrorMessage
     }
 
     private func clearError() {

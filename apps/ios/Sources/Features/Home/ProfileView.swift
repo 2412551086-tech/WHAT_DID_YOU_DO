@@ -12,6 +12,9 @@ struct ProfileView: View {
                     header
                     packageCard
                     familySettings
+                    #if DEBUG
+                    DebugPanel()
+                    #endif
                     logoutCard
                 }
                 .padding(20)
