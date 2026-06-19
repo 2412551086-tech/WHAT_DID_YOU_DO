@@ -9,6 +9,11 @@ Desktop.ini
 *.swp
 *.swo
 
+# Xcode user state and local build data
+*.xcuserstate
+xcuserdata/
+DerivedData/
+
 # Environment and secrets
 .env
 .env.*
