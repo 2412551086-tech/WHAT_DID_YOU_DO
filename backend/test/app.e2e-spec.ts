@@ -59,6 +59,21 @@ describe("AppController (e2e)", () => {
     return request(app.getHttpServer()).get("/").expect(404);
   });
 
+  it("returns the premium chore catalog as locked", async () => {
+    const response = await request(app.getHttpServer()).get("/chores").expect(200);
+    const premiumChores = response.body.filter((chore: { isLocked: boolean }) => chore.isLocked);
+
+    expect(premiumChores).toHaveLength(10);
+    expect(premiumChores).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ name: "换床单", requiredPlan: "premium", isLocked: true }),
+        expect.objectContaining({ name: "喂奶", points: 38, isLocked: true }),
+        expect.objectContaining({ name: "遛娃", points: 63, isLocked: true }),
+        expect.objectContaining({ name: "接送孩子", points: 56, isLocked: true }),
+      ]),
+    );
+  });
+
   it("creates chore records with selected actual minutes and calculated points", async () => {
     const loginResponse = await request(app.getHttpServer())
       .post("/auth/mock-login")

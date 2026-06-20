@@ -1,19 +1,32 @@
 import { prisma } from "./client";
 
 const coreChores = [
-  { name: "洗碗", category: "厨房类", standardMinutes: 15, difficultyMultiplier: 1.0, defaultPoints: 15, icon: "fork.knife" },
-  { name: "做饭", category: "厨房类", standardMinutes: 45, difficultyMultiplier: 1.3, defaultPoints: 59, icon: "flame.fill" },
-  { name: "倒垃圾", category: "清洁类", standardMinutes: 5, difficultyMultiplier: 1.0, defaultPoints: 5, icon: "trash.fill" },
-  { name: "扫地", category: "清洁类", standardMinutes: 15, difficultyMultiplier: 1.0, defaultPoints: 15, icon: "sparkles" },
-  { name: "拖地", category: "清洁类", standardMinutes: 20, difficultyMultiplier: 1.1, defaultPoints: 22, icon: "drop.fill" },
-  { name: "洗衣服", category: "洗护类", standardMinutes: 10, difficultyMultiplier: 1.0, defaultPoints: 10, icon: "washer.fill" },
-  { name: "晾衣服", category: "洗护类", standardMinutes: 10, difficultyMultiplier: 1.0, defaultPoints: 10, icon: "wind" },
-  { name: "叠衣服", category: "洗护类", standardMinutes: 20, difficultyMultiplier: 1.1, defaultPoints: 22, icon: "square.stack.3d.up.fill" },
-  { name: "清理卫生间", category: "清洁类", standardMinutes: 30, difficultyMultiplier: 1.5, defaultPoints: 45, icon: "shower.fill" },
-  { name: "浇花", category: "照顾类", standardMinutes: 8, difficultyMultiplier: 1.0, defaultPoints: 8, icon: "leaf.fill" },
+  { name: "做饭 / 备餐", category: "厨房类", standardMinutes: 45, difficultyMultiplier: 1.5, defaultPoints: 67.5, icon: "flame.fill" },
+  { name: "饭后收拾 / 洗碗", category: "厨房类", standardMinutes: 15, difficultyMultiplier: 1.4, defaultPoints: 21, icon: "fork.knife" },
+  { name: "洗衣服", category: "洗护类", standardMinutes: 10, difficultyMultiplier: 1.3, defaultPoints: 13, icon: "washer.fill" },
+  { name: "收衣 / 叠衣 ", category: "洗护类", standardMinutes: 15, difficultyMultiplier: 1.2, defaultPoints: 18, icon: "square.stack.3d.up.fill" },
+  { name: "扫地 / 吸尘", category: "清洁类", standardMinutes: 20, difficultyMultiplier: 1.3, defaultPoints: 26, icon: "sparkles" },
+  { name: "拖地 / 地面湿清洁", category: "清洁类", standardMinutes: 25, difficultyMultiplier: 1.6, defaultPoints: 40, icon: "drop.fill" },
+  { name: "整理收纳", category: "收纳类", standardMinutes: 20, difficultyMultiplier: 1.3, defaultPoints: 26, icon: "shippingbox.fill" },
+  { name: "卫生间清洁", category: "清洁类", standardMinutes: 20, difficultyMultiplier: 1.5, defaultPoints: 30, icon: "shower.fill" },
+  { name: "倒垃圾 / 垃圾分类", category: "清洁类", standardMinutes: 10, difficultyMultiplier: 1.0, defaultPoints: 10, icon: "trash.fill" },
+  { name: "采购补货 / 家庭物资管理", category: "采购类", standardMinutes: 30, difficultyMultiplier: 1.2, defaultPoints: 36, icon: "cart.fill" },
 ];
 
 async function main() {
+  await prisma.chore.updateMany({
+    where: {
+      isFreeCore: true,
+      name: {
+        notIn: coreChores.map((chore) => chore.name),
+      },
+    },
+    data: {
+      isFreeCore: false,
+      sortOrder: 999,
+    },
+  });
+
   for (const [index, chore] of coreChores.entries()) {
     await prisma.chore.upsert({
       where: { name: chore.name },
