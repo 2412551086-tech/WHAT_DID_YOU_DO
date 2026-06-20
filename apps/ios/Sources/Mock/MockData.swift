@@ -44,23 +44,38 @@ enum MockData {
         ),
     ]
 
-    static let chores: [ChoreItem] = [
-        ChoreItem(id: "mock-chore-dishes", name: "洗碗", category: "厨房类", minutes: 15, points: 15, icon: "fork.knife", color: DSColor.yellow),
-        ChoreItem(id: "mock-chore-cook", name: "做饭", category: "厨房类", minutes: 45, points: 59, icon: "flame.fill", color: DSColor.coral),
-        ChoreItem(id: "mock-chore-trash", name: "倒垃圾", category: "清洁类", minutes: 5, points: 5, icon: "trash.fill", color: DSColor.mint),
-        ChoreItem(id: "mock-chore-sweep", name: "扫地", category: "清洁类", minutes: 15, points: 15, icon: "sparkles", color: DSColor.sky),
-        ChoreItem(id: "mock-chore-mop", name: "拖地", category: "清洁类", minutes: 20, points: 22, icon: "drop.fill", color: DSColor.lavender),
-        ChoreItem(id: "mock-chore-laundry", name: "洗衣服", category: "洗护类", minutes: 10, points: 10, icon: "washer.fill", color: DSColor.clay),
-        ChoreItem(id: "mock-chore-dry-clothes", name: "晾衣服", category: "洗护类", minutes: 10, points: 10, icon: "wind", color: DSColor.mint),
-        ChoreItem(id: "mock-chore-fold-clothes", name: "叠衣服", category: "洗护类", minutes: 20, points: 22, icon: "square.stack.3d.up.fill", color: DSColor.sky),
-        ChoreItem(id: "mock-chore-bathroom", name: "清理卫生间", category: "清洁类", minutes: 30, points: 45, icon: "shower.fill", color: DSColor.lavender),
-        ChoreItem(id: "mock-chore-plants", name: "浇花", category: "照顾类", minutes: 8, points: 8, icon: "leaf.fill", color: DSColor.mint),
+    static let coreChores: [ChoreItem] = [
+        ChoreItem(id: "mock-chore-cook", name: "做饭 / 备餐", category: "厨房类", minutes: 45, points: 99, icon: "flame.fill", color: DSColor.coral),
+        ChoreItem(id: "mock-chore-dishes", name: "饭后收拾 / 洗碗", category: "厨房类", minutes: 20, points: 28, icon: "fork.knife", color: DSColor.yellow),
+        ChoreItem(id: "mock-chore-laundry", name: "洗衣服", category: "洗护类", minutes: 25, points: 33, icon: "washer.fill", color: DSColor.clay),
+        ChoreItem(id: "mock-chore-put-away-clothes", name: "收衣 / 叠衣 / 放回衣柜", category: "洗护类", minutes: 20, points: 24, icon: "square.stack.3d.up.fill", color: DSColor.mint),
+        ChoreItem(id: "mock-chore-vacuum", name: "扫地 / 吸尘", category: "清洁类", minutes: 20, points: 26, icon: "sparkles", color: DSColor.sky),
+        ChoreItem(id: "mock-chore-mop", name: "拖地 / 地面湿清洁", category: "清洁类", minutes: 25, points: 40, icon: "drop.fill", color: DSColor.lavender),
+        ChoreItem(id: "mock-chore-organize", name: "整理收纳", category: "收纳类", minutes: 20, points: 26, icon: "shippingbox.fill", color: DSColor.mint),
+        ChoreItem(id: "mock-chore-bathroom", name: "卫生间清洁", category: "清洁类", minutes: 35, points: 70, icon: "shower.fill", color: DSColor.lavender),
+        ChoreItem(id: "mock-chore-trash", name: "倒垃圾 / 垃圾分类", category: "清洁类", minutes: 10, points: 10, icon: "trash.fill", color: DSColor.sky),
+        ChoreItem(id: "mock-chore-shopping", name: "采购补货 / 家庭物资管理", category: "采购类", minutes: 60, points: 102, icon: "cart.fill", color: DSColor.coral),
     ]
 
+    static let premiumChores: [ChoreItem] = [
+        ChoreItem(id: "premium-change-bedding", name: "换床单", category: "洗护类", minutes: 20, points: 24, icon: "bed.double.fill", color: DSColor.mint, isLocked: true, requiredPlan: "premium"),
+        ChoreItem(id: "premium-clean-stove", name: "清理灶台", category: "厨房类", minutes: 10, points: 11, icon: "flame.fill", color: DSColor.yellow, isLocked: true, requiredPlan: "premium"),
+        ChoreItem(id: "premium-heavy-lifting", name: "搬重物", category: "采购类", minutes: 20, points: 32, icon: "shippingbox.fill", color: DSColor.clay, isLocked: true, requiredPlan: "premium"),
+        ChoreItem(id: "premium-walk-dog", name: "遛狗", category: "照顾类", minutes: 30, points: 33, icon: "pawprint.fill", color: DSColor.sky, isLocked: true, requiredPlan: "premium"),
+        ChoreItem(id: "premium-clean-litter", name: "清理猫砂", category: "照顾类", minutes: 10, points: 12, icon: "pawprint.fill", color: DSColor.clay, isLocked: true, requiredPlan: "premium"),
+        ChoreItem(id: "premium-homework-help", name: "陪孩子写作业", category: "照顾类", minutes: 60, points: 90, icon: "book.fill", color: DSColor.lavender, isLocked: true, requiredPlan: "premium"),
+        ChoreItem(id: "premium-repair-booking", name: "预约维修", category: "管理类", minutes: 15, points: 17, icon: "wrench.and.screwdriver.fill", color: DSColor.coral, isLocked: true, requiredPlan: "premium"),
+        ChoreItem(id: "premium-feed-baby", name: "喂奶", category: "照顾类", minutes: 25, points: 38, icon: "waterbottle.fill", color: DSColor.mint, isLocked: true, requiredPlan: "premium"),
+        ChoreItem(id: "premium-walk-child", name: "遛娃", category: "照顾类", minutes: 45, points: 63, icon: "figure.walk", color: DSColor.sky, isLocked: true, requiredPlan: "premium"),
+        ChoreItem(id: "premium-school-run", name: "接送孩子", category: "照顾类", minutes: 40, points: 56, icon: "car.fill", color: DSColor.yellow, isLocked: true, requiredPlan: "premium"),
+    ]
+
+    static let chores = coreChores + premiumChores
+
     static let todayRecords: [ChoreRecord] = [
-        ChoreRecord(id: "mock-record-dishes", memberName: "我", choreName: "洗碗", category: "厨房类", standardMinutes: 15, actualMinutes: 15, points: 15, note: "水槽终于重见天日", createdAt: Date().addingTimeInterval(-4_200), icon: "fork.knife", color: DSColor.yellow, creatorId: currentUser.id, identityLabel: "老妈", customIdentity: nil, avatarKey: "avatar_01", likeCount: 2, likedByMe: true, canDelete: true),
-        ChoreRecord(id: "mock-record-mop", memberName: "小夏", choreName: "拖地", category: "清洁类", standardMinutes: 20, actualMinutes: 24, points: 26, note: "地板亮到能照出理想", createdAt: Date().addingTimeInterval(-2_700), icon: "drop.fill", color: DSColor.lavender, creatorId: "mock-user-xia", identityLabel: "室友", customIdentity: nil, avatarKey: "avatar_02", likeCount: 1, likedByMe: false, canDelete: true),
-        ChoreRecord(id: "mock-record-plants", memberName: "豆豆", choreName: "浇花", category: "照顾类", standardMinutes: 8, actualMinutes: 8, points: 8, note: "植物表示情绪稳定", createdAt: Date().addingTimeInterval(-1_100), icon: "leaf.fill", color: DSColor.mint, creatorId: "mock-user-doudou", identityLabel: "妹妹", customIdentity: nil, avatarKey: "avatar_03", likeCount: 0, likedByMe: false, canDelete: true),
+        ChoreRecord(id: "mock-record-dishes", memberName: "我", choreName: "饭后收拾 / 洗碗", category: "厨房类", standardMinutes: 20, actualMinutes: 20, points: 28, note: "水槽终于重见天日", createdAt: Date().addingTimeInterval(-4_200), icon: "fork.knife", color: DSColor.yellow, creatorId: currentUser.id, identityLabel: "老妈", customIdentity: nil, avatarKey: "avatar_01", likeCount: 2, likedByMe: true, canDelete: true),
+        ChoreRecord(id: "mock-record-mop", memberName: "小夏", choreName: "拖地 / 地面湿清洁", category: "清洁类", standardMinutes: 25, actualMinutes: 30, points: 48, note: "地板亮到能照出理想", createdAt: Date().addingTimeInterval(-2_700), icon: "drop.fill", color: DSColor.lavender, creatorId: "mock-user-xia", identityLabel: "室友", customIdentity: nil, avatarKey: "avatar_02", likeCount: 1, likedByMe: false, canDelete: true),
+        ChoreRecord(id: "mock-record-trash", memberName: "豆豆", choreName: "倒垃圾 / 垃圾分类", category: "清洁类", standardMinutes: 10, actualMinutes: 10, points: 10, note: "垃圾桶暂时恢复平静", createdAt: Date().addingTimeInterval(-1_100), icon: "trash.fill", color: DSColor.sky, creatorId: "mock-user-doudou", identityLabel: "妹妹", customIdentity: nil, avatarKey: "avatar_03", likeCount: 0, likedByMe: false, canDelete: true),
     ]
 
     static let monthlyReport = MonthlyReport(

@@ -18,6 +18,8 @@ final class AppViewModel: ObservableObject {
     @Published private(set) var currentMembership: FamilyMembership?
     @Published private(set) var joinRequests: [JoinRequestItem] = []
     @Published private(set) var chores = MockData.chores
+    @Published private(set) var choreOrder: [String] = []
+    @Published private(set) var pinnedChoreIDs: Set<String> = []
     @Published private(set) var todayRecords = MockData.todayRecords
     @Published private(set) var monthlyRanking = MockData.members
     @Published private(set) var monthlyReport: MonthlyReport? = MockData.monthlyReport
@@ -35,6 +37,13 @@ final class AppViewModel: ObservableObject {
     init(apiClient: APIClient = APIClient(), forceMockData: Bool = false) {
         self.apiClient = apiClient
         self.forceMockData = forceMockData
+
+        if !forceMockData {
+            choreOrder = UserDefaults.standard.stringArray(forKey: Self.choreOrderDefaultsKey) ?? []
+            pinnedChoreIDs = Set(UserDefaults.standard.stringArray(forKey: Self.pinnedChoresDefaultsKey) ?? [])
+        }
+
+        synchronizeChoreLayout()
     }
 
     var familyDisplayName: String {
@@ -75,6 +84,19 @@ final class AppViewModel: ObservableObject {
 
     var isCurrentUserOwner: Bool {
         currentMembership?.memberRole == .owner && currentMembership?.status == .active
+    }
+
+    var displayedChores: [ChoreItem] {
+        let unlockedByID = Dictionary(uniqueKeysWithValues: chores.filter { !$0.isLocked }.map { ($0.id, $0) })
+        let savedUnlocked = choreOrder.compactMap { unlockedByID[$0] }
+        let savedIDs = Set(savedUnlocked.map(\.id))
+        let newUnlocked = chores.filter { !$0.isLocked && !savedIDs.contains($0.id) }
+        let orderedUnlocked = savedUnlocked + newUnlocked
+        let pinned = orderedUnlocked.filter { pinnedChoreIDs.contains($0.id) }
+        let unpinned = orderedUnlocked.filter { !pinnedChoreIDs.contains($0.id) }
+        let locked = chores.filter(\.isLocked)
+
+        return pinned + unpinned + locked
     }
 
     func mockLogin() {
@@ -196,6 +218,53 @@ final class AppViewModel: ObservableObject {
 
     func showChoreSelection() {
         selectedTab = .record
+    }
+
+    func isChorePinned(_ chore: ChoreItem) -> Bool {
+        pinnedChoreIDs.contains(chore.id)
+    }
+
+    func toggleChorePinned(_ chore: ChoreItem) {
+        guard !chore.isLocked else {
+            return
+        }
+
+        var order = normalizedUnlockedOrder()
+        order.removeAll { $0 == chore.id }
+        order.insert(chore.id, at: 0)
+
+        if pinnedChoreIDs.contains(chore.id) {
+            pinnedChoreIDs.remove(chore.id)
+        } else {
+            pinnedChoreIDs.insert(chore.id)
+        }
+
+        choreOrder = order
+        persistChoreLayout()
+    }
+
+    @discardableResult
+    func moveUnlockedChore(_ sourceID: String, to targetID: String) -> Bool {
+        guard sourceID != targetID,
+              let source = chores.first(where: { $0.id == sourceID && !$0.isLocked }),
+              let target = chores.first(where: { $0.id == targetID && !$0.isLocked }),
+              isChorePinned(source) == isChorePinned(target)
+        else {
+            return false
+        }
+
+        var order = normalizedUnlockedOrder()
+        guard let sourceIndex = order.firstIndex(of: sourceID),
+              let targetIndex = order.firstIndex(of: targetID)
+        else {
+            return false
+        }
+
+        order.remove(at: sourceIndex)
+        order.insert(sourceID, at: min(targetIndex, order.count))
+        choreOrder = order
+        persistChoreLayout()
+        return true
     }
 
     func record(_ chore: ChoreItem, actualMinutes: Int? = nil, calculatedPoints: Int? = nil) {
@@ -331,7 +400,7 @@ final class AppViewModel: ObservableObject {
         currentUser = MockData.currentUser
         currentFamily = nil
         currentMembership = nil
-        chores = MockData.chores
+        replaceChores(MockData.chores)
         todayRecords = MockData.todayRecords
         monthlyRanking = MockData.members
         monthlyReport = MockData.monthlyReport
@@ -507,7 +576,39 @@ final class AppViewModel: ObservableObject {
 
     private func loadChoresFromAPI() async throws {
         let response: [ChoreDTO] = try await apiClient.get("chores")
-        chores = response.map(mapChore)
+        replaceChores(response.map(mapChore))
+    }
+
+    private func replaceChores(_ newChores: [ChoreItem]) {
+        chores = newChores
+        synchronizeChoreLayout()
+    }
+
+    private func synchronizeChoreLayout() {
+        let unlockedIDs = chores.filter { !$0.isLocked }.map(\.id)
+        let availableIDs = Set(unlockedIDs)
+        let saved = choreOrder.filter { availableIDs.contains($0) }
+        let savedIDs = Set(saved)
+        choreOrder = saved + unlockedIDs.filter { !savedIDs.contains($0) }
+        pinnedChoreIDs = pinnedChoreIDs.intersection(availableIDs)
+        persistChoreLayout()
+    }
+
+    private func normalizedUnlockedOrder() -> [String] {
+        let unlockedIDs = chores.filter { !$0.isLocked }.map(\.id)
+        let availableIDs = Set(unlockedIDs)
+        let saved = choreOrder.filter { availableIDs.contains($0) }
+        let savedIDs = Set(saved)
+        return saved + unlockedIDs.filter { !savedIDs.contains($0) }
+    }
+
+    private func persistChoreLayout() {
+        guard !forceMockData else {
+            return
+        }
+
+        UserDefaults.standard.set(choreOrder, forKey: Self.choreOrderDefaultsKey)
+        UserDefaults.standard.set(Array(pinnedChoreIDs), forKey: Self.pinnedChoresDefaultsKey)
     }
 
     @discardableResult
@@ -780,16 +881,48 @@ final class AppViewModel: ObservableObject {
 
     private static func icon(forName name: String, category: String) -> String {
         switch name {
-        case "洗碗": return "fork.knife"
-        case "做饭": return "flame.fill"
-        case "倒垃圾": return "trash.fill"
-        case "扫地": return "sparkles"
-        case "拖地": return "drop.fill"
-        case "洗衣服": return "washer.fill"
-        case "晾衣服": return "wind"
-        case "叠衣服": return "square.stack.3d.up.fill"
-        case "清理卫生间": return "shower.fill"
-        case "浇花": return "leaf.fill"
+        case "做饭", "做饭 / 备餐":
+            return "flame.fill"
+        case "洗碗", "饭后收拾 / 洗碗":
+            return "fork.knife"
+        case "洗衣服":
+            return "washer.fill"
+        case "晾衣服":
+            return "wind"
+        case "叠衣服", "收衣 / 叠衣 / 放回衣柜":
+            return "square.stack.3d.up.fill"
+        case "扫地", "扫地 / 吸尘":
+            return "sparkles"
+        case "拖地", "拖地 / 地面湿清洁":
+            return "drop.fill"
+        case "整理收纳":
+            return "shippingbox.fill"
+        case "清理卫生间", "卫生间清洁":
+            return "shower.fill"
+        case "倒垃圾", "倒垃圾 / 垃圾分类":
+            return "trash.fill"
+        case "采购补货 / 家庭物资管理":
+            return "cart.fill"
+        case "换床单":
+            return "bed.double.fill"
+        case "清理灶台":
+            return "flame.fill"
+        case "搬重物":
+            return "shippingbox.fill"
+        case "遛狗", "清理猫砂":
+            return "pawprint.fill"
+        case "陪孩子写作业":
+            return "book.fill"
+        case "预约维修":
+            return "wrench.and.screwdriver.fill"
+        case "喂奶":
+            return "waterbottle.fill"
+        case "遛娃":
+            return "figure.walk"
+        case "接送孩子":
+            return "car.fill"
+        case "浇花":
+            return "leaf.fill"
         default:
             if category.contains("厨房") { return "fork.knife" }
             if category.contains("洗护") { return "washer.fill" }
@@ -818,6 +951,9 @@ final class AppViewModel: ObservableObject {
         DSColor.clay,
         DSColor.coral,
     ]
+
+    private static let choreOrderDefaultsKey = "chore-card-order-v1"
+    private static let pinnedChoresDefaultsKey = "chore-card-pinned-v1"
 
     private static let monthFormatter: DateFormatter = {
         let formatter = DateFormatter()

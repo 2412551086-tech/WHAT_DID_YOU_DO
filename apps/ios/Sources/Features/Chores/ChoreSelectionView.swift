@@ -3,6 +3,8 @@ import SwiftUI
 struct ChoreSelectionView: View {
     @EnvironmentObject private var viewModel: AppViewModel
     @State private var choreForDurationPicker: ChoreItem?
+    @State private var premiumChore: ChoreItem?
+    @State private var isEditingCards = false
 
     private let columns = [
         GridItem(.flexible(), spacing: 14),
@@ -15,12 +17,39 @@ struct ChoreSelectionView: View {
 
             ScrollView {
                 VStack(alignment: .leading, spacing: 20) {
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("选择家务")
-                            .font(.appTitle())
-                        Text("\(viewModel.modeLabel)：先选家务，再按实际耗时记一笔。")
-                            .font(.appBody())
-                            .foregroundStyle(DSColor.mutedInk)
+                    HStack(alignment: .top, spacing: 12) {
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("选择家务")
+                                .font(.appTitle())
+                            Text("\(viewModel.modeLabel)：先选家务，再按实际耗时记一笔。")
+                                .font(.appBody())
+                                .foregroundStyle(DSColor.mutedInk)
+                        }
+
+                        Spacer(minLength: 4)
+
+                        Button {
+                            withAnimation(.spring(response: 0.28, dampingFraction: 0.86)) {
+                                isEditingCards.toggle()
+                            }
+                        } label: {
+                            Label(
+                                isEditingCards ? "完成" : "编辑",
+                                systemImage: isEditingCards ? "checkmark.circle.fill" : "slider.horizontal.3"
+                            )
+                            .font(.appBody(14))
+                            .foregroundStyle(DSColor.ink)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 10)
+                            .background(isEditingCards ? DSColor.mint : DSColor.sky)
+                            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                    .stroke(DSColor.ink, lineWidth: 2)
+                            )
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(viewModel.isLoading)
                     }
                     .foregroundStyle(DSColor.ink)
                     .padding(.top, 16)
@@ -28,16 +57,8 @@ struct ChoreSelectionView: View {
                     statusBanner
 
                     LazyVGrid(columns: columns, spacing: 14) {
-                        ForEach(viewModel.chores) { chore in
-                            Button {
-                                if !chore.isLocked {
-                                    choreForDurationPicker = chore
-                                }
-                            } label: {
-                                ChoreTile(chore: chore)
-                            }
-                            .buttonStyle(.plain)
-                            .disabled(chore.isLocked || viewModel.isLoading)
+                        ForEach(viewModel.displayedChores) { chore in
+                            choreCard(chore)
                         }
                     }
                 }
@@ -61,6 +82,81 @@ struct ChoreSelectionView: View {
             )
             .presentationDetents([.height(620), .large])
             .presentationDragIndicator(.hidden)
+        }
+        .alert(
+            "解锁高级家务",
+            isPresented: Binding(
+                get: { premiumChore != nil },
+                set: { isPresented in
+                    if !isPresented {
+                        premiumChore = nil
+                    }
+                }
+            ),
+            presenting: premiumChore
+        ) { _ in
+            Button("暂不开通", role: .cancel) {
+                premiumChore = nil
+            }
+            Button("开通高级会员") {
+                premiumChore = nil
+            }
+        } message: { chore in
+            Text("「\(chore.name)」属于高级家务。开通高级会员后即可记录实际耗时并获得积分。")
+        }
+    }
+
+    @ViewBuilder
+    private func choreCard(_ chore: ChoreItem) -> some View {
+        if isEditingCards && !chore.isLocked {
+            ChoreTile(chore: chore)
+                .overlay(alignment: .topTrailing) {
+                    Button {
+                        withAnimation(.spring(response: 0.28, dampingFraction: 0.86)) {
+                            viewModel.toggleChorePinned(chore)
+                        }
+                    } label: {
+                        Image(systemName: viewModel.isChorePinned(chore) ? "pin.fill" : "pin")
+                            .font(.system(size: 16, weight: .black))
+                            .foregroundStyle(DSColor.ink)
+                            .frame(width: 36, height: 36)
+                            .background(viewModel.isChorePinned(chore) ? DSColor.yellow : DSColor.surface)
+                            .clipShape(Circle())
+                            .overlay(Circle().stroke(DSColor.ink, lineWidth: 1.5))
+                    }
+                    .buttonStyle(.plain)
+                    .padding(10)
+                    .accessibilityLabel(viewModel.isChorePinned(chore) ? "取消置顶" : "置顶")
+                }
+                .draggable(chore.id) {
+                    ChoreTile(chore: chore, showsPinnedBadge: viewModel.isChorePinned(chore))
+                        .frame(width: 180)
+                        .opacity(0.9)
+                }
+                .dropDestination(for: String.self) { draggedIDs, _ in
+                    guard let sourceID = draggedIDs.first else {
+                        return false
+                    }
+
+                    return withAnimation(.spring(response: 0.28, dampingFraction: 0.86)) {
+                        viewModel.moveUnlockedChore(sourceID, to: chore.id)
+                    }
+                }
+        } else {
+            Button {
+                if chore.isLocked {
+                    premiumChore = chore
+                } else {
+                    choreForDurationPicker = chore
+                }
+            } label: {
+                ChoreTile(
+                    chore: chore,
+                    showsPinnedBadge: viewModel.isChorePinned(chore)
+                )
+            }
+            .buttonStyle(.plain)
+            .disabled(viewModel.isLoading)
         }
     }
 
@@ -86,6 +182,7 @@ struct ChoreSelectionView: View {
 
 private struct ChoreTile: View {
     let chore: ChoreItem
+    var showsPinnedBadge = false
 
     var body: some View {
         DSCard(fill: chore.color) {
@@ -101,8 +198,9 @@ private struct ChoreTile: View {
                     )
                 Text(chore.name)
                     .font(.appHeadline(19))
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.85)
+                    .lineLimit(2)
+                    .minimumScaleFactor(0.75)
+                    .frame(height: 48, alignment: .topLeading)
                 Text(chore.category)
                     .font(.appBody(13))
                     .foregroundStyle(DSColor.mutedInk)
@@ -120,6 +218,13 @@ private struct ChoreTile: View {
                         .font(.system(size: 16, weight: .black))
                         .padding(8)
                         .background(DSColor.surface)
+                        .clipShape(Circle())
+                        .overlay(Circle().stroke(DSColor.ink, lineWidth: 1.5))
+                } else if showsPinnedBadge {
+                    Image(systemName: "pin.fill")
+                        .font(.system(size: 15, weight: .black))
+                        .padding(8)
+                        .background(DSColor.yellow)
                         .clipShape(Circle())
                         .overlay(Circle().stroke(DSColor.ink, lineWidth: 1.5))
                 }
