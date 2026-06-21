@@ -68,10 +68,12 @@ struct ChoreSelectionView: View {
         .sheet(item: $choreForDurationPicker) { chore in
             ChoreDurationPickerSheet(
                 chore: chore,
+                initialMinutes: viewModel.getDefaultDuration(for: chore),
                 onCancel: {
                     choreForDurationPicker = nil
                 },
                 onConfirm: { actualMinutes, calculatedPoints in
+                    viewModel.saveLastDuration(choreId: chore.id, minutes: actualMinutes)
                     viewModel.record(
                         chore,
                         actualMinutes: actualMinutes,

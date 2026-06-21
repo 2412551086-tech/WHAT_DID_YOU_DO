@@ -353,6 +353,27 @@ final class AppViewModel: ObservableObject {
         return max(1, Int((Double(chore.points) * Double(selectedMinutes) / Double(chore.minutes)).rounded()))
     }
 
+    func getDefaultDuration(for chore: ChoreItem) -> Int {
+        let standardMinutes = max(1, min(180, chore.minutes))
+        guard let storedValue = UserDefaults.standard.object(
+            forKey: Self.lastDurationKey(for: chore.id)
+        ) as? NSNumber else {
+            return standardMinutes
+        }
+
+        let storedMinutes = storedValue.intValue
+        guard (1...180).contains(storedMinutes) else {
+            return standardMinutes
+        }
+
+        return storedMinutes
+    }
+
+    func saveLastDuration(choreId: String, minutes: Int) {
+        let normalizedMinutes = max(1, min(180, minutes))
+        UserDefaults.standard.set(normalizedMinutes, forKey: Self.lastDurationKey(for: choreId))
+    }
+
     func logout() {
         accessToken = nil
         currentUser = nil
@@ -954,6 +975,10 @@ final class AppViewModel: ObservableObject {
 
     private static let choreOrderDefaultsKey = "chore-card-order-v1"
     private static let pinnedChoresDefaultsKey = "chore-card-pinned-v1"
+
+    private static func lastDurationKey(for choreId: String) -> String {
+        "chore_last_duration_\(choreId)"
+    }
 
     private static let monthFormatter: DateFormatter = {
         let formatter = DateFormatter()

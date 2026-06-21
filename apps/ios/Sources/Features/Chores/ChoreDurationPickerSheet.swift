@@ -9,13 +9,14 @@ struct ChoreDurationPickerSheet: View {
 
     init(
         chore: ChoreItem,
+        initialMinutes: Int? = nil,
         onCancel: @escaping () -> Void,
         onConfirm: @escaping (_ actualMinutes: Int, _ calculatedPoints: Int) -> Void
     ) {
         self.chore = chore
         self.onCancel = onCancel
         self.onConfirm = onConfirm
-        _selectedMinutes = State(initialValue: max(1, min(180, chore.minutes)))
+        _selectedMinutes = State(initialValue: max(1, min(180, initialMinutes ?? chore.minutes)))
     }
 
     var body: some View {
@@ -30,14 +31,9 @@ struct ChoreDurationPickerSheet: View {
                     .padding(.top, 8)
 
                 DSCard(fill: chore.color) {
-                    VStack(alignment: .leading, spacing: 10) {
-                        Label(chore.name, systemImage: chore.icon)
-                            .font(.appHeadline(24))
-                        Text("系统建议：\(chore.minutes) 分钟")
-                            .font(.appBody(15))
-                            .foregroundStyle(DSColor.mutedInk)
-                    }
-                    .foregroundStyle(DSColor.ink)
+                    Label(chore.name, systemImage: chore.icon)
+                        .font(.appHeadline(24))
+                        .foregroundStyle(DSColor.ink)
                 }
 
                 DSCard {
