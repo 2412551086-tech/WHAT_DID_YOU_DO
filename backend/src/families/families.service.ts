@@ -10,6 +10,7 @@ import { randomBytes } from 'node:crypto';
 import { AuthUser } from '../auth/auth-user';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateFamilyDto } from './dto/create-family.dto';
+import { CreateJoinRequestByInviteCodeDto } from './dto/create-join-request-by-invite-code.dto';
 import { CreateJoinRequestDto } from './dto/create-join-request.dto';
 import { ReviewJoinRequestDto } from './dto/review-join-request.dto';
 
@@ -74,10 +75,13 @@ export class FamiliesService {
           familyId,
         },
       },
+      include: {
+        user: true,
+      },
     });
 
     if (existingMembership) {
-      throw new ConflictException('Family membership or join request already exists');
+      return this.formatMembership(existingMembership);
     }
 
     const membership = await this.prisma.familyMember.create({
@@ -96,6 +100,20 @@ export class FamiliesService {
     });
 
     return this.formatMembership(membership);
+  }
+
+  async createJoinRequestByInviteCode(user: AuthUser, dto: CreateJoinRequestByInviteCodeDto) {
+    const inviteCode = dto.inviteCode.trim().toUpperCase();
+    const family = await this.prisma.family.findUnique({
+      where: { inviteCode },
+      select: { id: true },
+    });
+
+    if (!family) {
+      throw new NotFoundException('Invite code not found');
+    }
+
+    return this.createJoinRequest(user, family.id, dto);
   }
 
   async getJoinRequests(user: AuthUser, familyId: string) {

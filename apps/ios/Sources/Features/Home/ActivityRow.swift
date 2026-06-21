@@ -22,6 +22,22 @@ struct ActivityRow: View {
                         .font(.appBody(13))
                         .foregroundStyle(DSColor.mutedInk)
                         .fixedSize(horizontal: false, vertical: true)
+
+                    if !record.likedBy.isEmpty {
+                        HStack(spacing: 5) {
+                            ForEach(Array(record.likedBy.prefix(4))) { liker in
+                                AvatarView(
+                                    avatarKey: liker.avatarKey,
+                                    fallbackText: liker.displayName,
+                                    size: 22
+                                )
+                            }
+                            Text("为这笔功劳点赞")
+                                .font(.appBody(11))
+                                .foregroundStyle(DSColor.mutedInk)
+                        }
+                        .transition(.opacity.combined(with: .scale(scale: 0.92)))
+                    }
                 }
 
                 Spacer(minLength: 6)

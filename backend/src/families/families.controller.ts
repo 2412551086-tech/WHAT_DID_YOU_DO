@@ -3,6 +3,7 @@ import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { DevAuthGuard } from '../auth/guards/dev-auth.guard';
 import { AuthUser } from '../auth/auth-user';
 import { CreateFamilyDto } from './dto/create-family.dto';
+import { CreateJoinRequestByInviteCodeDto } from './dto/create-join-request-by-invite-code.dto';
 import { CreateJoinRequestDto } from './dto/create-join-request.dto';
 import { ReviewJoinRequestDto } from './dto/review-join-request.dto';
 import { FamiliesService } from './families.service';
@@ -20,6 +21,14 @@ export class FamiliesController {
   @Get('me')
   getMyFamilies(@CurrentUser() user: AuthUser) {
     return this.familiesService.getMyFamilies(user);
+  }
+
+  @Post('join-requests')
+  createJoinRequestByInviteCode(
+    @CurrentUser() user: AuthUser,
+    @Body() dto: CreateJoinRequestByInviteCodeDto,
+  ) {
+    return this.familiesService.createJoinRequestByInviteCode(user, dto);
   }
 
   @Post(':familyId/join-requests')

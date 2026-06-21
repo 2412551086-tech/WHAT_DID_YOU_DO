@@ -37,7 +37,7 @@ struct HomeView: View {
                         .homeListRow()
                     }
 
-                    ForEach(viewModel.todayRecords) { record in
+                    ForEach(viewModel.recentRecords) { record in
                         ActivityRow(record: record)
                             .homeListRow()
                     }
@@ -74,7 +74,7 @@ struct HomeView: View {
             DSMetricPill(title: "今日积分", value: "\(viewModel.todayPoints)", color: DSColor.yellow)
             DSMetricPill(title: "今日记录", value: "\(viewModel.todayRecordCount) 项", color: DSColor.mint)
             DSMetricPill(title: "榜首", value: viewModel.leader?.name ?? "-", color: DSColor.sky)
-            DSMetricPill(title: "图片凭证", value: viewModel.currentFamily?.requiresPhotoProof == true ? "需要" : "不需要", color: DSColor.lavender)
+            DSMetricPill(title: "图片凭证", value: "即将开放", color: DSColor.lavender)
         }
     }
 
@@ -86,6 +86,12 @@ struct HomeView: View {
                 Text("5 到 15 秒完成一次普通家务记录，先从核心 10 项开始。")
                     .font(.appBody(14))
                     .foregroundStyle(DSColor.mutedInk)
+                Label(
+                    "家庭邀请码：\(viewModel.currentFamily?.inviteCode ?? MockData.family.inviteCode)",
+                    systemImage: "number.square.fill"
+                )
+                .font(.appBody(14))
+                .foregroundStyle(DSColor.ink)
                 DSButton(title: "记一下", systemImage: "plus.circle.fill", style: .primary) {
                     viewModel.showChoreSelection()
                 }

@@ -35,17 +35,19 @@ struct CreateFamilyView: View {
                             avatarKey: $viewModel.selectedAvatarKey
                         )
 
-                        DSCard {
-                            Toggle(isOn: $viewModel.requiresPhotoProof) {
+                        DSCard(fill: DSColor.surface) {
+                            HStack(spacing: 12) {
+                                Image(systemName: "photo.badge.clock")
+                                    .font(.system(size: 22, weight: .black))
                                 VStack(alignment: .leading, spacing: 5) {
-                                    Text("需要图片凭证")
+                                    Text("图片凭证 · 即将开放")
                                         .font(.appHeadline(18))
-                                    Text("默认关闭，先相信家人，不先审讯家人。")
+                                    Text("MVP 暂时关闭，不会影响正常记录家务。")
                                         .font(.appBody(14))
                                         .foregroundStyle(DSColor.mutedInk)
                                 }
                             }
-                            .tint(DSColor.coral)
+                            .foregroundStyle(DSColor.ink)
                         }
 
                         DSButton(title: "创建并进入首页", systemImage: "arrow.right.circle.fill", style: .primary) {

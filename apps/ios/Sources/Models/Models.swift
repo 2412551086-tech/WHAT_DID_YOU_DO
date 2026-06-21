@@ -75,6 +75,12 @@ struct ChoreItem: Identifiable, Hashable {
     var requiredPlan = "free"
 }
 
+struct ActivityLiker: Identifiable, Hashable {
+    let id: String
+    let displayName: String
+    let avatarKey: String?
+}
+
 struct ChoreRecord: Identifiable, Hashable {
     let id: String
     let memberName: String
@@ -92,6 +98,7 @@ struct ChoreRecord: Identifiable, Hashable {
     let customIdentity: String?
     let avatarKey: String?
     var likeCount: Int = 0
+    var likedBy: [ActivityLiker] = []
     var likedByMe: Bool = false
     var canDelete: Bool = false
 

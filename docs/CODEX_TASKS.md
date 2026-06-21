@@ -1,86 +1,73 @@
 # Codex Tasks
 
-本文件是按依赖顺序排列的实施队列。完成一项后同步更新 `PRD_ACCEPTANCE_MATRIX.md` 状态。
+更新时间：2026-06-21
 
-## Milestone 0：当前 MVP 基线
+本文件只保留当前真实待办。已经完成的业务能力记录在 `PROJECT_STATUS.md` 和 `PRD_ACCEPTANCE_MATRIX.md`，不再重复伪装成待实现任务。
 
-- [x] NestJS + Prisma + PostgreSQL 后端可运行。
-- [x] SwiftUI + MVVM iOS 工程与 DesignSystem 可运行。
-- [x] Mock/API 模式切换。
-- [x] 登录、创建家庭、家务列表、记录、动态、排行、月报主链路。
-- [x] 实际耗时选择器与 `actualMinutes` 后端支持。
-- [x] API loading、error 与 DebugPanel 基础能力。
+## 已完成基线
 
-## Milestone 1：Schema 与迁移
+- [x] NestJS + Prisma + PostgreSQL 本地后端。
+- [x] SwiftUI + MVVM、DesignSystem、Mock/API 切换。
+- [x] 手机号开发登录与 Bearer token。
+- [x] 创建家庭、inviteCode 加入、OWNER 审核。
+- [x] 家庭身份、头像占位、ACTIVE/PENDING/REJECTED 权限。
+- [x] 核心/高级家务目录和高级锁定态。
+- [x] actualMinutes 选择、持久化、积分换算。
+- [x] day/recent activity、day/month 排行榜、月报。
+- [x] 幂等点赞/取消点赞、点赞头像、权限化软删除。
+- [x] 删除记录后的动态、今日统计、排行和月报过滤。
+- [x] API loading、error、DebugPanel。
+- [x] 后端 build/test/e2e 和 iOS Debug build 基线通过。
 
-- [ ] 定义 Prisma enum：`MemberRole`、`MemberStatus`。
-- [ ] 扩展 `FamilyMember`：身份、自定义身份、头像、角色、状态。
-- [ ] 扩展 `ChoreRecord`：`deletedAt`、`deletedById`。
-- [ ] 新增 `ChoreRecordLike` 与唯一约束。
-- [ ] 确定加入申请复用 `FamilyMember(PENDING)` 或独立表；优先复用成员关系，减少模型数量。
-- [ ] 生成 migration，并为现有 FamilyMember 数据回填安全默认值。
-- [ ] 更新 Prisma seed 与测试 fixture。
+## Phase 1：测试与稳定性
 
-## Milestone 2：后端身份与审核
+- [ ] 将后端 e2e fixture 和数据库清理策略固化，减少测试顺序依赖。
+- [ ] 补充 UTC 跨天、跨月、空月报、180 分钟边界测试。
+- [ ] 补充重复申请在 PENDING/ACTIVE/REJECTED 各状态下的预期测试。
+- [ ] 增加 iOS ViewModel 单元测试：登录、审核、记录、刷新、点赞、删除。
+- [ ] 增加一条 iOS UI 主链路测试，覆盖 A 创建、B 申请、A 审核、B 记录。
+- [ ] 验证弱网、超时、后端未启动、token 失效时的错误文案和恢复路径。
+- [ ] 防止点赞、审核、创建记录按钮在请求中重复触发。
+- [ ] 建立发布前手工回归清单并记录实际结果。
 
-- [ ] 扩展创建家庭 DTO，接收 `familyIdentity`、`customIdentity`、`avatarKey`。
-- [ ] 创建家庭时写入 `ACTIVE + OWNER`。
-- [ ] 实现提交加入申请接口，初始为 `PENDING + MEMBER`。
-- [ ] 实现 OWNER 查看待审核申请。
-- [ ] 实现 approve/reject。
-- [ ] 将家庭访问守卫升级为只允许 ACTIVE 成员。
-- [ ] 增加 OWNER 权限守卫或 service 级权限检查。
-- [ ] 添加 DTO 校验与错误 code。
-- [ ] 添加 OWNER/MEMBER/PENDING/REJECTED 权限测试。
+## Phase 2：Keychain 与会话
 
-## Milestone 3：后端记录互动
+- [ ] 将 accessToken 从内存/普通存储迁移到 Keychain。
+- [ ] 明确启动时恢复会话、token 无效时回到登录页的行为。
+- [ ] 退出登录时清理 token、当前家庭、用户态和敏感调试信息。
+- [ ] 保留 Mock Preview 的无 Keychain 依赖路径。
 
-- [ ] 扩展 activity，返回 identity、avatarKey、likeCount、likedByMe、canDelete。
-- [ ] 实现记录软删除接口。
-- [ ] activity 统一过滤 `deletedAt IS NULL`。
-- [ ] leaderboard 统一过滤 `deletedAt IS NULL`。
-- [ ] monthly-report 统一过滤 `deletedAt IS NULL`。
-- [ ] 实现点赞接口并保证幂等。
-- [ ] 实现取消点赞接口并保证幂等。
-- [ ] 禁止对已删除记录点赞。
-- [ ] 添加删除、点赞和聚合回归 e2e。
+## Phase 3：环境配置
 
-## Milestone 4：iOS Mock 实现
+- [ ] 将 `APIConfig` 拆分为 Debug、Staging、Release 配置。
+- [ ] Debug 可使用本机/局域网 URL；Release 禁止指向 `127.0.0.1`。
+- [ ] 通过 xcconfig 或构建设置注入 baseURL，不在业务代码硬编码生产地址。
+- [ ] 为后端补 `.env.example`，明确 `DATABASE_URL`、`JWT_SECRET` 等变量。
+- [ ] Release 构建关闭 DebugPanel 和敏感网络日志。
+- [ ] 配置 CI：后端 build/test/e2e 与 iOS Simulator build。
 
-- [ ] 新增家庭身份枚举与自定义身份输入。
-- [ ] 新增 avatarKey 本地头像映射和占位 Assets。
-- [ ] 创建家庭流程保存身份与头像。
-- [ ] Mock 加入申请、审核状态与 OWNER/MEMBER 权限。
-- [ ] Activity 卡片展示头像和家庭身份。
-- [ ] Mock 记录支持左滑删除和权限判断。
-- [ ] Mock 记录支持点赞/取消点赞。
+## Phase 4：TestFlight 准备
 
-## Milestone 5：iOS API 接入
+- [ ] 确认 Bundle ID、版本号、Build Number 和签名团队。
+- [ ] 配置 App Icon、Launch Screen、权限说明和隐私清单。
+- [ ] 准备隐私政策、测试账号和审核说明。
+- [ ] 完成 Release Archive 并上传 App Store Connect。
+- [ ] 建立内部 TestFlight 测试组并完成至少一轮真机验收。
+- [ ] 记录崩溃、网络失败和数据库迁移回滚方案。
 
-- [ ] 更新 Family/Member/Activity DTO。
-- [ ] 接入加入申请和审核接口。
-- [ ] 接入删除记录接口，成功后刷新首页、排行和月报。
-- [ ] 接入点赞与取消点赞接口。
-- [ ] 保留全部 loading、error 与 DebugPanel 诊断信息。
-- [ ] 验证 Mock/API 模式行为一致。
+## 暂缓功能
 
-## Milestone 6：验收与回归
-
-- [ ] 后端 build、unit、e2e 全部通过。
-- [ ] iOS Debug build 通过。
-- [ ] OWNER 完整流程通过。
-- [ ] MEMBER 完整流程通过。
-- [ ] PENDING/REJECTED 越权请求均被拒绝。
-- [ ] 删除后动态、排行、月报立即一致。
-- [ ] 点赞计数与 likedByMe 状态一致。
-- [ ] 实际耗时和积分主流程无回归。
-- [ ] 更新 API curl 清单与 Xcode 手工验收清单。
+- 正式短信验证码、Apple 登录、微信登录。
+- 真实头像和图片凭证上传。
+- StoreKit 订阅与服务端权益校验。
+- 语音识别、自定义家务、常做/重复任务。
+- 评论、推送通知、任务排班和积分兑换。
 
 ## Guardrails
 
-- 本轮不做真实头像上传。
-- 本轮不新增管理员、儿童成员、评论、通知等复杂功能。
-- familyIdentity 不得参与权限判断。
-- 所有家庭写操作必须校验 ACTIVE 成员关系。
-- 所有 OWNER 操作必须校验记录或申请属于同一家庭。
-- 不删除现有 migration，不重建项目，不破坏 Mock/API 开关。
+- 不混用 npm 与 pnpm。
+- 不删除历史 migration，不重建项目。
+- 不提交 `.env`、`node_modules`、`DerivedData`、`xcuserdata`、`*.xcuserstate`。
+- 家庭身份只用于展示，权限只由 memberRole/status 决定。
+- 家庭数据写操作必须校验 ACTIVE 成员关系。
+- 发布配置不得包含开发密钥或本机 URL。

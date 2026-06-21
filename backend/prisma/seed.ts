@@ -1,10 +1,10 @@
 import { prisma } from "./client";
 
 const coreChores = [
-  { name: "做饭 / 备餐", category: "厨房类", standardMinutes: 45, difficultyMultiplier: 1.5, defaultPoints: 67.5, icon: "flame.fill" },
+  { name: "做饭 / 备餐", category: "厨房类", standardMinutes: 45, difficultyMultiplier: 1.5, defaultPoints: 68, icon: "flame.fill" },
   { name: "饭后收拾 / 洗碗", category: "厨房类", standardMinutes: 15, difficultyMultiplier: 1.4, defaultPoints: 21, icon: "fork.knife" },
   { name: "洗衣服", category: "洗护类", standardMinutes: 10, difficultyMultiplier: 1.3, defaultPoints: 13, icon: "washer.fill" },
-  { name: "收衣 / 叠衣 ", category: "洗护类", standardMinutes: 15, difficultyMultiplier: 1.2, defaultPoints: 18, icon: "square.stack.3d.up.fill" },
+  { name: "收衣 / 叠衣", category: "洗护类", standardMinutes: 15, difficultyMultiplier: 1.2, defaultPoints: 18, icon: "square.stack.3d.up.fill" },
   { name: "扫地 / 吸尘", category: "清洁类", standardMinutes: 20, difficultyMultiplier: 1.3, defaultPoints: 26, icon: "sparkles" },
   { name: "拖地 / 地面湿清洁", category: "清洁类", standardMinutes: 25, difficultyMultiplier: 1.6, defaultPoints: 40, icon: "drop.fill" },
   { name: "整理收纳", category: "收纳类", standardMinutes: 20, difficultyMultiplier: 1.3, defaultPoints: 26, icon: "shippingbox.fill" },

@@ -123,6 +123,7 @@ describe("MVP API (e2e)", () => {
       status: "ACTIVE",
       role: "owner",
     });
+    expect(response.body.requirePhotoProof).toBe(false);
   });
 
   it("enforces membership review, record permissions, likes, and soft-delete aggregation", async () => {
@@ -141,6 +142,10 @@ describe("MVP API (e2e)", () => {
       })
       .expect(201);
     const familyId = familyResponse.body.id as string;
+    const inviteCode = familyResponse.body.inviteCode as string;
+
+    expect(familyResponse.body.requirePhotoProof).toBe(false);
+    expect(inviteCode).toMatch(/^[A-F0-9]{8}$/);
 
     expect(familyResponse.body.members[0]).toMatchObject({
       userId: owner.userId,
@@ -151,9 +156,10 @@ describe("MVP API (e2e)", () => {
     });
 
     const joinResponse = await request(app.getHttpServer())
-      .post(`/families/${familyId}/join-requests`)
+      .post("/families/join-requests")
       .set("Authorization", `Bearer ${member.token}`)
       .send({
+        inviteCode: inviteCode.toLowerCase(),
         identityLabel: "室友",
         avatarKey: "avatar_member",
       })
@@ -167,6 +173,29 @@ describe("MVP API (e2e)", () => {
       identityLabel: "室友",
       avatarKey: "avatar_member",
     });
+
+    const repeatedJoinResponse = await request(app.getHttpServer())
+      .post("/families/join-requests")
+      .set("Authorization", `Bearer ${member.token}`)
+      .send({
+        inviteCode,
+        identityLabel: "室友",
+        avatarKey: "avatar_member",
+      })
+      .expect(201);
+
+    expect(repeatedJoinResponse.body.id).toBe(memberId);
+    await expect(
+      prisma.familyMember.count({
+        where: { familyId, userId: member.userId },
+      }),
+    ).resolves.toBe(1);
+
+    await request(app.getHttpServer())
+      .post("/families/join-requests")
+      .set("Authorization", `Bearer ${member.token}`)
+      .send({ inviteCode: "NOTFOUND", identityLabel: "室友" })
+      .expect(404);
 
     await request(app.getHttpServer())
       .get("/families/me")
@@ -264,6 +293,22 @@ describe("MVP API (e2e)", () => {
       .expect(201);
     const ownerRecordId = ownerRecordResponse.body.id as string;
 
+    const historicalDate = new Date();
+    historicalDate.setUTCMonth(historicalDate.getUTCMonth() - 2);
+    const historicalRecord = await prisma.choreRecord.create({
+      data: {
+        familyId,
+        userId: owner.userId,
+        choreId,
+        note: "historical record",
+        imageUrls: [],
+        minutes: 15,
+        actualMinutes: 15,
+        points: 20,
+        createdAt: historicalDate,
+      },
+    });
+
     expect(ownerRecordResponse.body).toMatchObject({
       actualMinutes: 15,
       points: 20,
@@ -291,7 +336,11 @@ describe("MVP API (e2e)", () => {
     await request(app.getHttpServer())
       .post(`/chore-records/${ownerRecordId}/like`)
       .set("Authorization", `Bearer ${member.token}`)
-      .expect(409);
+      .expect(201, {
+        recordId: ownerRecordId,
+        likeCount: 1,
+        likedByMe: true,
+      });
 
     const memberActivityResponse = await request(app.getHttpServer())
       .get(`/families/${familyId}/activity`)
@@ -313,6 +362,13 @@ describe("MVP API (e2e)", () => {
       likedByMe: true,
       canDelete: false,
     });
+    expect(memberActivityResponse.body[0].likedBy).toEqual([
+      expect.objectContaining({
+        id: member.userId,
+        identityLabel: "室友",
+        avatarKey: "avatar_member",
+      }),
+    ]);
 
     const ownerActivityResponse = await request(app.getHttpServer())
       .get(`/families/${familyId}/activity`)
@@ -335,6 +391,15 @@ describe("MVP API (e2e)", () => {
       likeCount: 0,
       likedByMe: false,
     });
+
+    await request(app.getHttpServer())
+      .delete(`/chore-records/${ownerRecordId}/like`)
+      .set("Authorization", `Bearer ${member.token}`)
+      .expect(200, {
+        recordId: ownerRecordId,
+        likeCount: 0,
+        likedByMe: false,
+      });
 
     const memberOwnRecordResponse = await request(app.getHttpServer())
       .post("/chore-records")
@@ -378,13 +443,30 @@ describe("MVP API (e2e)", () => {
       .send({ familyId, choreId, actualMinutes: 181 })
       .expect(400);
 
-    const finalActivityResponse = await request(app.getHttpServer())
+    const todayActivityResponse = await request(app.getHttpServer())
+      .get(`/families/${familyId}/activity?range=day`)
+      .set("Authorization", `Bearer ${owner.token}`)
+      .expect(200);
+
+    expect(todayActivityResponse.body).toHaveLength(1);
+    expect(todayActivityResponse.body[0].recordId).toBe(ownerRecordId);
+
+    const recentActivityResponse = await request(app.getHttpServer())
+      .get(`/families/${familyId}/activity?range=recent`)
+      .set("Authorization", `Bearer ${owner.token}`)
+      .expect(200);
+
+    expect(recentActivityResponse.body.map((record: { recordId: string }) => record.recordId)).toEqual(
+      expect.arrayContaining([ownerRecordId, historicalRecord.id]),
+    );
+    expect(recentActivityResponse.body).toHaveLength(2);
+
+    const defaultActivityResponse = await request(app.getHttpServer())
       .get(`/families/${familyId}/activity`)
       .set("Authorization", `Bearer ${owner.token}`)
       .expect(200);
 
-    expect(finalActivityResponse.body).toHaveLength(1);
-    expect(finalActivityResponse.body[0].recordId).toBe(ownerRecordId);
+    expect(defaultActivityResponse.body).toHaveLength(2);
 
     const leaderboardResponse = await request(app.getHttpServer())
       .get(`/families/${familyId}/leaderboard?range=month`)

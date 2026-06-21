@@ -3,7 +3,7 @@ import UIKit
 
 struct ProfileView: View {
     @EnvironmentObject private var viewModel: AppViewModel
-    @State private var didCopyFamilyID = false
+    @State private var didCopyInviteCode = false
 
     var body: some View {
         ZStack {
@@ -76,20 +76,19 @@ struct ProfileView: View {
             DSCard {
                 VStack(alignment: .leading, spacing: 12) {
                     settingRow(title: "家庭名称", value: viewModel.familyDisplayName, icon: "house.fill")
-                    settingRow(title: "家庭 ID", value: viewModel.currentFamily?.id ?? "无", icon: "doc.on.doc.fill")
                     settingRow(title: "邀请码", value: viewModel.currentFamily?.inviteCode ?? MockData.family.inviteCode, icon: "number.square.fill")
-                    settingRow(title: "图片凭证", value: viewModel.currentFamily?.requiresPhotoProof == true ? "需要" : "不需要", icon: "photo.fill")
+                    settingRow(title: "图片凭证", value: "即将开放", icon: "photo.fill")
                 }
             }
 
             DSButton(
-                title: didCopyFamilyID ? "家庭 ID 已复制" : "复制家庭 ID",
-                systemImage: didCopyFamilyID ? "checkmark.circle.fill" : "doc.on.doc.fill",
+                title: didCopyInviteCode ? "邀请码已复制" : "复制家庭邀请码",
+                systemImage: didCopyInviteCode ? "checkmark.circle.fill" : "doc.on.doc.fill",
                 style: .secondary
             ) {
-                guard let familyID = viewModel.currentFamily?.id else { return }
-                UIPasteboard.general.string = familyID
-                didCopyFamilyID = true
+                guard let inviteCode = viewModel.currentFamily?.inviteCode else { return }
+                UIPasteboard.general.string = inviteCode
+                didCopyInviteCode = true
             }
 
             DSButton(title: "进入家庭设置", systemImage: "slider.horizontal.3", style: .secondary) {

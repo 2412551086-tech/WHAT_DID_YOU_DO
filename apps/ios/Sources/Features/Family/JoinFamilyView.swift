@@ -42,18 +42,18 @@ struct JoinFamilyView: View {
         VStack(spacing: 16) {
             DSCard(fill: DSColor.mint) {
                 VStack(alignment: .leading, spacing: 8) {
-                    Text("先报上家庭门牌号")
+                    Text("输入家庭邀请码")
                         .font(.appHeadline())
-                    Text("API 模式当前使用家庭 ID；邀请码解析入口先保留占位。")
+                    Text("请让一家之主在“我的”页面复制邀请码发给你。")
                         .font(.appBody(14))
                         .foregroundStyle(DSColor.mutedInk)
                 }
             }
 
             DSTextField(
-                title: "家庭 ID / 邀请码",
+                title: "家庭邀请码",
                 systemImage: "number.square.fill",
-                text: $viewModel.joinFamilyIdentifier
+                text: $viewModel.joinInviteCode
             )
 
             FamilyIdentityPicker(

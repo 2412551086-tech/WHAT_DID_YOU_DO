@@ -15,7 +15,6 @@ struct DebugPanel: View {
                     row("当前模式", viewModel.modeLabel)
                     row("baseURL", viewModel.debugBaseURL, allowsWrapping: true)
                     row("Token", viewModel.hasAccessToken ? "已保存" : "不存在")
-                    row("Family ID", viewModel.currentFamily?.id ?? "无", allowsWrapping: true)
                     row("最后请求", viewModel.lastRequestPath ?? "无", allowsWrapping: true)
                     row("状态码", viewModel.lastStatusCode.map(String.init) ?? "无")
                     row("最后错误", viewModel.lastAPIErrorMessage ?? "无", allowsWrapping: true)

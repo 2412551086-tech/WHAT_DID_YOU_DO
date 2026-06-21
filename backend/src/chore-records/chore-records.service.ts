@@ -1,6 +1,5 @@
 import {
   BadRequestException,
-  ConflictException,
   ForbiddenException,
   Injectable,
   NotFoundException,
@@ -20,8 +19,12 @@ type RecordWithDetails = Prisma.ChoreRecordGetPayload<{
       };
     };
     likes: {
-      select: {
-        userId: true;
+      include: {
+        user: {
+          include: {
+            memberships: true;
+          };
+        };
       };
     };
     _count: {
@@ -90,19 +93,28 @@ export class ChoreRecordsService {
     return this.formatRecord(record, user.id, membership.memberRole);
   }
 
-  async getActivity(user: AuthUser, familyId: string) {
+  async getActivity(user: AuthUser, familyId: string, range: 'day' | 'recent' = 'recent') {
     const membership = await this.familiesService.assertActiveMember(familyId, user.id);
+    const dayRange = range === 'day' ? this.getUtcDayRange(new Date()) : null;
 
     const records = await this.prisma.choreRecord.findMany({
       where: {
         familyId,
         deletedAt: null,
+        ...(dayRange
+          ? {
+              createdAt: {
+                gte: dayRange.start,
+                lt: dayRange.end,
+              },
+            }
+          : {}),
       },
       include: this.recordDetailsInclude(familyId),
       orderBy: {
         createdAt: 'desc',
       },
-      take: 30,
+      take: range === 'recent' ? 30 : undefined,
     });
 
     return records.map((record) => this.formatRecord(record, user.id, membership.memberRole));
@@ -190,21 +202,15 @@ export class ChoreRecordsService {
     const record = await this.findActiveRecord(recordId);
     await this.familiesService.assertActiveMember(record.familyId, user.id);
 
-    const existingLike = await this.prisma.choreRecordLike.findUnique({
+    await this.prisma.choreRecordLike.upsert({
       where: {
         recordId_userId: {
           recordId,
           userId: user.id,
         },
       },
-    });
-
-    if (existingLike) {
-      throw new ConflictException('Chore record already liked');
-    }
-
-    await this.prisma.choreRecordLike.create({
-      data: {
+      update: {},
+      create: {
         recordId,
         userId: user.id,
       },
@@ -286,8 +292,15 @@ export class ChoreRecordsService {
         },
       },
       likes: {
-        select: {
-          userId: true,
+        include: {
+          user: {
+            include: {
+              memberships: {
+                where: { familyId },
+                take: 1,
+              },
+            },
+          },
         },
       },
       _count: {
@@ -308,6 +321,13 @@ export class ChoreRecordsService {
     return new Date(now.getFullYear(), now.getMonth(), 1);
   }
 
+  private getUtcDayRange(now: Date) {
+    const start = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+    const end = new Date(start);
+    end.setUTCDate(end.getUTCDate() + 1);
+    return { start, end };
+  }
+
   private calculatePoints(defaultPoints: number, actualMinutes: number, standardMinutes: number) {
     if (standardMinutes <= 0) {
       return defaultPoints;
@@ -325,6 +345,16 @@ export class ChoreRecordsService {
       customIdentity: creatorMembership?.customIdentity ?? null,
       avatarKey: creatorMembership?.avatarKey ?? null,
     };
+    const likedBy = record.likes.map((like) => {
+      const likerMembership = like.user.memberships[0];
+      return {
+        id: like.user.id,
+        displayName: like.user.displayName,
+        identityLabel: likerMembership?.identityLabel ?? '家庭成员',
+        customIdentity: likerMembership?.customIdentity ?? null,
+        avatarKey: likerMembership?.avatarKey ?? null,
+      };
+    });
 
     return {
       id: record.id,
@@ -345,6 +375,7 @@ export class ChoreRecordsService {
       note: record.note,
       imageUrls: record.imageUrls,
       likeCount: record._count.likes,
+      likedBy,
       likedByMe: record.likes.some((like) => like.userId === currentUserId),
       canDelete: record.userId === currentUserId || currentMemberRole === MemberRole.OWNER,
       createdAt: record.createdAt,

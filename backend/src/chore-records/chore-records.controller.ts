@@ -3,6 +3,7 @@ import { AuthUser } from '../auth/auth-user';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { DevAuthGuard } from '../auth/guards/dev-auth.guard';
 import { ChoreRecordsService } from './chore-records.service';
+import { ActivityQueryDto } from './dto/activity-query.dto';
 import { CreateChoreRecordDto } from './dto/create-chore-record.dto';
 import { LeaderboardQueryDto } from './dto/leaderboard-query.dto';
 
@@ -17,8 +18,12 @@ export class ChoreRecordsController {
   }
 
   @Get('families/:familyId/activity')
-  getActivity(@CurrentUser() user: AuthUser, @Param('familyId') familyId: string) {
-    return this.choreRecordsService.getActivity(user, familyId);
+  getActivity(
+    @CurrentUser() user: AuthUser,
+    @Param('familyId') familyId: string,
+    @Query() query: ActivityQueryDto,
+  ) {
+    return this.choreRecordsService.getActivity(user, familyId, query.range ?? 'recent');
   }
 
   @Get('families/:familyId/leaderboard')

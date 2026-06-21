@@ -1,96 +1,84 @@
 # MVP Scope
 
-## 1. 当前已跑通基线
+更新时间：2026-06-21
 
-当前 iOS 与后端已完成并跑通以下主链路：
+## 1. 当前 MVP 定义
 
-1. Mock/API 模式切换。
-2. Mock 登录。
-3. 创建和获取家庭。
-4. 获取家务列表。
-5. 选择 1 到 180 分钟实际耗时。
-6. 按实际耗时创建家务记录并计算积分。
-7. 首页刷新积分和家庭动态。
-8. 查看月排行榜。
-9. 查看月报。
+当前 MVP 是一个可在本地完成双用户家庭协作主链路的 iOS App：
 
-## 2. 本轮 MVP 增量范围
+手机号开发登录 → 创建/使用邀请码加入家庭 → OWNER 审核 → 选择家务与实际耗时 → 创建积分记录 → 查看今日/最近动态、排行和月报 → 点赞或软删除记录。
 
-### 2.1 家庭成员身份
+手机号开发登录仅用于联调，不代表正式短信验证码能力。
 
-- 创建家庭时选择家庭身份。
-- 申请加入家庭时选择家庭身份。
-- 支持默认身份列表与自定义身份。
-- 自定义身份必须填写名称。
-- 身份只用于展示，不参与权限判断。
+## 2. 已完成范围
 
-### 2.2 权限与成员状态
+### 2.1 iOS
 
-- 创建家庭的人为 `ACTIVE + OWNER`。
-- 被批准加入的人为 `ACTIVE + MEMBER`。
-- 加入申请初始状态为 `PENDING`。
-- OWNER 可以批准或拒绝申请。
-- 只有 ACTIVE 成员可以访问家庭数据和创建记录。
+- SwiftUI + MVVM 与现有 DesignSystem。
+- Mock/API 模式切换。
+- Login、CreateFamily、JoinFamily、JoinRequests、Home、ChoreSelection、FamilyDashboard、Profile。
+- 底部四 Tab：今日战况、记一下、家庭战况、我的。
+- 选择家庭身份、自定义身份和 `avatarKey` 头像占位。
+- 实际耗时滚轮：1 到 180 分钟，步长 1 分钟。
+- 每个 choreId 的上次确认耗时通过 UserDefaults 持久化。
+- activity 点赞、取消点赞、点赞头像和按权限左滑删除。
+- API loading、error 和仅 Debug 显示的 DebugPanel。
 
-### 2.3 头像占位
+### 2.2 后端
 
-- 创建或加入家庭时选择 `avatarKey`。
-- 后端保存 key，iOS 映射本地 Assets 头像。
-- MVP 不上传真实头像文件。
+- 开发登录与 Bearer token。
+- 创建家庭；创建者为 `ACTIVE + OWNER`。
+- 使用 `inviteCode` 申请加入；申请者为 `PENDING + MEMBER`。
+- OWNER 查询、批准或拒绝加入申请。
+- 核心免费家务和高级锁定家务目录。
+- `actualMinutes` 校验、积分换算和记录持久化。
+- activity 的 `day | recent` 查询。
+- leaderboard 的 `day | month` 查询。
+- 指定 `YYYY-MM` 的 monthly-report。
+- 点赞、取消点赞、软删除和权限校验。
+- 所有统计过滤 `deletedAt != null` 的记录。
 
-### 2.4 家务记录互动
+## 3. 关键规则
 
-- Activity 展示头像、家庭身份、家务、实际耗时和积分。
-- 记录支持左滑删除。
-- 创建人可删除自己的记录。
-- OWNER 可删除家庭内任意记录。
-- 记录采用软删除并从动态、排行榜、月报中排除。
-- ACTIVE 成员可以点赞和取消点赞。
-- 同一用户对同一记录最多一个点赞。
-- Activity 返回 `likeCount` 与 `likedByMe`。
+### 身份与权限
 
-## 3. MVP 数据字段
+- `identityLabel`/`customIdentity` 仅用于展示。
+- `memberRole` 决定权限：`OWNER | MEMBER`。
+- `status` 决定访问资格：`PENDING | ACTIVE | REJECTED`。
+- 只有 ACTIVE 成员能读取家庭数据、记录家务和互动。
 
-### FamilyMember
+### 实际耗时与积分
 
-- `memberRole`: `OWNER | MEMBER`
-- `memberStatus`: `PENDING | ACTIVE | REJECTED`
-- `familyIdentity`
-- `customIdentity?`
-- `avatarKey`
+- `actualMinutes` 范围为 1 到 180。
+- 未传 `actualMinutes` 时使用家务标准时长。
+- `points = round(defaultPoints * actualMinutes / standardMinutes)`。
+- 标准时长为 0 时回退到默认积分，避免除零。
 
-### ChoreRecord
+### 动态与删除
 
-- 保留当前 `actualMinutes` 与 `points`
-- 新增 `deletedAt?`
-- 新增 `deletedById?`
+- `range=day`：当前 UTC 自然日的全部未删除记录。
+- `range=recent`：最近 30 条未删除记录；不传 range 时默认 recent。
+- 创建者可删除自己的记录；OWNER 可删除家庭内任意记录。
+- 删除只写入 `deletedAt`、`deletedById`，不物理移除。
+- 已删除记录不进入 activity、leaderboard 或 monthly-report。
 
-### ChoreRecordLike
+### 图片凭证
 
-- `userId`
-- `choreRecordId`
-- `createdAt`
-- 唯一约束：`userId + choreRecordId`
+- Prisma 和后端校验逻辑保留 `requirePhotoProof`、`imageUrls`。
+- iOS MVP 不提供真实图片选择/上传，入口隐藏或禁用。
+- iOS 创建家庭固定发送 `requirePhotoProof=false`。
 
-## 4. 明确不在本轮范围
+## 4. 不在当前 MVP 范围
 
-1. 真实头像图片上传、裁剪与云存储。
-2. OWNER 转让、多个 OWNER、管理员角色。
-3. 儿童成员特殊权限。
-4. 记录删除恢复与回收站。
-5. 点赞通知、评论、表情回应。
-6. 加入申请的推送通知。
-7. 家庭成员封禁、退出与历史归档策略。
-8. 复杂审核流或多级审批。
+- 正式短信验证码、Apple 登录、微信登录。
+- Keychain 完整凭证管理。
+- 真实头像和图片凭证上传。
+- StoreKit 订阅与服务端权益校验。
+- 语音识别、自定义家务、常做任务、重复任务。
+- 评论、通知、任务排班、积分兑换。
+- OWNER 转让、多管理员和成员退出/移除策略。
+- 家庭时区配置、生产监控和 App Store 正式发布。
 
-## 5. 完成定义
+## 5. 当前完成定义
 
-本轮 MVP 完成需满足：
-
-1. Prisma migration、seed 和现有数据兼容策略明确。
-2. 后端权限测试覆盖 OWNER、MEMBER、PENDING、REJECTED。
-3. 软删除后 activity、leaderboard、monthly-report 结果一致。
-4. 点赞接口幂等且唯一约束生效。
-5. iOS Mock/API 两种模式都支持新增字段与互动。
-6. iOS 主流程与现有实际耗时功能无回归。
-7. DebugPanel 能辅助确认 token、家庭和最后一次请求状态。
+当前 MVP 代码范围已经达到本地联调完成定义。下一阶段完成定义转为：自动化回归稳定、密钥与环境隔离、Keychain、签名归档和 TestFlight 可安装验证。

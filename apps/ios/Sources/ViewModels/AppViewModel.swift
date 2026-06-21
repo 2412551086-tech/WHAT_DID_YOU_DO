@@ -10,7 +10,7 @@ final class AppViewModel: ObservableObject {
     @Published var selectedIdentityLabel = "男主人"
     @Published var customIdentity = ""
     @Published var selectedAvatarKey = "avatar_01"
-    @Published var joinFamilyIdentifier = ""
+    @Published var joinInviteCode = ""
     @Published private(set) var joinRequestSubmitted = false
     @Published private(set) var accessToken: String?
     @Published private(set) var currentUser: AppUser?
@@ -21,6 +21,7 @@ final class AppViewModel: ObservableObject {
     @Published private(set) var choreOrder: [String] = []
     @Published private(set) var pinnedChoreIDs: Set<String> = []
     @Published private(set) var todayRecords = MockData.todayRecords
+    @Published private(set) var recentRecords = MockData.todayRecords
     @Published private(set) var monthlyRanking = MockData.members
     @Published private(set) var monthlyReport: MonthlyReport? = MockData.monthlyReport
     @Published private(set) var isLoading = false
@@ -149,7 +150,7 @@ final class AppViewModel: ObservableObject {
     func submitJoinRequest() {
         clearError()
 
-        guard !joinFamilyIdentifier.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+        guard !joinInviteCode.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             errorMessage = AppStateError.missingFamilyIdentifier.localizedDescription
             return
         }
@@ -289,10 +290,14 @@ final class AppViewModel: ObservableObject {
         clearError()
 
         guard !usesMockData else {
-            guard let index = todayRecords.firstIndex(where: { $0.id == record.id }) else { return }
-            todayRecords[index].likedByMe.toggle()
-            todayRecords[index].likeCount += todayRecords[index].likedByMe ? 1 : -1
-            todayRecords[index].likeCount = max(0, todayRecords[index].likeCount)
+            let shouldLike = !record.likedByMe
+            let liker = ActivityLiker(
+                id: currentUser?.id ?? MockData.currentUser.id,
+                displayName: currentUserName,
+                avatarKey: currentMembership?.avatarKey
+            )
+            Self.updateMockLike(in: &todayRecords, recordID: record.id, shouldLike: shouldLike, liker: liker)
+            Self.updateMockLike(in: &recentRecords, recordID: record.id, shouldLike: shouldLike, liker: liker)
             return
         }
 
@@ -385,8 +390,9 @@ final class AppViewModel: ObservableObject {
         selectedTab = .today
         phoneNumber = ""
         familyName = MockData.family.name
-        joinFamilyIdentifier = ""
+        joinInviteCode = ""
         todayRecords = usesMockData ? MockData.todayRecords : []
+        recentRecords = usesMockData ? MockData.todayRecords : []
         monthlyRanking = usesMockData ? MockData.members : []
         monthlyReport = usesMockData ? MockData.monthlyReport : nil
         rootScreen = .login
@@ -423,6 +429,7 @@ final class AppViewModel: ObservableObject {
         currentMembership = nil
         replaceChores(MockData.chores)
         todayRecords = MockData.todayRecords
+        recentRecords = MockData.todayRecords
         monthlyRanking = MockData.members
         monthlyReport = MockData.monthlyReport
         rootScreen = .createFamily
@@ -433,7 +440,7 @@ final class AppViewModel: ObservableObject {
             id: MockData.family.id,
             name: trimmedFamilyName,
             inviteCode: MockData.family.inviteCode,
-            requiresPhotoProof: requiresPhotoProof
+            requiresPhotoProof: false
         )
         currentMembership = FamilyMembership(
             id: "mock-membership-\(UUID().uuidString)",
@@ -476,6 +483,7 @@ final class AppViewModel: ObservableObject {
         )
 
         todayRecords.insert(record, at: 0)
+        recentRecords.insert(record, at: 0)
         addMonthlyPoints(points, to: currentUserName)
         updateMockMonthlyReport()
         selectedTab = .today
@@ -484,6 +492,7 @@ final class AppViewModel: ObservableObject {
 
     private func deleteRecordWithMock(_ record: ChoreRecord) {
         todayRecords.removeAll { $0.id == record.id }
+        recentRecords.removeAll { $0.id == record.id }
 
         if let index = monthlyRanking.firstIndex(where: { $0.id == record.creatorId || $0.name == record.memberName }) {
             monthlyRanking[index].monthlyPoints = max(0, monthlyRanking[index].monthlyPoints - record.points)
@@ -491,6 +500,25 @@ final class AppViewModel: ObservableObject {
         }
 
         updateMockMonthlyReport()
+    }
+
+    private static func updateMockLike(
+        in records: inout [ChoreRecord],
+        recordID: String,
+        shouldLike: Bool,
+        liker: ActivityLiker
+    ) {
+        guard let index = records.firstIndex(where: { $0.id == recordID }) else { return }
+
+        records[index].likedByMe = shouldLike
+        if shouldLike {
+            if !records[index].likedBy.contains(where: { $0.id == liker.id }) {
+                records[index].likedBy.append(liker)
+            }
+        } else {
+            records[index].likedBy.removeAll { $0.id == liker.id }
+        }
+        records[index].likeCount = records[index].likedBy.count
     }
 
     private func updateMockMonthlyReport() {
@@ -531,7 +559,7 @@ final class AppViewModel: ObservableObject {
                 "families",
                 body: CreateFamilyRequest(
                     name: trimmedFamilyName,
-                    requirePhotoProof: requiresPhotoProof,
+                    requirePhotoProof: false,
                     identityLabel: selectedIdentityLabel,
                     customIdentity: normalizedCustomIdentity,
                     avatarKey: selectedAvatarKey
@@ -549,10 +577,11 @@ final class AppViewModel: ObservableObject {
 
     private func submitJoinRequestWithAPI() async {
         await performLoading("正在提交加入申请") {
-            let familyId = joinFamilyIdentifier.trimmingCharacters(in: .whitespacesAndNewlines)
+            let inviteCode = joinInviteCode.trimmingCharacters(in: .whitespacesAndNewlines)
             let _: JoinRequestDTO = try await apiClient.post(
-                "families/\(familyId)/join-requests",
+                "families/join-requests",
                 body: CreateJoinRequestRequest(
+                    inviteCode: inviteCode,
                     identityLabel: selectedIdentityLabel,
                     customIdentity: normalizedCustomIdentity,
                     avatarKey: selectedAvatarKey
@@ -590,6 +619,7 @@ final class AppViewModel: ObservableObject {
             )
 
             todayRecords.insert(mapRecord(record), at: 0)
+            recentRecords.insert(mapRecord(record), at: 0)
             selectedTab = .today
             try await refreshHomeDataFromAPI()
         }
@@ -662,7 +692,14 @@ final class AppViewModel: ObservableObject {
 
         try await loadChoresFromAPI()
 
-        async let activity: [ActivityItemDTO] = apiClient.get("families/\(familyId)/activity")
+        async let todayActivity: [ActivityItemDTO] = apiClient.get(
+            "families/\(familyId)/activity",
+            queryItems: [URLQueryItem(name: "range", value: "day")]
+        )
+        async let recentActivity: [ActivityItemDTO] = apiClient.get(
+            "families/\(familyId)/activity",
+            queryItems: [URLQueryItem(name: "range", value: "recent")]
+        )
         async let leaderboard: [LeaderboardItemDTO] = apiClient.get(
             "families/\(familyId)/leaderboard",
             queryItems: [URLQueryItem(name: "range", value: "month")]
@@ -672,9 +709,15 @@ final class AppViewModel: ObservableObject {
             queryItems: [URLQueryItem(name: "month", value: currentMonth)]
         )
 
-        let (activityItems, leaderboardItems, monthlyReportDTO) = try await (activity, leaderboard, report)
+        let (todayItems, recentItems, leaderboardItems, monthlyReportDTO) = try await (
+            todayActivity,
+            recentActivity,
+            leaderboard,
+            report
+        )
 
-        todayRecords = activityItems.map(mapActivity)
+        todayRecords = todayItems.map(mapActivity)
+        recentRecords = recentItems.map(mapActivity)
         monthlyRanking = leaderboardItems.enumerated().map { index, item in
             FamilyMember(
                 id: item.userId,
@@ -692,8 +735,17 @@ final class AppViewModel: ObservableObject {
             throw AppStateError.missingFamily
         }
 
-        let activity: [ActivityItemDTO] = try await apiClient.get("families/\(familyId)/activity")
-        todayRecords = activity.map(mapActivity)
+        async let todayActivity: [ActivityItemDTO] = apiClient.get(
+            "families/\(familyId)/activity",
+            queryItems: [URLQueryItem(name: "range", value: "day")]
+        )
+        async let recentActivity: [ActivityItemDTO] = apiClient.get(
+            "families/\(familyId)/activity",
+            queryItems: [URLQueryItem(name: "range", value: "recent")]
+        )
+        let (todayItems, recentItems) = try await (todayActivity, recentActivity)
+        todayRecords = todayItems.map(mapActivity)
+        recentRecords = recentItems.map(mapActivity)
     }
 
     private func performLoading(_ message: String, operation: () async throws -> Void) async {
@@ -862,6 +914,7 @@ final class AppViewModel: ObservableObject {
             customIdentity: creator.customIdentity,
             avatarKey: creator.avatarKey,
             likeCount: dto.likeCount ?? 0,
+            likedBy: mapLikers(dto.likedBy),
             likedByMe: dto.likedByMe ?? false,
             canDelete: dto.canDelete ?? true
         )
@@ -886,6 +939,7 @@ final class AppViewModel: ObservableObject {
             customIdentity: creator.customIdentity,
             avatarKey: creator.avatarKey,
             likeCount: dto.likeCount ?? 0,
+            likedBy: mapLikers(dto.likedBy),
             likedByMe: dto.likedByMe ?? false,
             canDelete: dto.canDelete ?? false
         )
@@ -900,6 +954,12 @@ final class AppViewModel: ObservableObject {
         )
     }
 
+    private func mapLikers(_ users: [RecordUserDTO]?) -> [ActivityLiker] {
+        (users ?? []).map { user in
+            ActivityLiker(id: user.id, displayName: user.displayName, avatarKey: user.avatarKey)
+        }
+    }
+
     private static func icon(forName name: String, category: String) -> String {
         switch name {
         case "做饭", "做饭 / 备餐":
@@ -910,7 +970,7 @@ final class AppViewModel: ObservableObject {
             return "washer.fill"
         case "晾衣服":
             return "wind"
-        case "叠衣服", "收衣 / 叠衣 / 放回衣柜":
+        case "叠衣服", "收衣 / 叠衣", "收衣 / 叠衣 / 放回衣柜":
             return "square.stack.3d.up.fill"
         case "扫地", "扫地 / 吸尘":
             return "sparkles"
@@ -1020,7 +1080,7 @@ private enum AppStateError: LocalizedError {
         case .missingFamily:
             return "还没有当前家庭，请先创建家庭"
         case .missingFamilyIdentifier:
-            return "请输入家庭 ID。邀请码解析接口仍是占位。"
+            return "请输入家庭邀请码。"
         case .missingCustomIdentity:
             return "选择自定义身份后，请填写身份名称"
         case .ownerRequired:

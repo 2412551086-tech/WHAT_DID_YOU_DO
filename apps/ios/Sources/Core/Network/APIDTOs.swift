@@ -13,6 +13,7 @@ struct CreateFamilyRequest: Encodable {
 }
 
 struct CreateJoinRequestRequest: Encodable {
+    let inviteCode: String
     let identityLabel: String
     let customIdentity: String?
     let avatarKey: String?
@@ -116,6 +117,7 @@ struct ChoreRecordDTO: Decodable {
     let note: String?
     let imageUrls: [String]
     let likeCount: Int?
+    let likedBy: [RecordUserDTO]?
     let likedByMe: Bool?
     let canDelete: Bool?
     let createdAt: Date
@@ -135,6 +137,7 @@ struct ActivityItemDTO: Decodable {
     let note: String?
     let imageUrls: [String]
     let likeCount: Int?
+    let likedBy: [RecordUserDTO]?
     let likedByMe: Bool?
     let canDelete: Bool?
     let createdAt: Date
