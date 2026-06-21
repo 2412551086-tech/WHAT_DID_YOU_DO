@@ -23,7 +23,32 @@ struct APIDebugSnapshot: Sendable {
     var lastErrorMessage: String?
 }
 
-actor APIClient {
+protocol APIClientProtocol: Sendable {
+    func setAccessToken(_ token: String?) async
+    func currentDebugSnapshot() async -> APIDebugSnapshot
+    func get<Response: Decodable & Sendable>(
+        _ path: String,
+        queryItems: [URLQueryItem]
+    ) async throws -> Response
+    func post<RequestBody: Encodable & Sendable, Response: Decodable & Sendable>(
+        _ path: String,
+        body: RequestBody
+    ) async throws -> Response
+    func post<Response: Decodable & Sendable>(_ path: String) async throws -> Response
+    func patch<RequestBody: Encodable & Sendable, Response: Decodable & Sendable>(
+        _ path: String,
+        body: RequestBody
+    ) async throws -> Response
+    func delete<Response: Decodable & Sendable>(_ path: String) async throws -> Response
+}
+
+extension APIClientProtocol {
+    func get<Response: Decodable & Sendable>(_ path: String) async throws -> Response {
+        try await get(path, queryItems: [])
+    }
+}
+
+actor APIClient: APIClientProtocol {
     private let baseURL: URL
     private var accessToken: String?
     private var debugSnapshot = APIDebugSnapshot()
@@ -40,14 +65,14 @@ actor APIClient {
         debugSnapshot
     }
 
-    func get<Response: Decodable>(
+    func get<Response: Decodable & Sendable>(
         _ path: String,
         queryItems: [URLQueryItem] = []
     ) async throws -> Response {
         try await request(path, method: "GET", queryItems: queryItems, body: Optional<Data>.none)
     }
 
-    func post<RequestBody: Encodable, Response: Decodable>(
+    func post<RequestBody: Encodable & Sendable, Response: Decodable & Sendable>(
         _ path: String,
         body: RequestBody
     ) async throws -> Response {
@@ -55,11 +80,11 @@ actor APIClient {
         return try await request(path, method: "POST", body: data)
     }
 
-    func post<Response: Decodable>(_ path: String) async throws -> Response {
+    func post<Response: Decodable & Sendable>(_ path: String) async throws -> Response {
         try await request(path, method: "POST", body: Optional<Data>.none)
     }
 
-    func patch<RequestBody: Encodable, Response: Decodable>(
+    func patch<RequestBody: Encodable & Sendable, Response: Decodable & Sendable>(
         _ path: String,
         body: RequestBody
     ) async throws -> Response {
@@ -67,11 +92,11 @@ actor APIClient {
         return try await request(path, method: "PATCH", body: data)
     }
 
-    func delete<Response: Decodable>(_ path: String) async throws -> Response {
+    func delete<Response: Decodable & Sendable>(_ path: String) async throws -> Response {
         try await request(path, method: "DELETE", body: Optional<Data>.none)
     }
 
-    private func request<Response: Decodable>(
+    private func request<Response: Decodable & Sendable>(
         _ path: String,
         method: String,
         queryItems: [URLQueryItem] = [],
@@ -146,7 +171,7 @@ actor APIClient {
         JSONEncoder()
     }()
 
-    private static let decoder: JSONDecoder = {
+    static let decoder: JSONDecoder = {
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .custom { decoder in
             let container = try decoder.singleValueContainer()

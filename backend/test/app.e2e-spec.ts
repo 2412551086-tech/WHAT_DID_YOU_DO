@@ -191,11 +191,13 @@ describe("MVP API (e2e)", () => {
       }),
     ).resolves.toBe(1);
 
-    await request(app.getHttpServer())
+    const missingInviteResponse = await request(app.getHttpServer())
       .post("/families/join-requests")
       .set("Authorization", `Bearer ${member.token}`)
       .send({ inviteCode: "NOTFOUND", identityLabel: "室友" })
       .expect(404);
+
+    expect(missingInviteResponse.body.message).toBe("Invite code not found");
 
     await request(app.getHttpServer())
       .get("/families/me")
@@ -211,6 +213,12 @@ describe("MVP API (e2e)", () => {
     await request(app.getHttpServer())
       .get(`/families/${familyId}/join-requests`)
       .set("Authorization", `Bearer ${member.token}`)
+      .expect(403);
+
+    await request(app.getHttpServer())
+      .patch(`/families/${familyId}/join-requests/${memberId}`)
+      .set("Authorization", `Bearer ${member.token}`)
+      .send({ action: "approve" })
       .expect(403);
 
     const pendingResponse = await request(app.getHttpServer())
@@ -285,6 +293,50 @@ describe("MVP API (e2e)", () => {
       .set("Authorization", `Bearer ${rejectedUser.token}`)
       .send({ familyId, choreId, actualMinutes: 20 })
       .expect(403);
+
+    const minimumDurationRecord = await request(app.getHttpServer())
+      .post("/chore-records")
+      .set("Authorization", `Bearer ${member.token}`)
+      .send({ familyId, choreId, actualMinutes: 1, note: "minimum duration" })
+      .expect(201);
+
+    expect(minimumDurationRecord.body).toMatchObject({
+      actualMinutes: 1,
+      points: 1,
+    });
+
+    const maximumDurationRecord = await request(app.getHttpServer())
+      .post("/chore-records")
+      .set("Authorization", `Bearer ${member.token}`)
+      .send({ familyId, choreId, actualMinutes: 180, note: "maximum duration" })
+      .expect(201);
+
+    expect(maximumDurationRecord.body).toMatchObject({
+      actualMinutes: 180,
+      points: 240,
+    });
+
+    await request(app.getHttpServer())
+      .post("/chore-records")
+      .set("Authorization", `Bearer ${member.token}`)
+      .send({ familyId, choreId, actualMinutes: 0 })
+      .expect(400);
+
+    await request(app.getHttpServer())
+      .post("/chore-records")
+      .set("Authorization", `Bearer ${member.token}`)
+      .send({ familyId, choreId, actualMinutes: 181 })
+      .expect(400);
+
+    await request(app.getHttpServer())
+      .delete(`/chore-records/${minimumDurationRecord.body.id}`)
+      .set("Authorization", `Bearer ${member.token}`)
+      .expect(200);
+
+    await request(app.getHttpServer())
+      .delete(`/chore-records/${maximumDurationRecord.body.id}`)
+      .set("Authorization", `Bearer ${member.token}`)
+      .expect(200);
 
     const ownerRecordResponse = await request(app.getHttpServer())
       .post("/chore-records")
@@ -436,12 +488,6 @@ describe("MVP API (e2e)", () => {
     });
     expect(ownerDeletedRecord.deletedAt).toBeInstanceOf(Date);
     expect(ownerDeletedRecord.deletedById).toBe(owner.userId);
-
-    await request(app.getHttpServer())
-      .post("/chore-records")
-      .set("Authorization", `Bearer ${member.token}`)
-      .send({ familyId, choreId, actualMinutes: 181 })
-      .expect(400);
 
     const todayActivityResponse = await request(app.getHttpServer())
       .get(`/families/${familyId}/activity?range=day`)

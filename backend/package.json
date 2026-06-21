@@ -9,6 +9,7 @@
     "build": "nest build",
     "test": "jest",
     "test:e2e": "jest --config ./test/jest-e2e.json",
+    "smoke:mvp": "bash ./scripts/smoke-mvp.sh",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
     "prisma:seed": "prisma db seed",

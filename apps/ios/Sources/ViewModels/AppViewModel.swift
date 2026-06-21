@@ -1,5 +1,11 @@
 import SwiftUI
 
+enum AppDataMode {
+    case configured
+    case mock
+    case api
+}
+
 @MainActor
 final class AppViewModel: ObservableObject {
     @Published var rootScreen: AppScreen = .login
@@ -32,16 +38,25 @@ final class AppViewModel: ObservableObject {
     @Published private(set) var lastAPIErrorMessage: String?
     @Published var selectedChore: ChoreItem?
 
-    private let apiClient: APIClient
+    private let apiClient: any APIClientProtocol
     private let forceMockData: Bool
+    private let dataMode: AppDataMode
+    private let userDefaults: UserDefaults
 
-    init(apiClient: APIClient = APIClient(), forceMockData: Bool = false) {
+    init(
+        apiClient: any APIClientProtocol = APIClient(),
+        forceMockData: Bool = false,
+        dataMode: AppDataMode = .configured,
+        userDefaults: UserDefaults = .standard
+    ) {
         self.apiClient = apiClient
         self.forceMockData = forceMockData
+        self.dataMode = dataMode
+        self.userDefaults = userDefaults
 
         if !forceMockData {
-            choreOrder = UserDefaults.standard.stringArray(forKey: Self.choreOrderDefaultsKey) ?? []
-            pinnedChoreIDs = Set(UserDefaults.standard.stringArray(forKey: Self.pinnedChoresDefaultsKey) ?? [])
+            choreOrder = userDefaults.stringArray(forKey: Self.choreOrderDefaultsKey) ?? []
+            pinnedChoreIDs = Set(userDefaults.stringArray(forKey: Self.pinnedChoresDefaultsKey) ?? [])
         }
 
         synchronizeChoreLayout()
@@ -360,7 +375,7 @@ final class AppViewModel: ObservableObject {
 
     func getDefaultDuration(for chore: ChoreItem) -> Int {
         let standardMinutes = max(1, min(180, chore.minutes))
-        guard let storedValue = UserDefaults.standard.object(
+        guard let storedValue = userDefaults.object(
             forKey: Self.lastDurationKey(for: chore.id)
         ) as? NSNumber else {
             return standardMinutes
@@ -376,7 +391,7 @@ final class AppViewModel: ObservableObject {
 
     func saveLastDuration(choreId: String, minutes: Int) {
         let normalizedMinutes = max(1, min(180, minutes))
-        UserDefaults.standard.set(normalizedMinutes, forKey: Self.lastDurationKey(for: choreId))
+        userDefaults.set(normalizedMinutes, forKey: Self.lastDurationKey(for: choreId))
     }
 
     func logout() {
@@ -404,7 +419,18 @@ final class AppViewModel: ObservableObject {
     }
 
     private var usesMockData: Bool {
-        forceMockData || APIConfig.useMockData
+        if forceMockData {
+            return true
+        }
+
+        switch dataMode {
+        case .configured:
+            return APIConfig.useMockData
+        case .mock:
+            return true
+        case .api:
+            return false
+        }
     }
 
     private var normalizedCustomIdentity: String? {
@@ -658,8 +684,8 @@ final class AppViewModel: ObservableObject {
             return
         }
 
-        UserDefaults.standard.set(choreOrder, forKey: Self.choreOrderDefaultsKey)
-        UserDefaults.standard.set(Array(pinnedChoreIDs), forKey: Self.pinnedChoresDefaultsKey)
+        userDefaults.set(choreOrder, forKey: Self.choreOrderDefaultsKey)
+        userDefaults.set(Array(pinnedChoreIDs), forKey: Self.pinnedChoresDefaultsKey)
     }
 
     @discardableResult

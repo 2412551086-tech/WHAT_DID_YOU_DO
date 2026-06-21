@@ -36,6 +36,7 @@
 | UI-01 | 主界面 | 四 Tab、DesignSystem、卡片化视觉可运行 | 已完成 | SwiftUI Debug build 已验证 |
 | UI-02 | 网络反馈 | API 主请求有 loading、error 提示 | 已完成 | DebugPanel 仅 Debug 显示 |
 | TEST-01 | 后端回归 | build、unit、test、e2e 通过 | 已完成 | 提交前仍需重复执行 |
-| TEST-02 | iOS 自动化 | 主流程具备 XCTest/UI Test 自动回归 | 未开始 | 当前依赖编译和手测 |
+| TEST-02 | iOS 自动化 | 关键纯逻辑具备 XCTest，主流程具备 UI Test | 部分完成 | 9 项单测已完成，UI Test 未开始 |
+| TEST-03 | API Smoke | 一条命令验证双账号 MVP API 主链路 | 已完成 | `pnpm run smoke:mvp` 共 19 项检查 |
 | ENV-01 | 环境隔离 | Debug/Staging/Release 独立配置 | 部分完成 | 当前主要使用本机 baseURL |
 | RELEASE-01 | TestFlight | 签名、归档、隐私信息、内测安装完成 | 未开始 | 下一阶段重点 |
