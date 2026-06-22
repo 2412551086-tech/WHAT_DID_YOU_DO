@@ -46,7 +46,7 @@
 - [ ] 通过 xcconfig 或构建设置注入 baseURL，不在业务代码硬编码生产地址。
 - [ ] 为后端补 `.env.example`，明确 `DATABASE_URL`、`JWT_SECRET` 等变量。
 - [ ] Release 构建关闭 DebugPanel 和敏感网络日志。
-- [ ] 配置 CI：后端 build/test/e2e 与 iOS Simulator build。
+- [x] 配置 CI：后端 Prisma/build/test/e2e/smoke 与 iOS Simulator build/XCTest。
 
 ## Phase 4：TestFlight 准备
 

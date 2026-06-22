@@ -1,0 +1,114 @@
+name: Backend CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: backend-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    name: Prisma, tests, and MVP smoke
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: app
+          POSTGRES_PASSWORD: app123456
+          POSTGRES_DB: ni_gan_sha_la
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U app -d ni_gan_sha_la"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      DATABASE_URL: postgresql://app:app123456@127.0.0.1:5432/ni_gan_sha_la?schema=public
+      JWT_SECRET: ci-only-secret
+      PORT: 3000
+      BASE_URL: http://127.0.0.1:3000
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11.6.0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Validate Prisma schema
+        working-directory: backend
+        run: pnpm exec prisma validate
+
+      - name: Generate Prisma client
+        working-directory: backend
+        run: pnpm exec prisma generate
+
+      - name: Apply database migrations
+        working-directory: backend
+        run: pnpm exec prisma migrate deploy
+
+      - name: Seed core chores
+        working-directory: backend
+        run: pnpm exec prisma db seed
+
+      - name: Build backend
+        working-directory: backend
+        run: pnpm run build
+
+      - name: Run backend unit tests
+        working-directory: backend
+        run: pnpm test --runInBand
+
+      - name: Run backend e2e tests
+        working-directory: backend
+        run: pnpm run test:e2e
+
+      - name: Run MVP API smoke test
+        working-directory: backend
+        shell: bash
+        run: |
+          pnpm run start >"$RUNNER_TEMP/backend.log" 2>&1 &
+          SERVER_PID=$!
+          trap 'kill "$SERVER_PID" 2>/dev/null || true' EXIT
+
+          for attempt in {1..30}; do
+            if curl --fail --silent --show-error "$BASE_URL/chores" >/dev/null; then
+              break
+            fi
+
+            if [[ "$attempt" -eq 30 ]]; then
+              echo "Backend did not become ready on $BASE_URL"
+              cat "$RUNNER_TEMP/backend.log"
+              exit 1
+            fi
+
+            sleep 1
+          done
+
+          pnpm run smoke:mvp
+
+      - name: Print backend log on failure
+        if: failure()
+        run: cat "$RUNNER_TEMP/backend.log" 2>/dev/null || true

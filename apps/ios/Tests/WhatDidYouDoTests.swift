@@ -4,23 +4,6 @@ import XCTest
 
 @MainActor
 final class WhatDidYouDoTests: XCTestCase {
-    private var defaults: UserDefaults!
-    private var defaultsSuiteName: String!
-
-    override func setUp() {
-        super.setUp()
-        defaultsSuiteName = "WhatDidYouDoTests.\(UUID().uuidString)"
-        defaults = UserDefaults(suiteName: defaultsSuiteName)
-        defaults.removePersistentDomain(forName: defaultsSuiteName)
-    }
-
-    override func tearDown() {
-        defaults.removePersistentDomain(forName: defaultsSuiteName)
-        defaults = nil
-        defaultsSuiteName = nil
-        super.tearDown()
-    }
-
     func testEstimatedPointsUsesDefaultPointsAtStandardDuration() {
         let chore = makeChore(minutes: 15, points: 21)
 
@@ -41,7 +24,9 @@ final class WhatDidYouDoTests: XCTestCase {
     }
 
     func testDurationMemoryUsesDefaultThenSavedValue() {
-        let viewModel = makeViewModel()
+        let fixture = makeDefaultsFixture()
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.suiteName) }
+        let viewModel = makeViewModel(defaults: fixture.defaults)
         let chore = makeChore(id: "dishes", minutes: 15, points: 21)
 
         XCTAssertEqual(viewModel.getDefaultDuration(for: chore), 15)
@@ -52,7 +37,9 @@ final class WhatDidYouDoTests: XCTestCase {
     }
 
     func testDurationMemoryIsIndependentPerChore() {
-        let viewModel = makeViewModel()
+        let fixture = makeDefaultsFixture()
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.suiteName) }
+        let viewModel = makeViewModel(defaults: fixture.defaults)
         let dishes = makeChore(id: "dishes", minutes: 15, points: 21)
         let bathroom = makeChore(id: "bathroom", minutes: 30, points: 45)
 
@@ -142,11 +129,13 @@ final class WhatDidYouDoTests: XCTestCase {
     }
 
     func testMockModeDoesNotCallNetwork() async {
+        let fixture = makeDefaultsFixture()
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.suiteName) }
         let client = SpyAPIClient()
         let viewModel = AppViewModel(
             apiClient: client,
             dataMode: .mock,
-            userDefaults: defaults
+            userDefaults: fixture.defaults
         )
         viewModel.phoneNumber = "123456"
 
@@ -159,11 +148,13 @@ final class WhatDidYouDoTests: XCTestCase {
     }
 
     func testAPIModeUsesInjectedAPIClient() async throws {
+        let fixture = makeDefaultsFixture()
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.suiteName) }
         let client = SpyAPIClient()
         let viewModel = AppViewModel(
             apiClient: client,
             dataMode: .api,
-            userDefaults: defaults
+            userDefaults: fixture.defaults
         )
         viewModel.phoneNumber = "654321"
 
@@ -181,8 +172,15 @@ final class WhatDidYouDoTests: XCTestCase {
         XCTAssertEqual(paths, ["POST /auth/mock-login"])
     }
 
-    private func makeViewModel() -> AppViewModel {
+    private func makeViewModel(defaults: UserDefaults) -> AppViewModel {
         AppViewModel(dataMode: .mock, userDefaults: defaults)
+    }
+
+    private func makeDefaultsFixture() -> (defaults: UserDefaults, suiteName: String) {
+        let suiteName = "WhatDidYouDoTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defaults.removePersistentDomain(forName: suiteName)
+        return (defaults, suiteName)
     }
 
     private func makeChore(

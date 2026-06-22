@@ -56,6 +56,7 @@
 | 真实头像上传 | 暂缓 | 当前仅保存 `avatarKey` 并显示本地占位头像 |
 | 家庭时区 | 部分完成 | activity 的 day 当前按 UTC 自然日 |
 | 自动化 iOS 测试 | 部分完成 | 9 项 XCTest 单测已覆盖积分、耗时记忆、DTO 和 Mock/API 分流；UI 自动化未开始 |
+| GitHub Actions CI | 已完成 | push/PR 自动执行后端 Prisma/build/test/e2e/smoke 与 iOS build-for-testing/XCTest |
 | TestFlight | 未开始 | 尚未配置签名、归档和分发流程 |
 
 ## 下一阶段顺序
@@ -64,5 +65,5 @@
 2. 清理错误提示、弱网重试、防连点和跨天/跨月边界问题。
 3. 将 token 迁移到 Keychain，并定义退出登录后的清理策略。
 4. 拆分 Debug、Staging、Release 的 baseURL、密钥和日志策略。
-5. 配置 CI，至少覆盖后端 build/test/e2e 与 iOS Debug build。
+5. 观察 GitHub-hosted runner 稳定性，并逐步补充 iOS UI Test 和跨日期边界覆盖。
 6. 完成 Apple Developer 签名、归档、隐私说明和 TestFlight 内测。

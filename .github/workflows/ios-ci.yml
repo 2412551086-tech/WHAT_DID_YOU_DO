@@ -1,0 +1,84 @@
+name: iOS CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ios-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ios:
+    name: Build and XCTest
+    runs-on: macos-15
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Print Xcode version
+        run: |
+          xcode-select -p
+          xcodebuild -version
+
+      - name: Select an available iPhone Simulator
+        shell: bash
+        run: |
+          SIMULATOR_ID="$(python3 <<'PY'
+          import json
+          import subprocess
+
+          payload = json.loads(
+              subprocess.check_output(["xcrun", "simctl", "list", "devices", "available", "-j"])
+          )
+
+          for runtime in sorted(payload["devices"].keys(), reverse=True):
+              if "iOS" not in runtime:
+                  continue
+              for device in payload["devices"][runtime]:
+                  if device.get("isAvailable") and device.get("name", "").startswith("iPhone"):
+                      print(device["udid"])
+                      raise SystemExit(0)
+
+          raise SystemExit("No available iPhone Simulator found")
+          PY
+          )"
+
+          echo "SIMULATOR_ID=$SIMULATOR_ID" >> "$GITHUB_ENV"
+          echo "Selected Simulator: $SIMULATOR_ID"
+          xcrun simctl boot "$SIMULATOR_ID" 2>/dev/null || true
+          xcrun simctl bootstatus "$SIMULATOR_ID" -b
+
+      - name: Build app and tests for Simulator
+        run: |
+          xcodebuild build-for-testing \
+            -project apps/ios/WhatDidYouDo.xcodeproj \
+            -scheme WhatDidYouDo \
+            -configuration Debug \
+            -destination "platform=iOS Simulator,id=$SIMULATOR_ID" \
+            -derivedDataPath "$RUNNER_TEMP/WhatDidYouDoDerivedData" \
+            CODE_SIGNING_ALLOWED=NO
+
+      - name: Run iOS XCTest
+        run: |
+          xcodebuild test \
+            -project apps/ios/WhatDidYouDo.xcodeproj \
+            -scheme WhatDidYouDo \
+            -configuration Debug \
+            -destination "platform=iOS Simulator,id=$SIMULATOR_ID" \
+            -derivedDataPath "$RUNNER_TEMP/WhatDidYouDoDerivedData" \
+            CODE_SIGNING_ALLOWED=NO
+
+      - name: Upload XCTest result bundle on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-test-results
+          path: ${{ runner.temp }}/WhatDidYouDoDerivedData/Logs/Test/*.xcresult
+          if-no-files-found: ignore
+          retention-days: 7

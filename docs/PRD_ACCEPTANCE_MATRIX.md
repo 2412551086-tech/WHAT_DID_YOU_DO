@@ -38,5 +38,6 @@
 | TEST-01 | 后端回归 | build、unit、test、e2e 通过 | 已完成 | 提交前仍需重复执行 |
 | TEST-02 | iOS 自动化 | 关键纯逻辑具备 XCTest，主流程具备 UI Test | 部分完成 | 9 项单测已完成，UI Test 未开始 |
 | TEST-03 | API Smoke | 一条命令验证双账号 MVP API 主链路 | 已完成 | `pnpm run smoke:mvp` 共 19 项检查 |
+| TEST-04 | GitHub Actions | push/PR 自动执行后端和 iOS 基础验收 | 已完成 | backend-ci 与 ios-ci 独立运行 |
 | ENV-01 | 环境隔离 | Debug/Staging/Release 独立配置 | 部分完成 | 当前主要使用本机 baseURL |
 | RELEASE-01 | TestFlight | 签名、归档、隐私信息、内测安装完成 | 未开始 | 下一阶段重点 |

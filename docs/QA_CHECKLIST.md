@@ -149,6 +149,8 @@ xcrun simctl list devices available
 
 ## 9. 自动化回归命令
 
+GitHub Actions 配置和 runner 排障见 `docs/CI.md`。每次 push 或 pull request 会自动执行后端和 iOS 基础验收。
+
 后端数据库可用时执行：
 
 ```sh
