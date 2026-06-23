@@ -38,11 +38,11 @@
 2. 创建家庭的人自动成为 `ACTIVE + OWNER`（一家之主）。
 3. 加入家庭使用 `inviteCode`，申请为 `PENDING + MEMBER`，需要 OWNER approve/reject。
 4. 家务记录保存 `actualMinutes`，积分按实际耗时比例计算。
-5. activity 支持 `day | recent`；day 当前按 UTC 自然日。
+5. activity 支持 `day | recent`；day 按家庭 `timezone` 计算本地今天。
 6. 点赞和取消点赞幂等；记录支持按权限左滑软删除。
 7. 已删除记录不参与 activity、今日统计、排行榜和月报。
 8. 图片凭证后端字段和校验保留；iOS MVP 隐藏/禁用入口并固定创建为关闭。
-9. 正式认证、Keychain、图片上传、StoreKit 和 TestFlight 尚未完成。
+9. 正式认证、图片上传、StoreKit 和 TestFlight 尚未完成；Keychain 登录保持已完成。
 
 ---
 

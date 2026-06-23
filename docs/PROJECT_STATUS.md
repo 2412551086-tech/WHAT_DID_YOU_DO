@@ -49,12 +49,12 @@
 | ---- | ---- | ---- |
 | 正式手机号验证码 | 暂缓 | 当前只是开发登录，没有短信发送与验证码校验 |
 | Apple/微信登录 | 未开始 | UI 可有占位，未接正式认证 |
-| Token 安全存储 | 部分完成 | token 可用于联调，尚未迁移到 Keychain |
-| 环境配置 | 部分完成 | 当前 baseURL 面向本机联调，需拆分 Debug/Staging/Release |
+| Token 安全存储 | 已完成 | API 模式 accessToken 使用 Keychain 保存、启动恢复，401 或退出登录会清理 |
+| 环境配置 | 已完成 | Debug 默认模拟器本机地址，可切换局域网联调；Release 禁止使用 `127.0.0.1` |
 | 图片凭证 | 暂缓 | 后端字段和校验保留；iOS 隐藏/禁用开关并固定创建为 false |
 | 高级会员购买 | 暂缓 | 高级家务可展示锁定态，未接 StoreKit 和订阅校验 |
 | 真实头像上传 | 暂缓 | 当前仅保存 `avatarKey` 并显示本地占位头像 |
-| 家庭时区 | 部分完成 | activity 的 day 当前按 UTC 自然日 |
+| 家庭时区 | 已完成 | Family 保存 timezone；今日 activity 和 monthly-report 按家庭本地时区计算 |
 | 自动化 iOS 测试 | 部分完成 | 9 项 XCTest 单测已覆盖积分、耗时记忆、DTO 和 Mock/API 分流；UI 自动化未开始 |
 | GitHub Actions CI | 已完成 | push/PR 自动执行后端 Prisma/build/test/e2e/smoke 与 iOS build-for-testing/XCTest |
 | TestFlight | 未开始 | 尚未配置签名、归档和分发流程 |
@@ -62,8 +62,8 @@
 ## 下一阶段顺序
 
 1. 持续扩充后端边界 e2e、iOS ViewModel 测试和 UI 主链路自动化。
-2. 清理错误提示、弱网重试、防连点和跨天/跨月边界问题。
-3. 将 token 迁移到 Keychain，并定义退出登录后的清理策略。
-4. 拆分 Debug、Staging、Release 的 baseURL、密钥和日志策略。
+2. 清理错误提示、弱网重试、防连点和更多 DST/多时区边界问题。
+3. 补充 iOS UI 主链路自动化和更多 ViewModel 失败恢复测试。
+4. 为后端补 `.env.example`，并收敛 Release 日志策略。
 5. 观察 GitHub-hosted runner 稳定性，并逐步补充 iOS UI Test 和跨日期边界覆盖。
 6. 完成 Apple Developer 签名、归档、隐私说明和 TestFlight 内测。

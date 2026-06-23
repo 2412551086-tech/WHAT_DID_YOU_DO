@@ -8,7 +8,7 @@
 | ---- | ---- | ---- | ---- | ---- |
 | AUTH-01 | 开发登录 | 手机号可登录，同一手机号复用同一开发用户 | 已完成 | 非正式短信验证码 |
 | AUTH-02 | 正式认证 | 短信验证码、Apple、微信登录可用于生产 | 未开始 | 登录按钮可有占位，但无真实认证 |
-| AUTH-03 | Token 存储 | token 可用于 API 会话 | 部分完成 | 尚未迁移到 Keychain |
+| AUTH-03 | Token 存储 | token 可用于 API 会话 | 已完成 | API 模式 accessToken 已迁移到 Keychain，支持启动恢复和退出清理 |
 | FAMILY-01 | 创建家庭 | 创建者自动成为 `ACTIVE + OWNER` | 已完成 | 后端及 e2e 已覆盖 |
 | FAMILY-02 | 家庭身份 | 创建/加入时可选择预设或自定义身份 | 已完成 | 自定义身份为空会被拦截 |
 | FAMILY-03 | 头像占位 | 保存 avatarKey，并在 iOS 显示本地占位头像 | 已完成 | 不含真实图片上传 |
@@ -22,7 +22,7 @@
 | RECORD-02 | 耗时记忆 | 每个 choreId 记住上次确认耗时，重启后保留 | 已完成 | 使用 UserDefaults |
 | RECORD-03 | 积分 | 按 actualMinutes 比例计算并保存 points | 已完成 | iOS 预估和后端规则一致 |
 | RECORD-04 | 动态展示 | 展示头像、身份、家务、actualMinutes、points | 已完成 | ActivityRow 已实现 |
-| ACTIVITY-01 | 今日范围 | `range=day` 只返回当前 UTC 日未删除记录 | 已完成 | 首页今日统计使用该结果 |
+| ACTIVITY-01 | 今日范围 | `range=day` 只返回家庭本地今天的未删除记录 | 已完成 | 按 `Family.timezone` 计算；e2e 覆盖跨 UTC 日期 |
 | ACTIVITY-02 | 最近范围 | `range=recent` 返回最近 30 条未删除记录 | 已完成 | 不传 range 默认 recent |
 | LIKE-01 | 点赞 | ACTIVE 成员可点赞，activity 返回计数和本人状态 | 已完成 | 同时返回点赞人头像信息 |
 | LIKE-02 | 幂等 | 重复点赞/取消点赞不报冲突且计数正确 | 已完成 | upsert/deleteMany + e2e |
@@ -30,7 +30,7 @@
 | DELETE-02 | 软删除 | 写入 deletedAt、deletedById | 已完成 | 不物理删除记录 |
 | DELETE-03 | 统计过滤 | 已删除记录不进入今日、动态、排行、月报 | 已完成 | 查询统一过滤 deletedAt |
 | REPORT-01 | 排行榜 | 支持 day/month 并使用记录 points 聚合 | 已完成 | 删除记录不参与统计 |
-| REPORT-02 | 月报 | 按 YYYY-MM 聚合积分、记录、成员和分类 | 已完成 | 删除记录不参与统计 |
+| REPORT-02 | 月报 | 按家庭时区的 YYYY-MM 聚合积分、记录、成员和分类 | 已完成 | 删除记录不参与统计；e2e 覆盖月边界 |
 | PHOTO-01 | 图片凭证字段 | 后端保留 requirePhotoProof/imageUrls 和校验 | 已完成 | 为后续上传能力保留 |
 | PHOTO-02 | iOS 图片凭证 | 用户可拍照/选择并上传凭证 | 暂缓 | iOS 入口隐藏/禁用，创建固定 false |
 | UI-01 | 主界面 | 四 Tab、DesignSystem、卡片化视觉可运行 | 已完成 | SwiftUI Debug build 已验证 |
@@ -39,5 +39,5 @@
 | TEST-02 | iOS 自动化 | 关键纯逻辑具备 XCTest，主流程具备 UI Test | 部分完成 | 9 项单测已完成，UI Test 未开始 |
 | TEST-03 | API Smoke | 一条命令验证双账号 MVP API 主链路 | 已完成 | `pnpm run smoke:mvp` 共 19 项检查 |
 | TEST-04 | GitHub Actions | push/PR 自动执行后端和 iOS 基础验收 | 已完成 | backend-ci 与 ios-ci 独立运行 |
-| ENV-01 | 环境隔离 | Debug/Staging/Release 独立配置 | 部分完成 | 当前主要使用本机 baseURL |
+| ENV-01 | 环境隔离 | Debug、局域网联调、Release/Production 独立配置 | 已完成 | Debug 默认模拟器本机后端，Scheme 环境变量可切换局域网；Release 禁止使用 `127.0.0.1` |
 | RELEASE-01 | TestFlight | 签名、归档、隐私信息、内测安装完成 | 未开始 | 下一阶段重点 |

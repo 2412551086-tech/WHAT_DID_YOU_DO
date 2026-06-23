@@ -26,4 +26,10 @@ export class CreateFamilyDto {
   @MinLength(1)
   @MaxLength(100)
   avatarKey?: string;
+
+  @IsOptional()
+  @IsString()
+  @MinLength(1)
+  @MaxLength(100)
+  timezone?: string;
 }

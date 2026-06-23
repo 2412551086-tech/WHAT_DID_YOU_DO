@@ -104,7 +104,7 @@ APIConfig.useMockData = false
 
 统计约束：
 
-- activity 的 day 当前按 UTC 自然日。
+- activity 的 day 按家庭 `timezone` 计算本地今天。
 - activity 默认 recent，最多 30 条。
 - leaderboard、monthly-report 和 activity 都排除软删除记录。
 - 点赞和取消点赞均幂等。

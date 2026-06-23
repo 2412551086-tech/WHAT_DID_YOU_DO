@@ -6,7 +6,8 @@
 
 ## 1. 通用约定
 
-- Base URL：`http://127.0.0.1:3000`
+- 本地默认 Base URL：`http://127.0.0.1:3000`
+- iOS Debug 模拟器默认使用 `localSimulator`；真机联调需切换为 `localNetwork` 并使用 Mac 局域网 IP；Release/Production 预留 HTTPS 地址。
 - Content-Type：`application/json`
 - 受保护接口：`Authorization: Bearer <accessToken>`
 - `POST /auth/mock-login` 是开发登录，不发送或验证短信验证码。
@@ -74,7 +75,8 @@
   "requirePhotoProof": false,
   "identityLabel": "男主人",
   "customIdentity": null,
-  "avatarKey": "avatar_01"
+  "avatarKey": "avatar_01",
+  "timezone": "Asia/Shanghai"
 }
 ```
 
@@ -82,6 +84,7 @@
 - `identityLabel` 当前 DTO 可选；未传时后端回退为“家庭成员”。iOS 创建流程会要求用户选择。
 - `identityLabel=自定义` 时 `customIdentity` 必填。
 - `requirePhotoProof` 未传时默认 `false`。
+- `timezone` 可选；未传时默认 `Asia/Shanghai`。iOS API 模式创建家庭时会传 `TimeZone.current.identifier`。
 - 创建者自动成为 `memberRole=OWNER`、`status=ACTIVE`。
 - 返回家庭、`inviteCode`、成员数组、`myRole` 和 `myMembership`。
 
@@ -89,7 +92,7 @@
 
 只返回当前用户 `ACTIVE` 的家庭。每个家庭包含：
 
-- `id`、`name`、`inviteCode`、`requirePhotoProof`
+- `id`、`name`、`inviteCode`、`requirePhotoProof`、`timezone`
 - ACTIVE 成员数组 `members`
 - 当前成员的 `identityLabel`、`customIdentity`、`avatarKey`
 - `memberRole`、`status`、`myRole`、`myMembership`
@@ -178,7 +181,7 @@
 ### GET `/families/:familyId/activity?range=day|recent`
 
 - 不传 `range` 时默认 `recent`。
-- `day`：当前 UTC 自然日内全部未删除记录。
+- `day`：按当前家庭 `timezone` 计算出的本地今天内全部未删除记录。
 - `recent`：最近 30 条未删除记录。
 - 仅家庭 ACTIVE 成员可访问。
 
@@ -271,6 +274,7 @@
 ### GET `/families/:familyId/monthly-report?month=YYYY-MM`
 
 - `month` 必填并通过 `YYYY-MM` 格式校验。
+- 月份范围按当前家庭 `timezone` 计算，例如 `2026-06` 表示家庭本地 6 月。
 - 返回 `totalPoints`、`totalRecords`、`headline`、`leaderboard`、`categoryStats`、`recentRecords`。
 - recentRecords 包含标准 `minutes` 和 `actualMinutes`。
 
@@ -281,4 +285,4 @@ activity、leaderboard、monthly-report 均过滤 `deletedAt IS NOT NULL` 的记
 - 正式短信验证码、Apple、微信认证接口尚不存在。
 - 图片上传接口尚不存在。
 - 订阅购买和权益校验接口尚不存在。
-- 家庭时区字段尚不存在；`activity?range=day` 当前按 UTC 自然日。
+- 暂无复杂家庭时区选择 UI；iOS 创建家庭先默认发送系统时区。

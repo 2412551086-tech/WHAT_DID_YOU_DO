@@ -36,20 +36,25 @@ final class AppViewModel: ObservableObject {
     @Published private(set) var lastRequestPath: String?
     @Published private(set) var lastStatusCode: Int?
     @Published private(set) var lastAPIErrorMessage: String?
+    @Published private(set) var lastSecureStorageErrorMessage: String?
     @Published var selectedChore: ChoreItem?
 
     private let apiClient: any APIClientProtocol
+    private let tokenStore: any SecureTokenStore
     private let forceMockData: Bool
     private let dataMode: AppDataMode
     private let userDefaults: UserDefaults
 
     init(
         apiClient: any APIClientProtocol = APIClient(),
+        tokenStore: any SecureTokenStore = KeychainStore(),
         forceMockData: Bool = false,
         dataMode: AppDataMode = .configured,
-        userDefaults: UserDefaults = .standard
+        userDefaults: UserDefaults = .standard,
+        automaticallyRestoreSession: Bool = true
     ) {
         self.apiClient = apiClient
+        self.tokenStore = tokenStore
         self.forceMockData = forceMockData
         self.dataMode = dataMode
         self.userDefaults = userDefaults
@@ -60,6 +65,19 @@ final class AppViewModel: ObservableObject {
         }
 
         synchronizeChoreLayout()
+
+        if automaticallyRestoreSession && !usesMockData {
+            do {
+                if let storedToken = try tokenStore.loadAccessToken() {
+                    accessToken = storedToken
+                    Task { [weak self] in
+                        await self?.restoreSessionIfNeeded()
+                    }
+                }
+            } catch {
+                lastSecureStorageErrorMessage = error.localizedDescription
+            }
+        }
     }
 
     var familyDisplayName: String {
@@ -92,6 +110,14 @@ final class AppViewModel: ObservableObject {
 
     var debugBaseURL: String {
         APIConfig.baseURL.absoluteString
+    }
+
+    var debugAPIEnvironment: String {
+        APIConfig.environmentLabel
+    }
+
+    var debugFamilyTimezone: String {
+        currentFamily?.timezone ?? TimeZone.current.identifier
     }
 
     var hasAccessToken: Bool {
@@ -130,6 +156,43 @@ final class AppViewModel: ObservableObject {
 
         Task {
             await loginWithAPI()
+        }
+    }
+
+    func restoreSessionIfNeeded() async {
+        guard !usesMockData else {
+            return
+        }
+
+        do {
+            if accessToken == nil {
+                accessToken = try tokenStore.loadAccessToken()
+            }
+        } catch {
+            let storageError = error.localizedDescription
+            await clearInvalidSession()
+            lastSecureStorageErrorMessage = storageError
+            return
+        }
+
+        guard let accessToken, !accessToken.isEmpty else {
+            resetSessionState()
+            return
+        }
+
+        await apiClient.setAccessToken(accessToken)
+        await performLoading("正在恢复登录状态") {
+            let families = try await loadMyFamiliesFromAPI()
+            restoreCurrentUser(from: families)
+            try await loadChoresFromAPI()
+
+            if families.isEmpty {
+                rootScreen = .createFamily
+            } else {
+                selectedTab = .today
+                rootScreen = .home
+                try await refreshHomeDataFromAPI(includeChores: false)
+            }
         }
     }
 
@@ -395,6 +458,21 @@ final class AppViewModel: ObservableObject {
     }
 
     func logout() {
+        resetSessionState()
+
+        do {
+            try tokenStore.deleteAccessToken()
+            lastSecureStorageErrorMessage = nil
+        } catch {
+            lastSecureStorageErrorMessage = error.localizedDescription
+        }
+
+        Task {
+            await apiClient.setAccessToken(nil)
+        }
+    }
+
+    private func resetSessionState() {
         accessToken = nil
         currentUser = nil
         currentFamily = nil
@@ -406,16 +484,13 @@ final class AppViewModel: ObservableObject {
         phoneNumber = ""
         familyName = MockData.family.name
         joinInviteCode = ""
+        chores = usesMockData ? MockData.chores : []
         todayRecords = usesMockData ? MockData.todayRecords : []
         recentRecords = usesMockData ? MockData.todayRecords : []
         monthlyRanking = usesMockData ? MockData.members : []
         monthlyReport = usesMockData ? MockData.monthlyReport : nil
         rootScreen = .login
         clearError()
-
-        Task {
-            await apiClient.setAccessToken(nil)
-        }
     }
 
     private var usesMockData: Bool {
@@ -466,7 +541,8 @@ final class AppViewModel: ObservableObject {
             id: MockData.family.id,
             name: trimmedFamilyName,
             inviteCode: MockData.family.inviteCode,
-            requiresPhotoProof: false
+            requiresPhotoProof: false,
+            timezone: TimeZone.current.identifier
         )
         currentMembership = FamilyMembership(
             id: "mock-membership-\(UUID().uuidString)",
@@ -566,6 +642,14 @@ final class AppViewModel: ObservableObject {
             accessToken = response.accessToken
             currentUser = mapUser(response.user)
             await apiClient.setAccessToken(response.accessToken)
+
+            do {
+                try tokenStore.saveAccessToken(response.accessToken)
+                lastSecureStorageErrorMessage = nil
+            } catch {
+                lastSecureStorageErrorMessage = error.localizedDescription
+            }
+
             try await loadChoresFromAPI()
             let families = try await loadMyFamiliesFromAPI()
 
@@ -588,7 +672,8 @@ final class AppViewModel: ObservableObject {
                     requirePhotoProof: false,
                     identityLabel: selectedIdentityLabel,
                     customIdentity: normalizedCustomIdentity,
-                    avatarKey: selectedAvatarKey
+                    avatarKey: selectedAvatarKey,
+                    timezone: TimeZone.current.identifier
                 )
             )
 
@@ -711,12 +796,14 @@ final class AppViewModel: ObservableObject {
         requiresPhotoProof = family.requirePhotoProof
     }
 
-    private func refreshHomeDataFromAPI() async throws {
+    private func refreshHomeDataFromAPI(includeChores: Bool = true) async throws {
         guard let familyId = currentFamily?.id else {
             return
         }
 
-        try await loadChoresFromAPI()
+        if includeChores {
+            try await loadChoresFromAPI()
+        }
 
         async let todayActivity: [ActivityItemDTO] = apiClient.get(
             "families/\(familyId)/activity",
@@ -782,12 +869,29 @@ final class AppViewModel: ObservableObject {
         do {
             try await operation()
         } catch {
-            errorMessage = error.localizedDescription
+            if let apiError = error as? APIError, apiError.isUnauthorized {
+                await clearInvalidSession()
+                errorMessage = "登录已失效，请重新登录。"
+            } else {
+                errorMessage = error.localizedDescription
+            }
         }
 
         await syncAPIDebugSnapshot()
         isLoading = false
         loadingMessage = nil
+    }
+
+    private func clearInvalidSession() async {
+        resetSessionState()
+        await apiClient.setAccessToken(nil)
+
+        do {
+            try tokenStore.deleteAccessToken()
+            lastSecureStorageErrorMessage = nil
+        } catch {
+            lastSecureStorageErrorMessage = error.localizedDescription
+        }
     }
 
     private func syncAPIDebugSnapshot() async {
@@ -836,12 +940,24 @@ final class AppViewModel: ObservableObject {
         )
     }
 
+    private func restoreCurrentUser(from families: [FamilyDTO]) {
+        let user = families.lazy.compactMap { family in
+            family.myMembership?.user
+                ?? family.members?.first(where: { $0.id == family.myMembership?.id })?.user
+        }.first
+
+        if let user {
+            currentUser = mapUser(user)
+        }
+    }
+
     private func mapFamily(_ dto: FamilyDTO) -> FamilySpace {
         FamilySpace(
             id: dto.id,
             name: dto.name,
             inviteCode: dto.inviteCode,
-            requiresPhotoProof: dto.requirePhotoProof
+            requiresPhotoProof: dto.requirePhotoProof,
+            timezone: dto.timezone
         )
     }
 

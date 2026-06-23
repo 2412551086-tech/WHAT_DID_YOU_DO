@@ -1,4 +1,5 @@
 import Foundation
+import Security
 import XCTest
 @testable import WhatDidYouDo
 
@@ -114,6 +115,7 @@ final class WhatDidYouDoTests: XCTestCase {
               "id": "family-1",
               "name": "测试家庭",
               "requirePhotoProof": false,
+              "timezone": "Asia/Shanghai",
               "inviteCode": "ABC12345",
               "memberRole": "OWNER",
               "status": "ACTIVE"
@@ -124,8 +126,42 @@ final class WhatDidYouDoTests: XCTestCase {
         let dto = try APIClient.decoder.decode(FamilyDTO.self, from: data)
 
         XCTAssertEqual(dto.inviteCode, "ABC12345")
+        XCTAssertEqual(dto.timezone, "Asia/Shanghai")
         XCTAssertEqual(dto.memberRole, "OWNER")
         XCTAssertEqual(dto.status, "ACTIVE")
+    }
+
+    func testAPIConfigDebugDefaultUsesLocalSimulator() {
+        let environment = APIConfig.resolvedEnvironment(
+            defaultEnvironment: .localSimulator,
+            overrideValue: nil,
+            isDebug: true
+        )
+
+        XCTAssertEqual(environment, .localSimulator)
+        XCTAssertEqual(environment.baseURL.absoluteString, "http://127.0.0.1:3000")
+    }
+
+    func testAPIConfigCanSelectLocalNetworkForDeviceDebugging() {
+        let environment = APIConfig.resolvedEnvironment(
+            defaultEnvironment: .localSimulator,
+            overrideValue: "localNetwork",
+            isDebug: true
+        )
+
+        XCTAssertEqual(environment, .localNetwork)
+        XCTAssertFalse(APIConfig.isLoopbackURL(environment.baseURL))
+    }
+
+    func testAPIConfigReleaseDoesNotAllowLocalSimulator() {
+        let environment = APIConfig.resolvedEnvironment(
+            defaultEnvironment: .production,
+            overrideValue: "localSimulator",
+            isDebug: false
+        )
+
+        XCTAssertEqual(environment, .production)
+        XCTAssertFalse(APIConfig.isLoopbackURL(environment.baseURL))
     }
 
     func testMockModeDoesNotCallNetwork() async {
@@ -151,10 +187,13 @@ final class WhatDidYouDoTests: XCTestCase {
         let fixture = makeDefaultsFixture()
         defer { fixture.defaults.removePersistentDomain(forName: fixture.suiteName) }
         let client = SpyAPIClient()
+        let tokenStore = MockSecureTokenStore()
         let viewModel = AppViewModel(
             apiClient: client,
+            tokenStore: tokenStore,
             dataMode: .api,
-            userDefaults: fixture.defaults
+            userDefaults: fixture.defaults,
+            automaticallyRestoreSession: false
         )
         viewModel.phoneNumber = "654321"
 
@@ -170,6 +209,120 @@ final class WhatDidYouDoTests: XCTestCase {
         let paths = await client.requestPaths
         XCTAssertEqual(viewModel.modeLabel, "API 模式")
         XCTAssertEqual(paths, ["POST /auth/mock-login"])
+    }
+
+    func testKeychainStoreSavesLoadsAndDeletesToken() throws {
+        let store = KeychainStore(
+            service: "com.whatdidyoudo.tests.\(UUID().uuidString)",
+            account: "access-token"
+        )
+        defer { try? store.deleteAccessToken() }
+
+        do {
+            let initialToken = try store.loadAccessToken()
+            XCTAssertNil(initialToken)
+            try store.saveAccessToken("keychain-test-token")
+            let savedToken = try store.loadAccessToken()
+            XCTAssertEqual(savedToken, "keychain-test-token")
+            try store.deleteAccessToken()
+            let deletedToken = try store.loadAccessToken()
+            XCTAssertNil(deletedToken)
+        } catch KeychainStoreError.unhandledStatus(errSecMissingEntitlement) {
+            throw XCTSkip("Unsigned CI test hosts cannot access Keychain")
+        }
+    }
+
+    func testAPILoginSavesAccessToken() async throws {
+        let fixture = makeDefaultsFixture()
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.suiteName) }
+        let client = StubAPIClient(responses: Self.loginResponses)
+        let tokenStore = MockSecureTokenStore()
+        let viewModel = AppViewModel(
+            apiClient: client,
+            tokenStore: tokenStore,
+            dataMode: .api,
+            userDefaults: fixture.defaults,
+            automaticallyRestoreSession: false
+        )
+        viewModel.phoneNumber = "123456"
+
+        viewModel.mockLogin()
+        try await waitUntil { tokenStore.token == "api-token" && !viewModel.isLoading }
+
+        XCTAssertEqual(viewModel.accessToken, "api-token")
+        XCTAssertEqual(tokenStore.saveCount, 1)
+        XCTAssertEqual(viewModel.rootScreen, .createFamily)
+    }
+
+    func testLogoutDeletesStoredToken() {
+        let fixture = makeDefaultsFixture()
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.suiteName) }
+        let tokenStore = MockSecureTokenStore(token: "stored-token")
+        let viewModel = AppViewModel(
+            tokenStore: tokenStore,
+            dataMode: .api,
+            userDefaults: fixture.defaults,
+            automaticallyRestoreSession: false
+        )
+
+        viewModel.logout()
+
+        XCTAssertNil(tokenStore.token)
+        XCTAssertEqual(tokenStore.deleteCount, 1)
+        XCTAssertNil(viewModel.accessToken)
+        XCTAssertEqual(viewModel.rootScreen, .login)
+    }
+
+    func testStoredTokenAutomaticallyRestoresSessionAndFamilyData() async throws {
+        let fixture = makeDefaultsFixture()
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.suiteName) }
+        let client = StubAPIClient(responses: Self.restoreResponses)
+        let tokenStore = MockSecureTokenStore(token: "restored-token")
+        let viewModel = AppViewModel(
+            apiClient: client,
+            tokenStore: tokenStore,
+            dataMode: .api,
+            userDefaults: fixture.defaults,
+            automaticallyRestoreSession: true
+        )
+
+        try await waitUntil { viewModel.rootScreen == .home && !viewModel.isLoading }
+
+        XCTAssertEqual(viewModel.accessToken, "restored-token")
+        XCTAssertEqual(viewModel.currentUser?.displayName, "用户123456")
+        XCTAssertEqual(viewModel.currentFamily?.id, "family-1")
+        XCTAssertEqual(viewModel.rootScreen, .home)
+        XCTAssertEqual(tokenStore.loadCount, 1)
+        let didSetToken = await client.didSetToken("restored-token")
+        let requestPaths = await client.requestPaths
+        XCTAssertTrue(didSetToken)
+        XCTAssertTrue(requestPaths.contains("GET /families/me"))
+        XCTAssertTrue(requestPaths.contains("GET /families/family-1/activity?range=day"))
+    }
+
+    func testUnauthorizedRestoreClearsSessionAndStoredToken() async {
+        let fixture = makeDefaultsFixture()
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.suiteName) }
+        let client = StubAPIClient(
+            responses: [:],
+            errors: ["GET /families/me": APIError.requestFailed(statusCode: 401, message: "Unauthorized")]
+        )
+        let tokenStore = MockSecureTokenStore(token: "expired-token")
+        let viewModel = AppViewModel(
+            apiClient: client,
+            tokenStore: tokenStore,
+            dataMode: .api,
+            userDefaults: fixture.defaults,
+            automaticallyRestoreSession: false
+        )
+
+        await viewModel.restoreSessionIfNeeded()
+
+        XCTAssertNil(viewModel.accessToken)
+        XCTAssertNil(tokenStore.token)
+        XCTAssertEqual(tokenStore.deleteCount, 1)
+        XCTAssertEqual(viewModel.rootScreen, .login)
+        XCTAssertEqual(viewModel.errorMessage, "登录已失效，请重新登录。")
     }
 
     private func makeViewModel(defaults: UserDefaults) -> AppViewModel {
@@ -198,6 +351,40 @@ final class WhatDidYouDoTests: XCTestCase {
             color: DSColor.yellow
         )
     }
+
+    private func waitUntil(
+        timeoutIterations: Int = 100,
+        condition: @escaping @MainActor () async -> Bool
+    ) async throws {
+        for _ in 0..<timeoutIterations {
+            if await condition() {
+                return
+            }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        XCTFail("Timed out waiting for asynchronous state")
+    }
+
+    private static let loginResponses: [String: Data] = [
+        "POST /auth/mock-login": Data(
+            #"{"user":{"id":"user-1","phoneNumber":"123456","displayName":"用户123456"},"accessToken":"api-token"}"#.utf8
+        ),
+        "GET /chores": Data("[]".utf8),
+        "GET /families/me": Data("[]".utf8),
+    ]
+
+    private static let restoreResponses: [String: Data] = [
+        "GET /families/me": Data(
+            #"[{"id":"family-1","name":"测试家庭","requirePhotoProof":false,"timezone":"Asia/Shanghai","inviteCode":"ABC12345","memberRole":"OWNER","status":"ACTIVE","myMembership":{"id":"member-1","userId":"user-1","familyId":"family-1","identityLabel":"男主人","avatarKey":"avatar_01","memberRole":"OWNER","status":"ACTIVE","user":{"id":"user-1","phoneNumber":"123456","displayName":"用户123456"}}}]"#.utf8
+        ),
+        "GET /chores": Data("[]".utf8),
+        "GET /families/family-1/activity?range=day": Data("[]".utf8),
+        "GET /families/family-1/activity?range=recent": Data("[]".utf8),
+        "GET /families/family-1/leaderboard?range=month": Data("[]".utf8),
+        "GET /families/family-1/monthly-report": Data(
+            #"{"familyId":"family-1","month":"2026-06","totalPoints":0,"totalRecords":0,"headline":"暂无记录","leaderboard":[],"categoryStats":[],"recentRecords":[]}"#.utf8
+        ),
+    ]
 }
 
 private actor SpyAPIClient: APIClientProtocol {
@@ -245,6 +432,118 @@ private actor SpyAPIClient: APIClientProtocol {
     func delete<Response: Decodable & Sendable>(_ path: String) async throws -> Response {
         requestPaths.append("DELETE /\(path)")
         throw SpyError.expectedRequest
+    }
+}
+
+private final class MockSecureTokenStore: SecureTokenStore {
+    var token: String?
+    private(set) var saveCount = 0
+    private(set) var loadCount = 0
+    private(set) var deleteCount = 0
+
+    init(token: String? = nil) {
+        self.token = token
+    }
+
+    func saveAccessToken(_ token: String) throws {
+        saveCount += 1
+        self.token = token
+    }
+
+    func loadAccessToken() throws -> String? {
+        loadCount += 1
+        return token
+    }
+
+    func deleteAccessToken() throws {
+        deleteCount += 1
+        token = nil
+    }
+}
+
+private actor StubAPIClient: APIClientProtocol {
+    private let responses: [String: Data]
+    private let errors: [String: Error]
+    private(set) var requestPaths: [String] = []
+    private var accessToken: String?
+
+    init(responses: [String: Data], errors: [String: Error] = [:]) {
+        self.responses = responses
+        self.errors = errors
+    }
+
+    func setAccessToken(_ token: String?) {
+        accessToken = token
+    }
+
+    func didSetToken(_ token: String) -> Bool {
+        accessToken == token
+    }
+
+    func currentDebugSnapshot() -> APIDebugSnapshot {
+        APIDebugSnapshot(lastRequestPath: requestPaths.last)
+    }
+
+    func get<Response: Decodable & Sendable>(
+        _ path: String,
+        queryItems: [URLQueryItem]
+    ) async throws -> Response {
+        try response(method: "GET", path: path, queryItems: queryItems)
+    }
+
+    func post<RequestBody: Encodable & Sendable, Response: Decodable & Sendable>(
+        _ path: String,
+        body: RequestBody
+    ) async throws -> Response {
+        try response(method: "POST", path: path)
+    }
+
+    func post<Response: Decodable & Sendable>(_ path: String) async throws -> Response {
+        try response(method: "POST", path: path)
+    }
+
+    func patch<RequestBody: Encodable & Sendable, Response: Decodable & Sendable>(
+        _ path: String,
+        body: RequestBody
+    ) async throws -> Response {
+        try response(method: "PATCH", path: path)
+    }
+
+    func delete<Response: Decodable & Sendable>(_ path: String) async throws -> Response {
+        try response(method: "DELETE", path: path)
+    }
+
+    private func response<Response: Decodable>(
+        method: String,
+        path: String,
+        queryItems: [URLQueryItem] = []
+    ) throws -> Response {
+        let requestKey = Self.requestKey(method: method, path: path, queryItems: queryItems)
+        requestPaths.append(requestKey)
+
+        if let error = errors[requestKey] ?? errors["\(method) /\(path)"] {
+            throw error
+        }
+
+        let baseKey = "\(method) /\(path)"
+        guard let data = responses[requestKey] ?? responses[baseKey] else {
+            throw SpyError.expectedRequest
+        }
+        return try APIClient.decoder.decode(Response.self, from: data)
+    }
+
+    private static func requestKey(
+        method: String,
+        path: String,
+        queryItems: [URLQueryItem]
+    ) -> String {
+        guard !queryItems.isEmpty else {
+            return "\(method) /\(path)"
+        }
+
+        var components = URLComponents()
+        components.queryItems = queryItems
+        return "\(method) /\(path)?\(components.percentEncodedQuery ?? "")"
     }
 }
 

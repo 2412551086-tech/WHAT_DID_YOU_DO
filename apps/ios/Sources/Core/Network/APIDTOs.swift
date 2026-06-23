@@ -10,6 +10,7 @@ struct CreateFamilyRequest: Encodable {
     let identityLabel: String
     let customIdentity: String?
     let avatarKey: String?
+    let timezone: String?
 }
 
 struct CreateJoinRequestRequest: Encodable {
@@ -48,6 +49,7 @@ struct FamilyDTO: Decodable {
     let id: String
     let name: String
     let requirePhotoProof: Bool
+    let timezone: String?
     let inviteCode: String
     let createdAt: Date?
     let updatedAt: Date?

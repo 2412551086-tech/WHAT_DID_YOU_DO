@@ -2,6 +2,7 @@ import { INestApplication, ValidationPipe } from "@nestjs/common";
 import { Test } from "@nestjs/testing";
 import request = require("supertest");
 import { AppModule } from "../src/app.module";
+import { getDayRangeForTimeZone, getMonthRangeForTimeZone } from "../src/common/timezone-ranges";
 import { PrismaService } from "../src/prisma/prisma.service";
 
 describe("MVP API (e2e)", () => {
@@ -124,6 +125,7 @@ describe("MVP API (e2e)", () => {
       role: "owner",
     });
     expect(response.body.requirePhotoProof).toBe(false);
+    expect(response.body.timezone).toBe("Asia/Shanghai");
   });
 
   it("enforces membership review, record permissions, likes, and soft-delete aggregation", async () => {
@@ -137,6 +139,7 @@ describe("MVP API (e2e)", () => {
       .send({
         name: "E2E interaction family",
         requirePhotoProof: false,
+        timezone: "Asia/Shanghai",
         identityLabel: "老爸",
         avatarKey: "avatar_owner",
       })
@@ -145,6 +148,7 @@ describe("MVP API (e2e)", () => {
     const inviteCode = familyResponse.body.inviteCode as string;
 
     expect(familyResponse.body.requirePhotoProof).toBe(false);
+    expect(familyResponse.body.timezone).toBe("Asia/Shanghai");
     expect(inviteCode).toMatch(/^[A-F0-9]{8}$/);
 
     expect(familyResponse.body.members[0]).toMatchObject({
@@ -546,4 +550,147 @@ describe("MVP API (e2e)", () => {
       }),
     ]);
   });
+
+  it("uses family timezone for day activity and monthly report boundaries", async () => {
+    const owner = await login("E2E timezone owner");
+    const timezone = "Asia/Shanghai";
+
+    const familyResponse = await request(app.getHttpServer())
+      .post("/families")
+      .set("Authorization", `Bearer ${owner.token}`)
+      .send({
+        name: "E2E timezone family",
+        requirePhotoProof: false,
+        timezone,
+      })
+      .expect(201);
+
+    const familyId = familyResponse.body.id as string;
+    expect(familyResponse.body.timezone).toBe(timezone);
+
+    const dayRange = getDayRangeForTimeZone(timezone);
+    const currentMonth = monthTextForTimeZone(timezone);
+    const monthRange = getMonthRangeForTimeZone(currentMonth, timezone);
+
+    const localEarlyToday = new Date(dayRange.start.getTime() + 30 * 60 * 1000);
+    const localLateToday = new Date(dayRange.end.getTime() - 30 * 60 * 1000);
+    const beforeLocalToday = new Date(dayRange.start.getTime() - 30 * 60 * 1000);
+    const localMonthStart = new Date(monthRange.start.getTime() + 30 * 60 * 1000);
+
+    const earlyTodayRecord = await createRecordAt({
+      familyId,
+      userId: owner.userId,
+      choreId,
+      points: 20,
+      createdAt: localEarlyToday,
+      note: "timezone early today",
+    });
+    const lateTodayRecord = await createRecordAt({
+      familyId,
+      userId: owner.userId,
+      choreId,
+      points: 30,
+      createdAt: localLateToday,
+      note: "timezone late today",
+    });
+    const yesterdayRecord = await createRecordAt({
+      familyId,
+      userId: owner.userId,
+      choreId,
+      points: 40,
+      createdAt: beforeLocalToday,
+      note: "timezone yesterday",
+    });
+    const monthBoundaryRecord = await createRecordAt({
+      familyId,
+      userId: owner.userId,
+      choreId,
+      points: 50,
+      createdAt: localMonthStart,
+      note: "timezone month boundary",
+    });
+    const deletedTodayRecord = await createRecordAt({
+      familyId,
+      userId: owner.userId,
+      choreId,
+      points: 60,
+      createdAt: localEarlyToday,
+      note: "timezone deleted today",
+    });
+
+    await prisma.choreRecord.update({
+      where: { id: deletedTodayRecord.id },
+      data: {
+        deletedAt: new Date(),
+        deletedById: owner.userId,
+      },
+    });
+
+    const dayActivityResponse = await request(app.getHttpServer())
+      .get(`/families/${familyId}/activity?range=day`)
+      .set("Authorization", `Bearer ${owner.token}`)
+      .expect(200);
+
+    const dayRecordIds = dayActivityResponse.body.map((record: { recordId: string }) => record.recordId);
+    expect(dayRecordIds).toEqual(expect.arrayContaining([earlyTodayRecord.id, lateTodayRecord.id]));
+    expect(dayRecordIds).not.toContain(yesterdayRecord.id);
+    expect(dayRecordIds).not.toContain(deletedTodayRecord.id);
+
+    const reportResponse = await request(app.getHttpServer())
+      .get(`/families/${familyId}/monthly-report?month=${currentMonth}`)
+      .set("Authorization", `Bearer ${owner.token}`)
+      .expect(200);
+
+    expect(reportResponse.body).toMatchObject({
+      familyId,
+      month: currentMonth,
+      totalPoints: 140,
+      totalRecords: 4,
+    });
+    expect(reportResponse.body.recentRecords.map((record: { id: string }) => record.id)).toEqual(
+      expect.arrayContaining([
+        earlyTodayRecord.id,
+        lateTodayRecord.id,
+        yesterdayRecord.id,
+        monthBoundaryRecord.id,
+      ]),
+    );
+    expect(reportResponse.body.recentRecords.map((record: { id: string }) => record.id)).not.toContain(
+      deletedTodayRecord.id,
+    );
+  });
+
+  async function createRecordAt(input: {
+    familyId: string;
+    userId: string;
+    choreId: string;
+    points: number;
+    createdAt: Date;
+    note: string;
+  }) {
+    return prisma.choreRecord.create({
+      data: {
+        familyId: input.familyId,
+        userId: input.userId,
+        choreId: input.choreId,
+        note: input.note,
+        imageUrls: [],
+        minutes: 15,
+        actualMinutes: 15,
+        points: input.points,
+        createdAt: input.createdAt,
+      },
+    });
+  }
+
+  function monthTextForTimeZone(timezone: string) {
+    const parts = new Intl.DateTimeFormat("en-CA", {
+      timeZone: timezone,
+      year: "numeric",
+      month: "2-digit",
+    }).formatToParts(new Date());
+    const year = parts.find((part) => part.type === "year")?.value;
+    const month = parts.find((part) => part.type === "month")?.value;
+    return `${year}-${month}`;
+  }
 });

@@ -77,6 +77,7 @@ struct ProfileView: View {
                 VStack(alignment: .leading, spacing: 12) {
                     settingRow(title: "家庭名称", value: viewModel.familyDisplayName, icon: "house.fill")
                     settingRow(title: "邀请码", value: viewModel.currentFamily?.inviteCode ?? MockData.family.inviteCode, icon: "number.square.fill")
+                    settingRow(title: "家庭时区", value: viewModel.currentFamily?.timezone ?? TimeZone.current.identifier, icon: "clock.fill")
                     settingRow(title: "图片凭证", value: "即将开放", icon: "photo.fill")
                 }
             }

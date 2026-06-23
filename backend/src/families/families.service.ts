@@ -8,6 +8,7 @@ import {
 import { MemberRole, MemberStatus } from '@prisma/client';
 import { randomBytes } from 'node:crypto';
 import { AuthUser } from '../auth/auth-user';
+import { DEFAULT_FAMILY_TIMEZONE, isValidTimeZone, normalizeTimeZone } from '../common/timezone-ranges';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateFamilyDto } from './dto/create-family.dto';
 import { CreateJoinRequestByInviteCodeDto } from './dto/create-join-request-by-invite-code.dto';
@@ -24,6 +25,7 @@ export class FamiliesService {
       data: {
         name: dto.name.trim(),
         requirePhotoProof: dto.requirePhotoProof ?? false,
+        timezone: this.normalizeTimezoneInput(dto.timezone),
         inviteCode: this.createInviteCode(),
         members: {
           create: {
@@ -242,6 +244,19 @@ export class FamiliesService {
     return membership;
   }
 
+  async getFamilyTimeZone(familyId: string) {
+    const family = await this.prisma.family.findUnique({
+      where: { id: familyId },
+      select: { timezone: true },
+    });
+
+    if (!family) {
+      throw new NotFoundException('Family not found');
+    }
+
+    return normalizeTimeZone(family.timezone);
+  }
+
   private formatMembership(membership: {
     id: string;
     userId: string;
@@ -284,6 +299,16 @@ export class FamiliesService {
   private normalizeOptional(value?: string): string | null {
     const normalized = value?.trim();
     return normalized ? normalized : null;
+  }
+
+  private normalizeTimezoneInput(timezone?: string) {
+    const normalized = timezone?.trim() || DEFAULT_FAMILY_TIMEZONE;
+
+    if (!isValidTimeZone(normalized)) {
+      throw new BadRequestException('Invalid family timezone');
+    }
+
+    return normalized;
   }
 
   private createInviteCode(): string {

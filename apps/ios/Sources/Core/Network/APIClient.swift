@@ -15,6 +15,13 @@ enum APIError: LocalizedError {
             return "请求失败 \(statusCode)：\(message)"
         }
     }
+
+    var isUnauthorized: Bool {
+        if case let .requestFailed(statusCode, _) = self {
+            return statusCode == 401
+        }
+        return false
+    }
 }
 
 struct APIDebugSnapshot: Sendable {

@@ -59,8 +59,37 @@ BASE_URL=http://192.168.1.10:3000 pnpm run smoke:mvp
 2. 顶部 Scheme 选择 `WhatDidYouDo`。
 3. 选择已安装的 iPhone Simulator。
 4. 确认 `APIConfig.useMockData = false`，用于 API 联调。
-5. 确认后端仍在 `http://127.0.0.1:3000` 运行。
-6. 按 `Command + R` 启动 App。
+5. 模拟器 Debug 默认使用 `localSimulator`，访问 `http://127.0.0.1:3000`。
+6. 确认后端仍在 `http://127.0.0.1:3000` 运行。
+7. 按 `Command + R` 启动 App。
+
+### 2.1 API 环境切换
+
+iOS 当前支持三种 API 环境：
+
+- `localSimulator`：模拟器联调，默认 `http://127.0.0.1:3000`。
+- `localNetwork`：真机或其他设备联调，使用 Mac 的局域网 IP，例如 `http://192.168.1.10:3000`。
+- `production`：Release/Production 预留 HTTPS 地址。
+
+Debug 模式默认 `localSimulator`。在 Xcode 中临时切换：
+
+1. 点击顶部 scheme `WhatDidYouDo`。
+2. 选择 `Edit Scheme...`。
+3. 进入 `Run > Arguments > Environment Variables`。
+4. 添加：
+
+```text
+WDD_API_ENV=localNetwork
+WDD_LOCAL_NETWORK_BASE_URL=http://你的Mac局域网IP:3000
+```
+
+如果要回到模拟器本机后端，删除这两个环境变量，或设置：
+
+```text
+WDD_API_ENV=localSimulator
+```
+
+Release 构建不会使用 `localSimulator`，避免把 `127.0.0.1` 带进发布包。
 
 运行 iOS 单元测试：
 
@@ -141,7 +170,7 @@ xcrun simctl list devices available
 ## 8. 今日、最近、排行和月报
 
 1. 连续创建两条记录，确认今日积分等于两条记录 points 之和。
-2. 今日战况使用 `activity?range=day`，只统计当前 UTC 自然日记录。
+2. 今日战况使用 `activity?range=day`，只统计当前家庭时区里的本地今天记录。
 3. 家庭最近动态使用 `activity?range=recent`，最多展示后端最近 30 条。
 4. 删除一条记录后，确认今日积分和记录数立即减少。
 5. 确认月排行榜的积分和记录数同步减少。
@@ -193,7 +222,8 @@ curl -i http://127.0.0.1:3000/chores
 
 ### token 丢失或返回 401
 
-- 当前 token 尚未使用 Keychain 持久化，重新登录即可获取新 token。
+- accessToken 已使用 Keychain 持久化；退出登录会清除 token。
+- 如果 token 过期或后端返回 401，App 会清除本地登录态并回到登录页。
 - 退出登录后 token 会被清除。
 - 检查 DebugPanel 的 token 状态、最后请求和状态码。
 
@@ -209,7 +239,7 @@ static let useMockData = false
 
 ### 真机不能访问 `127.0.0.1`
 
-真机中的 `127.0.0.1` 指向 iPhone 自己。将 baseURL 改为 Mac 的局域网 IP，例如：
+真机中的 `127.0.0.1` 指向 iPhone 自己。请切换到 `localNetwork`，并把 `WDD_LOCAL_NETWORK_BASE_URL` 配成 Mac 的局域网 IP，例如：
 
 ```text
 http://192.168.1.10:3000

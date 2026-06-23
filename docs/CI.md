@@ -110,6 +110,15 @@ xcodebuild test \
   CODE_SIGNING_ALLOWED=NO
 ```
 
+Debug 构建默认使用 `localSimulator` API 环境，即 `http://127.0.0.1:3000`。真机或局域网联调时，不要使用 `127.0.0.1`，可在 Xcode Scheme 的 `Run > Arguments > Environment Variables` 中配置：
+
+```text
+WDD_API_ENV=localNetwork
+WDD_LOCAL_NETWORK_BASE_URL=http://<Mac 局域网 IP>:3000
+```
+
+Release/Production 构建默认使用预留 HTTPS 地址，并禁止使用 `localSimulator`，避免发布包误连本机地址。
+
 ## 常见失败原因
 
 ### PostgreSQL 未启动
@@ -170,6 +179,6 @@ CI 已动态选择可用 iPhone。如果 runner 没有兼容 runtime，可调整
 
 - iOS UI 双账号完整主链路。
 - 真机网络和局域网联调。
-- UTC 跨天、跨月和家庭时区边界。
+- 更完整的多时区矩阵和 DST 边界。
 - 弱网、超时和断网恢复。
 - TestFlight 签名、归档与安装验证。

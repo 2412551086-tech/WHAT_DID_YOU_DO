@@ -13,6 +13,7 @@ struct FamilySpace: Identifiable, Hashable {
     let name: String
     let inviteCode: String
     let requiresPhotoProof: Bool
+    let timezone: String?
 }
 
 struct FamilyMember: Identifiable, Hashable {

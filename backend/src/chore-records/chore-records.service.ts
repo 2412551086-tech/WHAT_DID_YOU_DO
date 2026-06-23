@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import { MemberRole, Prisma } from '@prisma/client';
 import { AuthUser } from '../auth/auth-user';
+import { getDayRangeForTimeZone, getMonthRangeForTimeZone } from '../common/timezone-ranges';
 import { FamiliesService } from '../families/families.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateChoreRecordDto } from './dto/create-chore-record.dto';
@@ -95,7 +96,8 @@ export class ChoreRecordsService {
 
   async getActivity(user: AuthUser, familyId: string, range: 'day' | 'recent' = 'recent') {
     const membership = await this.familiesService.assertActiveMember(familyId, user.id);
-    const dayRange = range === 'day' ? this.getUtcDayRange(new Date()) : null;
+    const timezone = range === 'day' ? await this.familiesService.getFamilyTimeZone(familyId) : null;
+    const dayRange = timezone ? getDayRangeForTimeZone(timezone) : null;
 
     const records = await this.prisma.choreRecord.findMany({
       where: {
@@ -122,13 +124,19 @@ export class ChoreRecordsService {
 
   async getLeaderboard(user: AuthUser, familyId: string, range: 'day' | 'month' = 'month') {
     await this.familiesService.assertActiveMember(familyId, user.id);
+    const timezone = await this.familiesService.getFamilyTimeZone(familyId);
+    const dateRange =
+      range === 'day'
+        ? getDayRangeForTimeZone(timezone)
+        : getMonthRangeForTimeZone(this.currentMonthForTimeZone(timezone), timezone);
 
     const records = await this.prisma.choreRecord.findMany({
       where: {
         familyId,
         deletedAt: null,
         createdAt: {
-          gte: this.getRangeStart(range),
+          gte: dateRange.start,
+          lt: dateRange.end,
         },
       },
       include: {
@@ -311,21 +319,15 @@ export class ChoreRecordsService {
     } satisfies Prisma.ChoreRecordInclude;
   }
 
-  private getRangeStart(range: 'day' | 'month') {
-    const now = new Date();
-
-    if (range === 'day') {
-      return new Date(now.getFullYear(), now.getMonth(), now.getDate());
-    }
-
-    return new Date(now.getFullYear(), now.getMonth(), 1);
-  }
-
-  private getUtcDayRange(now: Date) {
-    const start = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
-    const end = new Date(start);
-    end.setUTCDate(end.getUTCDate() + 1);
-    return { start, end };
+  private currentMonthForTimeZone(timezone: string) {
+    const parts = new Intl.DateTimeFormat('en-CA', {
+      timeZone: timezone,
+      year: 'numeric',
+      month: '2-digit',
+    }).formatToParts(new Date());
+    const year = parts.find((part) => part.type === 'year')?.value;
+    const month = parts.find((part) => part.type === 'month')?.value;
+    return `${year}-${month}`;
   }
 
   private calculatePoints(defaultPoints: number, actualMinutes: number, standardMinutes: number) {

@@ -13,11 +13,14 @@ struct DebugPanel: View {
             DSCard(fill: DSColor.lavender) {
                 VStack(alignment: .leading, spacing: 12) {
                     row("当前模式", viewModel.modeLabel)
+                    row("环境", viewModel.debugAPIEnvironment)
                     row("baseURL", viewModel.debugBaseURL, allowsWrapping: true)
+                    row("家庭时区", viewModel.debugFamilyTimezone, allowsWrapping: true)
                     row("Token", viewModel.hasAccessToken ? "已保存" : "不存在")
                     row("最后请求", viewModel.lastRequestPath ?? "无", allowsWrapping: true)
                     row("状态码", viewModel.lastStatusCode.map(String.init) ?? "无")
                     row("最后错误", viewModel.lastAPIErrorMessage ?? "无", allowsWrapping: true)
+                    row("安全存储", viewModel.lastSecureStorageErrorMessage ?? "正常", allowsWrapping: true)
                 }
             }
         }

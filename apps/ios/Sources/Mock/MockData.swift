@@ -12,7 +12,8 @@ enum MockData {
         id: "mock-family-main",
         name: "今日劳动观察站",
         inviteCode: "WDYD88",
-        requiresPhotoProof: false
+        requiresPhotoProof: false,
+        timezone: TimeZone.current.identifier
     )
 
     static let members: [FamilyMember] = [

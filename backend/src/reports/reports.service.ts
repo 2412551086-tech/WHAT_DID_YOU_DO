@@ -1,5 +1,6 @@
-import { Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable } from '@nestjs/common';
 import { AuthUser } from '../auth/auth-user';
+import { getMonthRangeForTimeZone } from '../common/timezone-ranges';
 import { FamiliesService } from '../families/families.service';
 import { PrismaService } from '../prisma/prisma.service';
 
@@ -12,8 +13,9 @@ export class ReportsService {
 
   async getMonthlyReport(user: AuthUser, familyId: string, month: string) {
     await this.familiesService.assertMember(familyId, user.id);
+    const timezone = await this.familiesService.getFamilyTimeZone(familyId);
 
-    const [start, end] = this.getMonthRange(month);
+    const { start, end } = this.getMonthRange(month, timezone);
     const records = await this.prisma.choreRecord.findMany({
       where: {
         familyId,
@@ -79,13 +81,11 @@ export class ReportsService {
     };
   }
 
-  private getMonthRange(month: string): [Date, Date] {
-    const [yearText, monthText] = month.split('-');
-    const year = Number(yearText);
-    const monthIndex = Number(monthText) - 1;
-    const start = new Date(year, monthIndex, 1);
-    const end = new Date(year, monthIndex + 1, 1);
-
-    return [start, end];
+  private getMonthRange(month: string, timezone: string) {
+    try {
+      return getMonthRangeForTimeZone(month, timezone);
+    } catch {
+      throw new BadRequestException('Invalid month');
+    }
   }
 }

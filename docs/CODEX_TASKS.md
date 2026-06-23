@@ -24,7 +24,7 @@
 ## Phase 1：测试与稳定性
 
 - [ ] 将后端 e2e fixture 和数据库清理策略固化，减少测试顺序依赖。
-- [ ] 补充 UTC 跨天、跨月和空月报测试；1/180 分钟边界已覆盖。
+- [x] 补充家庭时区跨 UTC 日期和月报边界测试；1/180 分钟边界已覆盖。
 - [ ] 补充重复申请在 PENDING/ACTIVE/REJECTED 各状态下的预期测试。
 - [ ] 扩充 iOS ViewModel 单元测试：审核、记录刷新、点赞和删除失败恢复。
 - [ ] 增加一条 iOS UI 主链路测试，覆盖 A 创建、B 申请、A 审核、B 记录。
@@ -34,16 +34,16 @@
 
 ## Phase 2：Keychain 与会话
 
-- [ ] 将 accessToken 从内存/普通存储迁移到 Keychain。
-- [ ] 明确启动时恢复会话、token 无效时回到登录页的行为。
-- [ ] 退出登录时清理 token、当前家庭、用户态和敏感调试信息。
-- [ ] 保留 Mock Preview 的无 Keychain 依赖路径。
+- [x] 将 accessToken 从内存/普通存储迁移到 Keychain。
+- [x] 明确启动时恢复会话、token 无效时回到登录页的行为。
+- [x] 退出登录时清理 token、当前家庭、用户态和敏感调试信息。
+- [x] 保留 Mock Preview 的无 Keychain 依赖路径。
 
 ## Phase 3：环境配置
 
-- [ ] 将 `APIConfig` 拆分为 Debug、Staging、Release 配置。
-- [ ] Debug 可使用本机/局域网 URL；Release 禁止指向 `127.0.0.1`。
-- [ ] 通过 xcconfig 或构建设置注入 baseURL，不在业务代码硬编码生产地址。
+- [x] 将 `APIConfig` 拆分为 Debug、局域网联调、Production 配置。
+- [x] Debug 可使用本机/局域网 URL；Release 禁止指向 `127.0.0.1`。
+- [x] 支持通过 Xcode Scheme 环境变量覆盖 API 环境和局域网 baseURL。
 - [ ] 为后端补 `.env.example`，明确 `DATABASE_URL`、`JWT_SECRET` 等变量。
 - [ ] Release 构建关闭 DebugPanel 和敏感网络日志。
 - [x] 配置 CI：后端 Prisma/build/test/e2e/smoke 与 iOS Simulator build/XCTest。

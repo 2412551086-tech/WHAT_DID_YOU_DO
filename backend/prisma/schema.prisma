@@ -52,6 +52,7 @@ model Family {
   id                String         @id @default(cuid())
   name              String
   requirePhotoProof Boolean        @default(false)
+  timezone          String         @default("Asia/Shanghai")
   inviteCode        String         @unique
   createdAt         DateTime       @default(now())
   updatedAt         DateTime       @updatedAt
