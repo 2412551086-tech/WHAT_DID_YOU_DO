@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>登录页设计对比</title>
+    <style>
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        padding: 24px;
+        color: #111;
+        background: #e9eef0;
+        font-family: system-ui, sans-serif;
+      }
+      main {
+        display: flex;
+        align-items: flex-start;
+        justify-content: center;
+        gap: 28px;
+      }
+      figure { margin: 0; }
+      figcaption {
+        margin-bottom: 10px;
+        font-size: 16px;
+        font-weight: 800;
+        text-align: center;
+      }
+      img {
+        display: block;
+        width: 390px;
+        height: 844px;
+        object-fit: cover;
+        background: #fff9e8;
+        box-shadow: 0 12px 28px rgb(20 32 38 / 18%);
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <figure>
+        <figcaption>设计参考</figcaption>
+        <img src="/assets/reference-login.png" alt="设计参考" />
+      </figure>
+      <figure>
+        <figcaption>HTML 还原</figcaption>
+        <img src="/qa/implementation-390x844.png" alt="HTML 还原" />
+      </figure>
+    </main>
+  </body>
+</html>

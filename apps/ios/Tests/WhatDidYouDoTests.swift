@@ -181,6 +181,7 @@ final class WhatDidYouDoTests: XCTestCase {
         XCTAssertEqual(requestCount, 0)
         XCTAssertEqual(viewModel.modeLabel, "Mock 模式")
         XCTAssertEqual(viewModel.accessToken, "mock-token")
+        XCTAssertEqual(viewModel.sessionState, .authenticated)
     }
 
     func testAPIModeUsesInjectedAPIClient() async throws {
@@ -251,6 +252,7 @@ final class WhatDidYouDoTests: XCTestCase {
 
         XCTAssertEqual(viewModel.accessToken, "api-token")
         XCTAssertEqual(tokenStore.saveCount, 1)
+        XCTAssertEqual(viewModel.sessionState, .authenticated)
         XCTAssertEqual(viewModel.rootScreen, .createFamily)
     }
 
@@ -270,7 +272,44 @@ final class WhatDidYouDoTests: XCTestCase {
         XCTAssertNil(tokenStore.token)
         XCTAssertEqual(tokenStore.deleteCount, 1)
         XCTAssertNil(viewModel.accessToken)
+        XCTAssertEqual(viewModel.sessionState, .unauthenticated)
         XCTAssertEqual(viewModel.rootScreen, .login)
+    }
+
+    func testStoredTokenStartsInRestoringSessionState() {
+        let fixture = makeDefaultsFixture()
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.suiteName) }
+        let client = StubAPIClient(responses: Self.restoreResponses)
+        let tokenStore = MockSecureTokenStore(token: "restored-token")
+
+        let viewModel = AppViewModel(
+            apiClient: client,
+            tokenStore: tokenStore,
+            dataMode: .api,
+            userDefaults: fixture.defaults,
+            automaticallyRestoreSession: true
+        )
+
+        XCTAssertEqual(viewModel.sessionState, .restoringSession)
+    }
+
+    func testNoStoredTokenStartsUnauthenticated() {
+        let fixture = makeDefaultsFixture()
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.suiteName) }
+        let client = StubAPIClient(responses: Self.restoreResponses)
+        let tokenStore = MockSecureTokenStore()
+
+        let viewModel = AppViewModel(
+            apiClient: client,
+            tokenStore: tokenStore,
+            dataMode: .api,
+            userDefaults: fixture.defaults,
+            automaticallyRestoreSession: true
+        )
+
+        XCTAssertEqual(viewModel.sessionState, .unauthenticated)
+        XCTAssertNil(viewModel.accessToken)
+        XCTAssertEqual(tokenStore.loadCount, 1)
     }
 
     func testStoredTokenAutomaticallyRestoresSessionAndFamilyData() async throws {
@@ -286,11 +325,13 @@ final class WhatDidYouDoTests: XCTestCase {
             automaticallyRestoreSession: true
         )
 
+        XCTAssertEqual(viewModel.sessionState, .restoringSession)
         try await waitUntil { viewModel.rootScreen == .home && !viewModel.isLoading }
 
         XCTAssertEqual(viewModel.accessToken, "restored-token")
         XCTAssertEqual(viewModel.currentUser?.displayName, "用户123456")
         XCTAssertEqual(viewModel.currentFamily?.id, "family-1")
+        XCTAssertEqual(viewModel.sessionState, .authenticated)
         XCTAssertEqual(viewModel.rootScreen, .home)
         XCTAssertEqual(tokenStore.loadCount, 1)
         let didSetToken = await client.didSetToken("restored-token")
@@ -321,6 +362,7 @@ final class WhatDidYouDoTests: XCTestCase {
         XCTAssertNil(viewModel.accessToken)
         XCTAssertNil(tokenStore.token)
         XCTAssertEqual(tokenStore.deleteCount, 1)
+        XCTAssertEqual(viewModel.sessionState, .unauthenticated)
         XCTAssertEqual(viewModel.rootScreen, .login)
         XCTAssertEqual(viewModel.errorMessage, "登录已失效，请重新登录。")
     }

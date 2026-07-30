@@ -28,6 +28,8 @@ dist/
 build/
 out/
 coverage/
+design-output/
+.impeccable/
 *.tsbuildinfo
 .cache/
 .parcel-cache/

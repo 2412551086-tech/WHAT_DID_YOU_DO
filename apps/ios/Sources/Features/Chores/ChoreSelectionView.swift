@@ -111,7 +111,7 @@ struct ChoreSelectionView: View {
     @ViewBuilder
     private func choreCard(_ chore: ChoreItem) -> some View {
         if isEditingCards && !chore.isLocked {
-            ChoreTile(chore: chore)
+            DSChoreCard(chore: chore)
                 .overlay(alignment: .topTrailing) {
                     Button {
                         withAnimation(.spring(response: 0.28, dampingFraction: 0.86)) {
@@ -131,7 +131,7 @@ struct ChoreSelectionView: View {
                     .accessibilityLabel(viewModel.isChorePinned(chore) ? "取消置顶" : "置顶")
                 }
                 .draggable(chore.id) {
-                    ChoreTile(chore: chore, showsPinnedBadge: viewModel.isChorePinned(chore))
+                    DSChoreCard(chore: chore, showsPinnedBadge: viewModel.isChorePinned(chore))
                         .frame(width: 180)
                         .opacity(0.9)
                 }
@@ -152,7 +152,7 @@ struct ChoreSelectionView: View {
                     choreForDurationPicker = chore
                 }
             } label: {
-                ChoreTile(
+                DSChoreCard(
                     chore: chore,
                     showsPinnedBadge: viewModel.isChorePinned(chore)
                 )
@@ -165,74 +165,12 @@ struct ChoreSelectionView: View {
     @ViewBuilder
     private var statusBanner: some View {
         if viewModel.isLoading {
-            DSCard(fill: DSColor.sky) {
-                Label(viewModel.loadingMessage ?? "正在处理", systemImage: "arrow.triangle.2.circlepath")
-                    .font(.appBody(15))
-                    .foregroundStyle(DSColor.ink)
-            }
+            DSLoadingStateView(message: viewModel.loadingMessage ?? "正在处理")
         }
 
         if let errorMessage = viewModel.errorMessage {
-            DSCard(fill: DSColor.coral) {
-                Label(errorMessage, systemImage: "exclamationmark.triangle.fill")
-                    .font(.appBody(15))
-                    .foregroundStyle(DSColor.ink)
-            }
+            DSErrorBanner(message: errorMessage)
         }
-    }
-}
-
-private struct ChoreTile: View {
-    let chore: ChoreItem
-    var showsPinnedBadge = false
-
-    var body: some View {
-        DSCard(fill: chore.color) {
-            VStack(alignment: .leading, spacing: 11) {
-                Image(systemName: chore.icon)
-                    .font(.system(size: 27, weight: .black))
-                    .frame(width: 44, height: 44)
-                    .background(DSColor.surface)
-                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 12, style: .continuous)
-                            .stroke(DSColor.ink, lineWidth: 2)
-                    )
-                Text(chore.name)
-                    .font(.appHeadline(19))
-                    .lineLimit(2)
-                    .minimumScaleFactor(0.75)
-                    .frame(height: 48, alignment: .topLeading)
-                Text(chore.category)
-                    .font(.appBody(13))
-                    .foregroundStyle(DSColor.mutedInk)
-                HStack {
-                    Label("\(chore.minutes)分", systemImage: "clock.fill")
-                    Spacer()
-                    Text(chore.isLocked ? "锁定" : "+\(chore.points)")
-                }
-                .font(.appBody(13))
-            }
-            .foregroundStyle(chore.isLocked ? DSColor.mutedInk : DSColor.ink)
-            .overlay(alignment: .topTrailing) {
-                if chore.isLocked {
-                    Image(systemName: "lock.fill")
-                        .font(.system(size: 16, weight: .black))
-                        .padding(8)
-                        .background(DSColor.surface)
-                        .clipShape(Circle())
-                        .overlay(Circle().stroke(DSColor.ink, lineWidth: 1.5))
-                } else if showsPinnedBadge {
-                    Image(systemName: "pin.fill")
-                        .font(.system(size: 15, weight: .black))
-                        .padding(8)
-                        .background(DSColor.yellow)
-                        .clipShape(Circle())
-                        .overlay(Circle().stroke(DSColor.ink, lineWidth: 1.5))
-                }
-            }
-        }
-        .opacity(chore.isLocked ? 0.72 : 1)
     }
 }
 

@@ -63,33 +63,7 @@ struct FamilyDashboardView: View {
                 .foregroundStyle(DSColor.ink)
 
             ForEach(Array(viewModel.monthlyRanking.enumerated()), id: \.element.id) { index, member in
-                DSCard(fill: member.color) {
-                    HStack(spacing: 14) {
-                        Text("#\(index + 1)")
-                            .font(.appHeadline(20))
-                            .frame(width: 52, height: 44)
-                            .background(DSColor.surface)
-                            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                    .stroke(DSColor.ink, lineWidth: 2)
-                            )
-
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text(member.name)
-                                .font(.appHeadline(18))
-                            Text(member.badge)
-                                .font(.appBody(13))
-                                .foregroundStyle(DSColor.mutedInk)
-                        }
-
-                        Spacer()
-
-                        Text("\(member.monthlyPoints)")
-                            .font(.appHeadline(24))
-                    }
-                    .foregroundStyle(DSColor.ink)
-                }
+                DSRankingRow(index: index, member: member)
             }
         }
     }

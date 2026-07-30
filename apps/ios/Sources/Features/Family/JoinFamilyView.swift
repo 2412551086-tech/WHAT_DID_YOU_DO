@@ -87,17 +87,11 @@ struct JoinFamilyView: View {
     @ViewBuilder
     private var statusBanner: some View {
         if viewModel.isLoading {
-            DSCard(fill: DSColor.sky) {
-                Label(viewModel.loadingMessage ?? "正在处理", systemImage: "arrow.triangle.2.circlepath")
-                    .font(.appBody(15))
-            }
+            DSLoadingStateView(message: viewModel.loadingMessage ?? "正在处理")
         }
 
         if let errorMessage = viewModel.errorMessage {
-            DSCard(fill: DSColor.coral) {
-                Label(errorMessage, systemImage: "exclamationmark.triangle.fill")
-                    .font(.appBody(15))
-            }
+            DSErrorBanner(message: errorMessage)
         }
     }
 }

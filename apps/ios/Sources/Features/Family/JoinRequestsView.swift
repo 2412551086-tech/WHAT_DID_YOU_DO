@@ -16,10 +16,11 @@ struct JoinRequestsView: View {
                     statusBanner
 
                     if viewModel.joinRequests.isEmpty && !viewModel.isLoading {
-                        DSCard(fill: DSColor.mint) {
-                            Label("暂无待审核成员", systemImage: "checkmark.seal.fill")
-                                .font(.appHeadline(18))
-                        }
+                        DSEmptyStateView(
+                            title: "暂无待审核成员",
+                            message: "家庭门口暂时很安静。",
+                            systemImage: "checkmark.seal.fill"
+                        )
                     }
 
                     ForEach(viewModel.joinRequests) { request in
@@ -51,12 +52,7 @@ struct JoinRequestsView: View {
                     }
 
                     Spacer()
-                    Text("待审核")
-                        .font(.appBody(13))
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 6)
-                        .background(DSColor.yellow)
-                        .clipShape(Capsule())
+                    DSBadge(text: "待审核")
                 }
 
                 HStack(spacing: 12) {
@@ -76,17 +72,11 @@ struct JoinRequestsView: View {
     @ViewBuilder
     private var statusBanner: some View {
         if viewModel.isLoading {
-            DSCard(fill: DSColor.sky) {
-                Label(viewModel.loadingMessage ?? "正在处理", systemImage: "arrow.triangle.2.circlepath")
-                    .font(.appBody(15))
-            }
+            DSLoadingStateView(message: viewModel.loadingMessage ?? "正在处理")
         }
 
         if let errorMessage = viewModel.errorMessage {
-            DSCard(fill: DSColor.coral) {
-                Label(errorMessage, systemImage: "exclamationmark.triangle.fill")
-                    .font(.appBody(15))
-            }
+            DSErrorBanner(message: errorMessage)
         }
     }
 }

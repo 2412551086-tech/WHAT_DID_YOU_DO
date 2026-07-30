@@ -20,20 +20,12 @@ struct HomeView: View {
 
                 Section {
                     if viewModel.isLoading {
-                        DSCard(fill: DSColor.sky) {
-                            Label(viewModel.loadingMessage ?? "正在同步", systemImage: "arrow.triangle.2.circlepath")
-                                .font(.appBody(15))
-                                .foregroundStyle(DSColor.ink)
-                        }
+                        DSLoadingStateView(message: viewModel.loadingMessage ?? "正在同步")
                         .homeListRow()
                     }
 
                     if let errorMessage = viewModel.errorMessage {
-                        DSCard(fill: DSColor.coral) {
-                            Label(errorMessage, systemImage: "exclamationmark.triangle.fill")
-                                .font(.appBody(15))
-                                .foregroundStyle(DSColor.ink)
-                        }
+                        DSErrorBanner(message: errorMessage)
                         .homeListRow()
                     }
 

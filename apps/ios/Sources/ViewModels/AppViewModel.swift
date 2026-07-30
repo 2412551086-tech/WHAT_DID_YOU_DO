@@ -6,8 +6,15 @@ enum AppDataMode {
     case api
 }
 
+enum AppSessionState: Equatable {
+    case restoringSession
+    case authenticated
+    case unauthenticated
+}
+
 @MainActor
 final class AppViewModel: ObservableObject {
+    @Published private(set) var sessionState: AppSessionState = .restoringSession
     @Published var rootScreen: AppScreen = .login
     @Published var selectedTab: MainTab = .today
     @Published var phoneNumber = ""
@@ -66,16 +73,21 @@ final class AppViewModel: ObservableObject {
 
         synchronizeChoreLayout()
 
-        if automaticallyRestoreSession && !usesMockData {
+        if !automaticallyRestoreSession || usesMockData {
+            sessionState = .unauthenticated
+        } else {
             do {
                 if let storedToken = try tokenStore.loadAccessToken() {
                     accessToken = storedToken
                     Task { [weak self] in
                         await self?.restoreSessionIfNeeded()
                     }
+                } else {
+                    sessionState = .unauthenticated
                 }
             } catch {
                 lastSecureStorageErrorMessage = error.localizedDescription
+                sessionState = .unauthenticated
             }
         }
     }
@@ -180,6 +192,7 @@ final class AppViewModel: ObservableObject {
             return
         }
 
+        sessionState = .restoringSession
         await apiClient.setAccessToken(accessToken)
         await performLoading("正在恢复登录状态") {
             let families = try await loadMyFamiliesFromAPI()
@@ -193,6 +206,13 @@ final class AppViewModel: ObservableObject {
                 rootScreen = .home
                 try await refreshHomeDataFromAPI(includeChores: false)
             }
+
+            sessionState = .authenticated
+        }
+
+        if sessionState == .restoringSession {
+            await clearInvalidSession()
+            errorMessage = "登录状态恢复失败，请重新登录。"
         }
     }
 
@@ -490,6 +510,7 @@ final class AppViewModel: ObservableObject {
         monthlyRanking = usesMockData ? MockData.members : []
         monthlyReport = usesMockData ? MockData.monthlyReport : nil
         rootScreen = .login
+        sessionState = .unauthenticated
         clearError()
     }
 
@@ -534,6 +555,7 @@ final class AppViewModel: ObservableObject {
         monthlyRanking = MockData.members
         monthlyReport = MockData.monthlyReport
         rootScreen = .createFamily
+        sessionState = .authenticated
     }
 
     private func createFamilyWithMock() {
@@ -556,6 +578,7 @@ final class AppViewModel: ObservableObject {
         )
         selectedTab = .today
         rootScreen = .home
+        sessionState = .authenticated
     }
 
     private func recordWithMock(_ chore: ChoreItem, actualMinutes: Int? = nil, calculatedPoints: Int? = nil) {
@@ -590,6 +613,7 @@ final class AppViewModel: ObservableObject {
         updateMockMonthlyReport()
         selectedTab = .today
         rootScreen = .home
+        sessionState = .authenticated
     }
 
     private func deleteRecordWithMock(_ record: ChoreRecord) {
@@ -660,6 +684,8 @@ final class AppViewModel: ObservableObject {
                 rootScreen = .home
                 try await refreshHomeDataFromAPI()
             }
+
+            sessionState = .authenticated
         }
     }
 
@@ -682,6 +708,7 @@ final class AppViewModel: ObservableObject {
             _ = try await loadMyFamiliesFromAPI(preferredFamilyId: family.id)
             selectedTab = .today
             rootScreen = .home
+            sessionState = .authenticated
             try await refreshHomeDataFromAPI()
         }
     }
