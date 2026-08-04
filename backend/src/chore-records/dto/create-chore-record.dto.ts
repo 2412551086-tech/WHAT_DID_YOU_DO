@@ -1,5 +1,5 @@
 import { Type } from 'class-transformer';
-import { IsArray, IsInt, IsOptional, IsString, Max, Min, MinLength } from 'class-validator';
+import { IsArray, IsInt, IsNumber, IsOptional, IsString, Max, Min, MinLength } from 'class-validator';
 
 export class CreateChoreRecordDto {
   @IsString()
@@ -20,6 +20,13 @@ export class CreateChoreRecordDto {
   @Min(1)
   @Max(180)
   actualMinutes?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber({ maxDecimalPlaces: 1 })
+  @Min(0.5)
+  @Max(2)
+  pointsMultiplier?: number;
 
   @IsOptional()
   @IsArray()

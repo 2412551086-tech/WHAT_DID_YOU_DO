@@ -41,6 +41,25 @@ export function getDayRangeForTimeZone(timezone: string, now = new Date()) {
   };
 }
 
+export function getWeekRangeForTimeZone(timezone: string, now = new Date()) {
+  const safeTimeZone = normalizeTimeZone(timezone);
+  const parts = getZonedDateParts(now, safeTimeZone);
+  const localDate = new Date(Date.UTC(parts.year, parts.month - 1, parts.day));
+  const daysSinceMonday = (localDate.getUTCDay() + 6) % 7;
+  const mondayDay = parts.day - daysSinceMonday;
+
+  return {
+    start: zonedDateTimeToUtc(
+      { year: parts.year, month: parts.month, day: mondayDay, hour: 0, minute: 0, second: 0 },
+      safeTimeZone,
+    ),
+    end: zonedDateTimeToUtc(
+      { year: parts.year, month: parts.month, day: mondayDay + 7, hour: 0, minute: 0, second: 0 },
+      safeTimeZone,
+    ),
+  };
+}
+
 export function getMonthRangeForTimeZone(month: string, timezone: string) {
   const match = /^(\d{4})-(\d{2})$/.exec(month);
 

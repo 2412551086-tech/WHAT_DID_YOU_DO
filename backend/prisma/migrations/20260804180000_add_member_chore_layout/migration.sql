@@ -1,0 +1,4 @@
+ALTER TABLE "FamilyMember"
+ADD COLUMN "choreOrder" TEXT[] NOT NULL DEFAULT ARRAY[]::TEXT[],
+ADD COLUMN "pinnedChoreIds" TEXT[] NOT NULL DEFAULT ARRAY[]::TEXT[],
+ADD COLUMN "choreSetupCompleted" BOOLEAN NOT NULL DEFAULT false;

@@ -2,6 +2,6 @@ import { IsIn, IsOptional } from 'class-validator';
 
 export class ActivityQueryDto {
   @IsOptional()
-  @IsIn(['day', 'recent'])
-  range?: 'day' | 'recent';
+  @IsIn(['day', 'week', 'recent'])
+  range?: 'day' | 'week' | 'recent';
 }

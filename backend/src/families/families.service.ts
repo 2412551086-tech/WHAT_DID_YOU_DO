@@ -54,9 +54,26 @@ export class FamiliesService {
     return {
       ...family,
       members: family.members.map((membership) => this.formatMembership(membership)),
+      hasPremiumAccess: family.members.some(
+        (membership) => membership.status === MemberStatus.ACTIVE && membership.user.plan === 'premium',
+      ),
       myRole: 'owner',
       myMembership: ownerMembership ? this.formatMembership(ownerMembership) : null,
     };
+  }
+
+  async updateFamilyName(user: AuthUser, familyId: string, rawName: string) {
+    await this.assertOwner(familyId, user.id);
+    const name = rawName.trim();
+
+    if (!name) {
+      throw new BadRequestException('Family name is required');
+    }
+
+    return this.prisma.family.update({
+      where: { id: familyId },
+      data: { name },
+    });
   }
 
   async createJoinRequest(user: AuthUser, familyId: string, dto: CreateJoinRequestDto) {
@@ -81,6 +98,26 @@ export class FamiliesService {
         user: true,
       },
     });
+
+    if (existingMembership?.status === MemberStatus.REJECTED) {
+      const resubmittedMembership = await this.prisma.familyMember.update({
+        where: { id: existingMembership.id },
+        data: {
+          identityLabel: identity.identityLabel,
+          customIdentity: identity.customIdentity,
+          avatarKey: this.normalizeOptional(dto.avatarKey),
+          status: MemberStatus.PENDING,
+          approvedAt: null,
+          approvedById: null,
+          createdAt: new Date(),
+        },
+        include: {
+          user: true,
+        },
+      });
+
+      return this.formatMembership(resubmittedMembership);
+    }
 
     if (existingMembership) {
       return this.formatMembership(existingMembership);
@@ -116,6 +153,69 @@ export class FamiliesService {
     }
 
     return this.createJoinRequest(user, family.id, dto);
+  }
+
+  async getInvitePreview(user: AuthUser, rawInviteCode: string) {
+    const inviteCode = rawInviteCode.trim().toUpperCase();
+    const family = await this.prisma.family.findUnique({
+      where: { inviteCode },
+      include: {
+        members: {
+          where: { status: MemberStatus.ACTIVE },
+          include: { user: true },
+          orderBy: { createdAt: 'asc' },
+        },
+      },
+    });
+
+    if (!family) {
+      throw new NotFoundException('Invite code not found');
+    }
+
+    const existingMembership = await this.prisma.familyMember.findUnique({
+      where: {
+        userId_familyId: {
+          userId: user.id,
+          familyId: family.id,
+        },
+      },
+    });
+
+    return {
+      ...this.formatFamilyPreview(family),
+      currentStatus: existingMembership?.status ?? null,
+    };
+  }
+
+  async getMyJoinRequest(user: AuthUser) {
+    const membership = await this.prisma.familyMember.findFirst({
+      where: {
+        userId: user.id,
+        memberRole: MemberRole.MEMBER,
+      },
+      include: {
+        user: true,
+        family: {
+          include: {
+            members: {
+              where: { status: MemberStatus.ACTIVE },
+              include: { user: true },
+              orderBy: { createdAt: 'asc' },
+            },
+          },
+        },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    if (!membership) {
+      return null;
+    }
+
+    return {
+      ...this.formatMembership(membership),
+      family: this.formatFamilyPreview(membership.family),
+    };
   }
 
   async getJoinRequests(user: AuthUser, familyId: string) {
@@ -171,6 +271,91 @@ export class FamiliesService {
     return this.formatMembership(updatedMembership);
   }
 
+  async transferOwnership(user: AuthUser, familyId: string, targetMemberId: string) {
+    const ownerMembership = await this.assertOwner(familyId, user.id);
+
+    const targetMembership = await this.prisma.familyMember.findFirst({
+      where: {
+        id: targetMemberId,
+        familyId,
+        status: MemberStatus.ACTIVE,
+      },
+      include: { user: true },
+    });
+
+    if (!targetMembership) {
+      throw new NotFoundException('Active family member not found');
+    }
+
+    if (targetMembership.userId === user.id || targetMembership.memberRole === MemberRole.OWNER) {
+      throw new BadRequestException('Select another active family member');
+    }
+
+    return this.prisma.$transaction(async (transaction) => {
+      const currentOwner = await transaction.familyMember.findUnique({
+        where: { id: ownerMembership.id },
+      });
+
+      if (currentOwner?.memberRole !== MemberRole.OWNER || currentOwner.status !== MemberStatus.ACTIVE) {
+        throw new ForbiddenException('Family owner permission required');
+      }
+
+      await transaction.familyMember.updateMany({
+        where: {
+          familyId,
+          status: MemberStatus.ACTIVE,
+          memberRole: MemberRole.OWNER,
+        },
+        data: { memberRole: MemberRole.MEMBER },
+      });
+
+      const newOwner = await transaction.familyMember.update({
+        where: { id: targetMembership.id },
+        data: { memberRole: MemberRole.OWNER },
+        include: { user: true },
+      });
+      const previousOwner = await transaction.familyMember.findUniqueOrThrow({
+        where: { id: ownerMembership.id },
+        include: { user: true },
+      });
+
+      return {
+        familyId,
+        previousOwner: this.formatMembership(previousOwner),
+        newOwner: this.formatMembership(newOwner),
+      };
+    });
+  }
+
+  async leaveFamily(user: AuthUser, familyId: string) {
+    const membership = await this.assertActiveMember(familyId, user.id);
+
+    if (membership.memberRole === MemberRole.OWNER) {
+      throw new BadRequestException('Transfer ownership before leaving family');
+    }
+
+    await this.prisma.familyMember.delete({
+      where: { id: membership.id },
+    });
+
+    return {
+      familyId,
+      left: true,
+    };
+  }
+
+  async updateMyAppearance(user: AuthUser, familyId: string, avatarKey: string) {
+    const membership = await this.assertActiveMember(familyId, user.id);
+
+    const updatedMembership = await this.prisma.familyMember.update({
+      where: { id: membership.id },
+      data: { avatarKey },
+      include: { user: true },
+    });
+
+    return this.formatMembership(updatedMembership);
+  }
+
   async getMyFamilies(user: AuthUser) {
     const memberships = await this.prisma.familyMember.findMany({
       where: {
@@ -199,6 +384,9 @@ export class FamiliesService {
     return memberships.map((membership) => ({
       ...membership.family,
       members: membership.family.members.map((member) => this.formatMembership(member)),
+      hasPremiumAccess: membership.family.members.some(
+        (member) => member.user.plan === 'premium',
+      ),
       myRole: membership.memberRole.toLowerCase(),
       identityLabel: membership.identityLabel,
       customIdentity: membership.customIdentity,
@@ -207,6 +395,21 @@ export class FamiliesService {
       status: membership.status,
       myMembership: this.formatMembership(membership),
     }));
+  }
+
+  async hasPremiumAccess(familyId: string) {
+    const premiumMember = await this.prisma.familyMember.findFirst({
+      where: {
+        familyId,
+        status: MemberStatus.ACTIVE,
+        user: {
+          plan: 'premium',
+        },
+      },
+      select: { id: true },
+    });
+
+    return premiumMember !== null;
   }
 
   async assertMember(familyId: string, userId: string) {
@@ -279,6 +482,40 @@ export class FamiliesService {
     return {
       ...membership,
       role: membership.memberRole.toLowerCase(),
+    };
+  }
+
+  private formatFamilyPreview(family: {
+    id: string;
+    name: string;
+    inviteCode: string;
+    members: Array<{
+      identityLabel: string;
+      customIdentity: string | null;
+      avatarKey: string | null;
+      memberRole: MemberRole;
+      user: {
+        id: string;
+        displayName: string;
+      };
+    }>;
+  }) {
+    const owner = family.members.find((membership) => membership.memberRole === MemberRole.OWNER);
+
+    return {
+      id: family.id,
+      name: family.name,
+      inviteCode: family.inviteCode,
+      memberCount: family.members.length,
+      owner: owner
+        ? {
+            id: owner.user.id,
+            displayName: owner.user.displayName,
+            identityLabel: owner.identityLabel,
+            customIdentity: owner.customIdentity,
+            avatarKey: owner.avatarKey,
+          }
+        : null,
     };
   }
 

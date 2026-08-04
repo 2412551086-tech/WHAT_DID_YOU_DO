@@ -9,6 +9,7 @@ enum MainTab: Hashable {
 
 struct MainTabView: View {
     @EnvironmentObject private var viewModel: AppViewModel
+    @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
         TabView(selection: $viewModel.selectedTab) {
@@ -16,7 +17,7 @@ struct MainTabView: View {
                 HomeView()
             }
             .tabItem {
-                Label("今日战况", systemImage: "sun.max.fill")
+                Label("本周战况", systemImage: "calendar.badge.clock")
             }
             .tag(MainTab.today)
 
@@ -32,7 +33,7 @@ struct MainTabView: View {
                 FamilyDashboardView()
             }
             .tabItem {
-                Label("家庭战况", systemImage: "person.3.fill")
+                Label("月度战报", systemImage: "trophy.fill")
             }
             .tag(MainTab.family)
 
@@ -44,8 +45,32 @@ struct MainTabView: View {
             }
             .tag(MainTab.profile)
         }
-        .tint(DSColor.ink)
+        .tint(DSColor.infoBlue)
+        .toolbarBackground(.ultraThinMaterial, for: .tabBar)
+        .toolbarBackground(.visible, for: .tabBar)
         .navigationBarBackButtonHidden(true)
+        .onChange(of: viewModel.selectedTab) { _, tab in
+            guard tab == .record || tab == .profile else { return }
+            Task { await viewModel.refreshCurrentFamilyMembership() }
+        }
+        .onChange(of: scenePhase) { _, phase in
+            guard phase == .active else { return }
+            Task { await viewModel.refreshCurrentFamilyMembership() }
+        }
+        .task(id: viewModel.selectedTab) {
+            guard viewModel.selectedTab == .record || viewModel.selectedTab == .profile else {
+                return
+            }
+
+            while !Task.isCancelled {
+                await viewModel.refreshCurrentFamilyMembership()
+                do {
+                    try await Task.sleep(for: .seconds(8))
+                } catch {
+                    return
+                }
+            }
+        }
     }
 }
 

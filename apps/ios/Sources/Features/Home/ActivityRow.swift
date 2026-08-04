@@ -3,13 +3,16 @@ import SwiftUI
 struct ActivityRow: View {
     @EnvironmentObject private var viewModel: AppViewModel
     let record: ChoreRecord
+    var presentation: DSActivityRowPresentation = .standalone
 
     var body: some View {
         DSActivityRow(
             record: record,
-            onLike: { viewModel.toggleLike(record) },
+            onQuickReaction: { viewModel.toggleLike(record) },
+            onReaction: { viewModel.react(to: record, with: $0) },
             onDelete: { viewModel.deleteRecord(record) },
-            isLoading: viewModel.isLoading
+            isLoading: viewModel.isLoading,
+            presentation: presentation
         )
     }
 }

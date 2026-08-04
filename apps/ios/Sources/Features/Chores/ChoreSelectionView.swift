@@ -1,69 +1,42 @@
 import SwiftUI
+import UniformTypeIdentifiers
+import UIKit
 
 struct ChoreSelectionView: View {
     @EnvironmentObject private var viewModel: AppViewModel
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @State private var choreForDurationPicker: ChoreItem?
-    @State private var premiumChore: ChoreItem?
-    @State private var isEditingCards = false
-
-    private let columns = [
-        GridItem(.flexible(), spacing: 14),
-        GridItem(.flexible(), spacing: 14),
-    ]
+    @State private var showsRoutineEditor = false
+    @State private var customEditorContext: CustomChoreEditorContext?
+    @State private var pendingCustomEditorContext: CustomChoreEditorContext?
+    @State private var premiumUpgradeTrigger: PremiumUpgradeTrigger?
+    @State private var draggingGridItemID: String?
+    @State private var isReordering = false
+    @State private var isTrashTargeted = false
+    @State private var isBottomSentinelVisible = false
+    @State private var isTrackingLibraryPull = false
+    @State private var libraryPullStartedAtBottom = false
 
     var body: some View {
         ZStack {
-            DSColor.background.ignoresSafeArea()
+            DSColor.quietBackground.ignoresSafeArea()
 
             ScrollView {
-                VStack(alignment: .leading, spacing: 20) {
-                    HStack(alignment: .top, spacing: 12) {
-                        VStack(alignment: .leading, spacing: 8) {
-                            Text("选择家务")
-                                .font(.appTitle())
-                            Text("\(viewModel.modeLabel)：先选家务，再按实际耗时记一笔。")
-                                .font(.appBody())
-                                .foregroundStyle(DSColor.mutedInk)
-                        }
-
-                        Spacer(minLength: 4)
-
-                        Button {
-                            withAnimation(.spring(response: 0.28, dampingFraction: 0.86)) {
-                                isEditingCards.toggle()
-                            }
-                        } label: {
-                            Label(
-                                isEditingCards ? "完成" : "编辑",
-                                systemImage: isEditingCards ? "checkmark.circle.fill" : "slider.horizontal.3"
-                            )
-                            .font(.appBody(14))
-                            .foregroundStyle(DSColor.ink)
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 10)
-                            .background(isEditingCards ? DSColor.mint : DSColor.sky)
-                            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                    .stroke(DSColor.ink, lineWidth: 2)
-                            )
-                        }
-                        .buttonStyle(.plain)
-                        .disabled(viewModel.isLoading)
-                    }
-                    .foregroundStyle(DSColor.ink)
-                    .padding(.top, 16)
-
+                LazyVStack(alignment: .leading, spacing: 16) {
+                    pageHeader
                     statusBanner
-
-                    LazyVGrid(columns: columns, spacing: 14) {
-                        ForEach(viewModel.displayedChores) { chore in
-                            choreCard(chore)
-                        }
-                    }
+                    commonChoresSection
+                    bottomSentinel
                 }
-                .padding(20)
+                .padding(.horizontal, 20)
+                .padding(.top, 10)
+                .padding(.bottom, 108)
             }
+            .simultaneousGesture(libraryRevealGesture)
+        }
+        .navigationBarBackButtonHidden(true)
+        .onAppear {
+            viewModel.prepareCommonChoreGrid()
         }
         .sheet(item: $choreForDurationPicker) { chore in
             ChoreDurationPickerSheet(
@@ -72,94 +45,343 @@ struct ChoreSelectionView: View {
                 onCancel: {
                     choreForDurationPicker = nil
                 },
-                onConfirm: { actualMinutes, calculatedPoints in
+                onConfirm: { actualMinutes, calculatedPoints, pointsMultiplier in
                     viewModel.saveLastDuration(choreId: chore.id, minutes: actualMinutes)
                     viewModel.record(
                         chore,
                         actualMinutes: actualMinutes,
-                        calculatedPoints: calculatedPoints
+                        calculatedPoints: calculatedPoints,
+                        pointsMultiplier: pointsMultiplier
                     )
                     choreForDurationPicker = nil
                 }
             )
-            .presentationDetents([.height(620), .large])
+            .environmentObject(viewModel)
+            .presentationDetents([.large])
             .presentationDragIndicator(.hidden)
         }
-        .alert(
-            "解锁高级家务",
-            isPresented: Binding(
-                get: { premiumChore != nil },
-                set: { isPresented in
-                    if !isPresented {
-                        premiumChore = nil
-                    }
+        .sheet(isPresented: $showsRoutineEditor) {
+            ChoreRoutineEditorView(isInitialSetup: false)
+                .environmentObject(viewModel)
+        }
+        .sheet(item: $customEditorContext) { context in
+            CustomChoreEditorSheet(chore: context.chore) { draft in
+                let saved = await viewModel.saveCustomChore(draft, editing: context.chore)
+                if saved {
+                    customEditorContext = nil
+                    viewModel.prepareCommonChoreGrid()
                 }
-            ),
-            presenting: premiumChore
-        ) { _ in
-            Button("暂不开通", role: .cancel) {
-                premiumChore = nil
+                return saved
+            } onCancel: {
+                customEditorContext = nil
             }
-            Button("开通高级会员") {
-                premiumChore = nil
-            }
-        } message: { chore in
-            Text("「\(chore.name)」属于高级家务。开通高级会员后即可记录实际耗时并获得积分。")
+            .presentationDetents([.large])
+        }
+        .sheet(item: $premiumUpgradeTrigger) { trigger in
+            premiumUpgradeSheet(for: trigger)
         }
     }
 
-    @ViewBuilder
-    private func choreCard(_ chore: ChoreItem) -> some View {
-        if isEditingCards && !chore.isLocked {
-            DSChoreCard(chore: chore)
-                .overlay(alignment: .topTrailing) {
-                    Button {
-                        withAnimation(.spring(response: 0.28, dampingFraction: 0.86)) {
-                            viewModel.toggleChorePinned(chore)
-                        }
-                    } label: {
-                        Image(systemName: viewModel.isChorePinned(chore) ? "pin.fill" : "pin")
-                            .font(.system(size: 16, weight: .black))
-                            .foregroundStyle(DSColor.ink)
-                            .frame(width: 36, height: 36)
-                            .background(viewModel.isChorePinned(chore) ? DSColor.yellow : DSColor.surface)
-                            .clipShape(Circle())
-                            .overlay(Circle().stroke(DSColor.ink, lineWidth: 1.5))
-                    }
-                    .buttonStyle(.plain)
-                    .padding(10)
-                    .accessibilityLabel(viewModel.isChorePinned(chore) ? "取消置顶" : "置顶")
-                }
-                .draggable(chore.id) {
-                    DSChoreCard(chore: chore, showsPinnedBadge: viewModel.isChorePinned(chore))
-                        .frame(width: 180)
-                        .opacity(0.9)
-                }
-                .dropDestination(for: String.self) { draggedIDs, _ in
-                    guard let sourceID = draggedIDs.first else {
-                        return false
-                    }
+    private var pageHeader: some View {
+        HStack(alignment: .bottom, spacing: 16) {
+            VStack(alignment: .leading, spacing: 5) {
+                Text("记一下")
+                    .font(DSFont.functionalPageTitle)
+                    .foregroundStyle(DSColor.ink)
 
-                    return withAnimation(.spring(response: 0.28, dampingFraction: 0.86)) {
-                        viewModel.moveUnlockedChore(sourceID, to: chore.id)
-                    }
-                }
-        } else {
-            Button {
-                if chore.isLocked {
-                    premiumChore = chore
-                } else {
-                    choreForDurationPicker = chore
-                }
-            } label: {
-                DSChoreCard(
-                    chore: chore,
-                    showsPinnedBadge: viewModel.isChorePinned(chore)
-                )
+                Text("刚干完什么？从家庭常用里把功劳记上。")
+                    .font(.system(size: 16, weight: .regular, design: .default))
+                    .foregroundStyle(DSColor.mutedInk)
             }
-            .buttonStyle(.plain)
-            .disabled(viewModel.isLoading)
+
+            Spacer(minLength: 0)
         }
+    }
+
+    private var commonChoresSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Text("常用家务")
+                    .font(DSFont.functionalSectionTitle)
+                    .foregroundStyle(DSColor.ink)
+                Spacer()
+                Text("\(commonGridItems.count) 项")
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(DSColor.mutedInk)
+            }
+
+            LazyVGrid(columns: gridColumns, spacing: 8) {
+                ForEach(commonGridItems) { item in
+                    commonGridCard(item)
+                }
+            }
+
+            if isReordering {
+                commonChoreTrashZone
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
+        }
+        .animation(.spring(response: 0.26, dampingFraction: 0.82), value: isReordering)
+    }
+
+    private var commonChoreTrashZone: some View {
+        HStack(spacing: 10) {
+            Image(systemName: isTrashTargeted ? "trash.fill" : "trash")
+                .font(.system(size: 20, weight: .semibold))
+            Text(isTrashTargeted ? "松手移出常用" : "拖到这里移出常用")
+                .font(.system(size: 15, weight: .semibold, design: .rounded))
+        }
+        .foregroundStyle(isTrashTargeted ? Color.white : DSColor.coral)
+        .frame(maxWidth: .infinity, minHeight: 58)
+        .background(isTrashTargeted ? DSColor.coral : DSColor.coral.opacity(0.10))
+        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .stroke(DSColor.coral.opacity(isTrashTargeted ? 1 : 0.45), lineWidth: 1.2)
+        )
+        .scaleEffect(isTrashTargeted ? 1.015 : 1)
+        .onDrop(
+            of: [UTType.text],
+            delegate: CommonChoreTrashDropDelegate(
+                draggingID: $draggingGridItemID,
+                isReordering: $isReordering,
+                isTargeted: $isTrashTargeted,
+                viewModel: viewModel
+            )
+        )
+        .accessibilityLabel("移出常用家务")
+    }
+
+    @ViewBuilder
+    private func commonGridCard(_ item: CommonChoreGridItem) -> some View {
+        let dragShape = RoundedRectangle(
+            cornerRadius: DSCornerRadius.smallCard,
+            style: .continuous
+        )
+
+        Button {
+            if isReordering {
+                finishReordering()
+            } else {
+                open(item)
+            }
+        } label: {
+            gridCardContent(item)
+        }
+        .buttonStyle(.plain)
+        .disabled(viewModel.isLoading)
+        .contentShape(.interaction, dragShape)
+        .contentShape(.dragPreview, dragShape)
+        .scaleEffect(draggingGridItemID == item.id ? 1.035 : (isReordering ? 0.985 : 1))
+        .opacity(draggingGridItemID == item.id ? 0.86 : 1)
+        .animation(.spring(response: 0.24, dampingFraction: 0.78), value: draggingGridItemID)
+        .animation(.spring(response: 0.24, dampingFraction: 0.78), value: isReordering)
+        .onDrag {
+            guard viewModel.canEditCommonChoreLayout else {
+                requestPremiumUpgrade(for: .personalLayout)
+                return NSItemProvider(object: "premium-layout-required" as NSString)
+            }
+            let provider = NSItemProvider(object: item.id as NSString)
+            DispatchQueue.main.async {
+                beginReordering(item.id)
+            }
+            return provider
+        } preview: {
+            gridCardContent(item)
+                .frame(width: 164)
+                .clipShape(dragShape)
+                .contentShape(.dragPreview, dragShape)
+                .compositingGroup()
+                .scaleEffect(1.03)
+        }
+        .onDrop(
+            of: [UTType.text],
+            delegate: CommonChoreGridDropDelegate(
+                targetID: item.id,
+                draggingID: $draggingGridItemID,
+                isReordering: $isReordering,
+                viewModel: viewModel
+            )
+        )
+    }
+
+    @ViewBuilder
+    private func gridCardContent(_ item: CommonChoreGridItem) -> some View {
+        switch item {
+        case let .chore(chore):
+            DSChoreCard(
+                chore: chore,
+                showsPinnedBadge: viewModel.isChorePinned(chore)
+            )
+        case let .customSlot(slot, chore):
+            if let chore {
+                DSChoreCard(chore: chore)
+            } else {
+                DSCustomChoreSlotCard(slot: slot)
+            }
+        }
+    }
+
+    private var commonGridItems: [CommonChoreGridItem] {
+        let choresByID = Dictionary(uniqueKeysWithValues: viewModel.displayedChores.map { ($0.id, $0) })
+
+        return viewModel.commonChoreGridItemIDs.compactMap { itemID in
+            if let slot = viewModel.customChoreSlot(forGridItemID: itemID) {
+                return .customSlot(slot: slot, chore: viewModel.customChore(forSlot: slot))
+            }
+            guard let chore = choresByID[itemID] else { return nil }
+            return .chore(chore)
+        }
+    }
+
+    private var bottomSentinel: some View {
+        Color.clear
+            .frame(height: 1)
+            .onAppear { isBottomSentinelVisible = true }
+            .onDisappear { isBottomSentinelVisible = false }
+            .accessibilityHidden(true)
+    }
+
+    private var libraryRevealGesture: some Gesture {
+        DragGesture(minimumDistance: 16)
+            .onChanged { _ in
+                guard !isReordering,
+                      draggingGridItemID == nil,
+                      !isTrackingLibraryPull
+                else { return }
+                isTrackingLibraryPull = true
+                libraryPullStartedAtBottom = isBottomSentinelVisible
+            }
+            .onEnded { value in
+                defer {
+                    isTrackingLibraryPull = false
+                    libraryPullStartedAtBottom = false
+                }
+
+                guard !isReordering,
+                      draggingGridItemID == nil,
+                      libraryPullStartedAtBottom,
+                      value.translation.height < -64,
+                      !viewModel.isLoading
+                else {
+                    return
+                }
+
+                guard viewModel.canEditCommonChoreLayout else {
+                    requestPremiumUpgrade(for: .personalLayout)
+                    return
+                }
+
+                openRoutineEditor()
+            }
+    }
+
+    private func open(_ item: CommonChoreGridItem) {
+        switch item {
+        case let .chore(chore):
+            choreForDurationPicker = chore
+        case let .customSlot(slot, chore):
+            if let chore {
+                choreForDurationPicker = chore
+            } else {
+                let context = CustomChoreEditorContext(id: "custom-slot-\(slot)", chore: nil)
+                if viewModel.hasPremiumAccess {
+                    customEditorContext = context
+                } else {
+                    pendingCustomEditorContext = context
+                    requestPremiumUpgrade(for: .customChore)
+                }
+            }
+        }
+    }
+
+    private func beginReordering(_ itemID: String) {
+        guard viewModel.canEditCommonChoreLayout else {
+            requestPremiumUpgrade(for: .personalLayout)
+            return
+        }
+        guard draggingGridItemID != itemID else { return }
+        draggingGridItemID = itemID
+        isReordering = true
+        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+    }
+
+    private func finishReordering() {
+        draggingGridItemID = nil
+        isReordering = false
+        isTrashTargeted = false
+    }
+
+    private func requestPremiumUpgrade(for trigger: PremiumUpgradeTrigger) {
+        UINotificationFeedbackGenerator().notificationOccurred(.warning)
+        premiumUpgradeTrigger = trigger
+    }
+
+    private func openRoutineEditor() {
+        UINotificationFeedbackGenerator().notificationOccurred(.success)
+        finishReordering()
+        showsRoutineEditor = true
+    }
+
+    private func openRoutineEditorAfterUpgrade() {
+        premiumUpgradeTrigger = nil
+        DispatchQueue.main.async {
+            openRoutineEditor()
+        }
+    }
+
+    private func continueWithFreeCustomSlot() {
+        let context = pendingCustomEditorContext
+        pendingCustomEditorContext = nil
+        premiumUpgradeTrigger = nil
+        DispatchQueue.main.async {
+            customEditorContext = context
+        }
+    }
+
+    private func openCustomEditorAfterUpgrade() {
+        continueWithFreeCustomSlot()
+    }
+
+    private func handlePremiumUnlocked(_ trigger: PremiumUpgradeTrigger) {
+        switch trigger {
+        case .customChore:
+            openCustomEditorAfterUpgrade()
+        case .personalLayout:
+            openRoutineEditorAfterUpgrade()
+        case .commonLimit, .profile, .pointsMultiplier:
+            break
+        }
+    }
+
+    private func premiumUpgradeSheet(for trigger: PremiumUpgradeTrigger) -> some View {
+        let canContinueFree = trigger == .customChore
+            && viewModel.isCurrentUserOwner
+            && viewModel.availableCustomChoreSlots > 0
+        let continueAction: (() -> Void)? = canContinueFree
+            ? { continueWithFreeCustomSlot() }
+            : nil
+        let unlockedAction: () -> Void = { handlePremiumUnlocked(trigger) }
+
+        return PremiumUpgradeSheet(
+            trigger: trigger,
+            onContinueFree: continueAction,
+            onUnlocked: unlockedAction
+        )
+        .environmentObject(viewModel)
+        .presentationDetents([.large])
+        .presentationDragIndicator(.visible)
+    }
+
+    private var gridColumns: [GridItem] {
+        if dynamicTypeSize.isAccessibilitySize {
+            return [GridItem(.flexible())]
+        }
+
+        return [
+            GridItem(.flexible(), spacing: 8),
+            GridItem(.flexible(), spacing: 8),
+        ]
     }
 
     @ViewBuilder
@@ -171,6 +393,1259 @@ struct ChoreSelectionView: View {
         if let errorMessage = viewModel.errorMessage {
             DSErrorBanner(message: errorMessage)
         }
+    }
+}
+
+private enum CommonChoreGridItem: Identifiable {
+    case chore(ChoreItem)
+    case customSlot(slot: Int, chore: ChoreItem?)
+
+    var id: String {
+        switch self {
+        case let .chore(chore):
+            chore.id
+        case let .customSlot(slot, _):
+            "custom-chore-slot-\(slot)"
+        }
+    }
+}
+
+private struct DSCustomChoreSlotCard: View {
+    let slot: Int
+
+    private var accentColor: Color {
+        slot.isMultiple(of: 2) ? DSColor.lavender : DSColor.sky
+    }
+
+    var body: some View {
+        DSQuietCard(
+            fill: accentColor.opacity(0.22),
+            cornerRadius: DSCornerRadius.smallCard,
+            padding: 8
+        ) {
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(alignment: .center, spacing: 8) {
+                    Image(systemName: "plus")
+                        .font(.system(size: 24, weight: .medium))
+                        .foregroundStyle(DSColor.ink)
+                        .frame(width: 56, height: 56)
+                        .background(DSColor.pureSurface.opacity(0.86))
+                        .clipShape(RoundedRectangle(cornerRadius: 13, style: .continuous))
+
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("自定义")
+                            .font(.system(size: 15, weight: .semibold))
+                            .lineLimit(1)
+
+                        Text("第 \(slot) 项")
+                            .font(.system(size: 12))
+                            .foregroundStyle(DSColor.mutedInk)
+                    }
+
+                    Spacer(minLength: 0)
+                }
+
+                HStack(spacing: 6) {
+                    Circle()
+                        .fill(accentColor)
+                        .frame(width: 7, height: 7)
+                    Text("自定义家务")
+                        .font(.system(size: 12))
+                        .foregroundStyle(DSColor.mutedInk)
+                    Spacer(minLength: 0)
+                }
+            }
+            .foregroundStyle(DSColor.ink)
+            .frame(maxWidth: .infinity, minHeight: 84, alignment: .topLeading)
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("第 \(slot) 个自定义家务")
+    }
+}
+
+@MainActor
+private struct CommonChoreGridDropDelegate: DropDelegate {
+    let targetID: String
+    @Binding var draggingID: String?
+    @Binding var isReordering: Bool
+    let viewModel: AppViewModel
+
+    func dropEntered(info: DropInfo) {
+        guard viewModel.canEditCommonChoreLayout,
+              let draggingID,
+              draggingID != targetID
+        else { return }
+
+        withAnimation(.spring(response: 0.24, dampingFraction: 0.8)) {
+            if viewModel.moveCommonChoreGridItem(draggingID, to: targetID) {
+                UISelectionFeedbackGenerator().selectionChanged()
+            }
+        }
+    }
+
+    func dropUpdated(info: DropInfo) -> DropProposal? {
+        DropProposal(operation: .move)
+    }
+
+    func performDrop(info: DropInfo) -> Bool {
+        draggingID = nil
+        isReordering = false
+        if viewModel.canEditCommonChoreLayout {
+            Task {
+                await viewModel.persistCommonChoreGridLayout()
+            }
+        }
+        return true
+    }
+}
+
+@MainActor
+private struct CommonChoreTrashDropDelegate: DropDelegate {
+    @Binding var draggingID: String?
+    @Binding var isReordering: Bool
+    @Binding var isTargeted: Bool
+    let viewModel: AppViewModel
+
+    func dropEntered(info: DropInfo) {
+        guard draggingID != nil else { return }
+        isTargeted = true
+        UIImpactFeedbackGenerator(style: .rigid).impactOccurred()
+    }
+
+    func dropExited(info: DropInfo) {
+        isTargeted = false
+    }
+
+    func dropUpdated(info: DropInfo) -> DropProposal? {
+        DropProposal(operation: .move)
+    }
+
+    func performDrop(info: DropInfo) -> Bool {
+        guard let itemID = draggingID else { return false }
+        draggingID = nil
+        isTargeted = false
+        isReordering = false
+
+        Task {
+            if await viewModel.removeCommonChoreGridItem(itemID) {
+                UINotificationFeedbackGenerator().notificationOccurred(.success)
+            } else {
+                UINotificationFeedbackGenerator().notificationOccurred(.error)
+            }
+        }
+        return true
+    }
+}
+
+struct ChoreRoutineEditorView: View {
+    @EnvironmentObject private var viewModel: AppViewModel
+    @Environment(\.dismiss) private var dismiss
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+
+    let isInitialSetup: Bool
+
+    @State private var selectedIDs: [String] = []
+    @State private var pinnedIDs: Set<String> = []
+    @State private var didInitialize = false
+    @State private var isSaving = false
+    @State private var localMessage: String?
+    @State private var customEditorContext: CustomChoreEditorContext?
+    @State private var pendingCustomEditorContext: CustomChoreEditorContext?
+    @State private var customChoreToDelete: ChoreItem?
+    @State private var selectedTheme: ChoreTheme = .daily
+    @State private var premiumUpgradeTrigger: PremiumUpgradeTrigger?
+
+    var body: some View {
+        ZStack {
+            DSColor.quietBackground.ignoresSafeArea()
+
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 20) {
+                    themeHeader
+                    themeTabs
+                    selectionSummary
+                    themedCatalogSection
+                    customManagementSection
+                }
+                .padding(.horizontal, 20)
+                .padding(.top, 12)
+                .padding(.bottom, 120)
+            }
+        }
+        .navigationTitle(isInitialSetup ? "选择常用家务" : "家务库")
+        .navigationBarTitleDisplayMode(.inline)
+        .navigationBarBackButtonHidden(isInitialSetup)
+        .safeAreaInset(edge: .bottom) {
+            saveBar
+        }
+        .task {
+            guard !didInitialize else { return }
+            selectedIDs = initialSelection
+            pinnedIDs = viewModel.pinnedChoreIDs.intersection(Set(selectedIDs))
+            normalizePinnedOrder()
+            didInitialize = true
+        }
+        .sheet(item: $customEditorContext) { context in
+            CustomChoreEditorSheet(chore: context.chore) { draft in
+                let saved = await viewModel.saveCustomChore(draft, editing: context.chore)
+                if saved {
+                    customEditorContext = nil
+                }
+                return saved
+            } onCancel: {
+                customEditorContext = nil
+            }
+            .presentationDetents([.large])
+        }
+        .sheet(item: $premiumUpgradeTrigger) { trigger in
+            premiumUpgradeSheet(for: trigger)
+        }
+        .alert(
+            "移除自定义家务？",
+            isPresented: Binding(
+                get: { customChoreToDelete != nil },
+                set: { if !$0 { customChoreToDelete = nil } }
+            ),
+            presenting: customChoreToDelete
+        ) { chore in
+            Button("取消", role: .cancel) { customChoreToDelete = nil }
+            Button("移除", role: .destructive) {
+                Task {
+                    if await viewModel.archiveCustomChore(chore) {
+                        selectedIDs.removeAll { $0 == chore.id }
+                        pinnedIDs.remove(chore.id)
+                        customChoreToDelete = nil
+                    }
+                }
+            }
+        } message: { chore in
+            Text("「\(chore.name)」会从可选目录移除，历史记录和积分仍然保留。")
+        }
+    }
+
+    private var themeHeader: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(isInitialSetup ? "先搭好你们家的常用区" : "重新挑选常用家务")
+                .font(DSFont.functionalSectionTitle)
+                .foregroundStyle(DSColor.ink)
+
+            Text(viewModel.hasPremiumAccess
+                ? "高级版常用家务不限数量，并可创建 10 项自定义家务。"
+                : "可少选，免费版最多 6 项；一家之主的设置会同步给全家。")
+                .font(.system(size: 13))
+                .foregroundStyle(DSColor.mutedInk)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    private var themeTabs: some View {
+        HStack(spacing: 8) {
+            ForEach(ChoreTheme.allCases) { theme in
+                Button {
+                    withAnimation(.easeOut(duration: 0.18)) {
+                        selectedTheme = theme
+                    }
+                    UISelectionFeedbackGenerator().selectionChanged()
+                } label: {
+                    HStack(spacing: 5) {
+                        Image(systemName: theme.systemImage)
+                            .font(.system(size: 13, weight: .semibold))
+                            .frame(width: 16, height: 16)
+
+                        Text(theme.title)
+                            .font(.system(size: 13, weight: .semibold))
+                            .lineLimit(1)
+                    }
+                    .foregroundStyle(DSColor.ink)
+                    .frame(maxWidth: .infinity, minHeight: 42)
+                    .background(
+                        theme == selectedTheme
+                            ? themeAccent(theme).opacity(0.9)
+                            : DSColor.pureSurface
+                    )
+                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 12, style: .continuous)
+                            .strokeBorder(
+                                theme == selectedTheme
+                                    ? DSColor.ink.opacity(0.48)
+                                    : DSColor.subtleStroke,
+                                lineWidth: 1
+                            )
+                    )
+                }
+                .buttonStyle(.plain)
+                .frame(maxWidth: .infinity)
+                .accessibilityAddTraits(theme == selectedTheme ? .isSelected : [])
+            }
+        }
+    }
+
+    private var selectionSummary: some View {
+        HStack(spacing: 10) {
+            Image(systemName: selectedIDs.isEmpty ? "hand.tap" : "checkmark.circle.fill")
+                .foregroundStyle(selectedIDs.isEmpty ? DSColor.mutedInk : DSColor.mint)
+
+            Text(selectedIDs.isEmpty ? "点卡片开始选择" : "已选择 \(selectedIDs.count) 项")
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(DSColor.ink)
+
+            Spacer()
+
+            Text(selectionLimit.map { "最多 \($0) 项" } ?? "不限数量")
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(DSColor.mutedInk)
+        }
+        .padding(.horizontal, 14)
+        .frame(minHeight: 46)
+        .background(DSColor.pureSurface.opacity(0.84))
+        .clipShape(RoundedRectangle(cornerRadius: 13, style: .continuous))
+    }
+
+    private var themedCatalogSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .firstTextBaseline) {
+                Text(selectedTheme.title)
+                    .font(DSFont.functionalSectionTitle)
+                Spacer()
+                Text("\(themedChores.count) 项")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(DSColor.mutedInk)
+            }
+
+            LazyVGrid(columns: gridColumns, spacing: 8) {
+                ForEach(themedChores) { chore in
+                    let isSelected = selectedIDs.contains(chore.id)
+                    Button {
+                        toggleSelection(chore)
+                    } label: {
+                        DSChoreCard(chore: chore)
+                            .overlay {
+                                RoundedRectangle(cornerRadius: DSCornerRadius.smallCard, style: .continuous)
+                                    .fill(isSelected ? themeAccent(selectedTheme).opacity(0.16) : .clear)
+                            }
+                            .overlay(alignment: .topTrailing) {
+                                if isSelected {
+                                    Image(systemName: "checkmark.circle.fill")
+                                        .font(.system(size: 24, weight: .bold))
+                                        .foregroundStyle(DSColor.ink)
+                                        .background(themeAccent(selectedTheme).clipShape(Circle()))
+                                        .padding(8)
+                                }
+                            }
+                            .overlay {
+                                RoundedRectangle(cornerRadius: DSCornerRadius.smallCard, style: .continuous)
+                                    .stroke(isSelected ? DSColor.ink.opacity(0.76) : .clear, lineWidth: 2)
+                            }
+                            .scaleEffect(isSelected ? 0.98 : 1)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("\(chore.name)，\(isSelected ? "已选择" : "未选择")")
+                }
+            }
+        }
+    }
+
+    private var themedChores: [ChoreItem] {
+        viewModel.routineCatalogChores.filter { $0.themeKey == selectedTheme.rawValue }
+    }
+
+    private var selectionLimit: Int? {
+        viewModel.commonChoreSelectionLimit
+    }
+
+    private func themeAccent(_ theme: ChoreTheme) -> Color {
+        switch theme {
+        case .daily: DSColor.yellow
+        case .love: DSColor.coral
+        case .childcare: DSColor.sky
+        case .pet: DSColor.mint
+        }
+    }
+
+    private var introCard: some View {
+        DSQuietCard(fill: DSColor.choreYellowSurface, padding: 16) {
+            HStack(alignment: .top, spacing: 12) {
+                Image(systemName: "checklist.checked")
+                    .font(.system(size: 24, weight: .semibold))
+                    .foregroundStyle(DSColor.ink)
+
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(isInitialSetup ? "先选几项常做的，全家记录更顺手" : "常用区按需要增减")
+                        .font(.system(size: 18, weight: .bold))
+                        .foregroundStyle(DSColor.ink)
+                    Text("点卡片加入或替换；图钉决定置顶，箭头调整同组顺序。其他家务会留在完整目录里。")
+                        .font(.system(size: 13))
+                        .foregroundStyle(DSColor.mutedInk)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+        }
+    }
+
+    private var selectedSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Text("家庭常用")
+                    .font(DSFont.functionalSectionTitle)
+                Spacer()
+                Text(selectionLimit.map { "\(selectedIDs.count)/\($0)" } ?? "\(selectedIDs.count) 项")
+                    .font(.system(size: 15, weight: .bold))
+                    .foregroundStyle(selectionLimit == selectedIDs.count ? DSColor.mint : DSColor.coral)
+                    .monospacedDigit()
+            }
+
+            VStack(spacing: 8) {
+                ForEach(Array(selectedChores.enumerated()), id: \.element.id) { index, chore in
+                    selectedRow(chore, index: index)
+                }
+            }
+        }
+    }
+
+    private func selectedRow(_ chore: ChoreItem, index: Int) -> some View {
+        let isPinned = pinnedIDs.contains(chore.id)
+        return DSQuietCard(fill: ChorePresentation.resolve(chore).cardFill, cornerRadius: 14, padding: 10) {
+            VStack(spacing: 9) {
+                HStack(spacing: 10) {
+                    Text("\(index + 1)")
+                        .font(.system(size: 13, weight: .bold))
+                        .frame(width: 26, height: 26)
+                        .background(DSColor.pureSurface)
+                        .clipShape(Circle())
+
+                    routineIcon(chore, size: 46)
+
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(chore.name)
+                            .font(.system(size: 15, weight: .semibold))
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.82)
+                        Text(ChoreCategory.resolve(chore.category, choreName: chore.name).rawValue)
+                            .font(.system(size: 12))
+                            .foregroundStyle(DSColor.mutedInk)
+                    }
+                    .layoutPriority(1)
+
+                    Spacer(minLength: 4)
+
+                    Button(role: .destructive) {
+                        selectedIDs.removeAll { $0 == chore.id }
+                        pinnedIDs.remove(chore.id)
+                    } label: {
+                        Image(systemName: "minus.circle.fill")
+                            .font(.system(size: 19))
+                            .foregroundStyle(DSColor.coral)
+                            .frame(width: 36, height: 36)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("移出常用")
+                }
+
+                HStack(spacing: 8) {
+                    Button {
+                        if isPinned { pinnedIDs.remove(chore.id) } else { pinnedIDs.insert(chore.id) }
+                        normalizePinnedOrder()
+                    } label: {
+                        Label(isPinned ? "已置顶" : "置顶", systemImage: isPinned ? "pin.fill" : "pin")
+                            .font(.system(size: 13, weight: .semibold))
+                            .frame(minWidth: 82, minHeight: 36)
+                            .background(isPinned ? DSColor.yellow : DSColor.pureSurface)
+                            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(isPinned ? "取消置顶" : "置顶")
+
+                    Spacer(minLength: 0)
+
+                    moveButton(systemName: "chevron.up", choreID: chore.id, offset: -1)
+                    moveButton(systemName: "chevron.down", choreID: chore.id, offset: 1)
+                }
+            }
+        }
+    }
+
+    private func moveButton(systemName: String, choreID: String, offset: Int) -> some View {
+        Button {
+            move(choreID, offset: offset)
+        } label: {
+            Image(systemName: systemName)
+                .font(.system(size: 11, weight: .bold))
+                .frame(width: 28, height: 22)
+                .background(DSColor.pureSurface)
+                .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .disabled(!canMove(choreID, offset: offset))
+        .opacity(canMove(choreID, offset: offset) ? 1 : 0.3)
+    }
+
+    private var catalogSection: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text("全部家务")
+                .font(DSFont.functionalSectionTitle)
+
+            ForEach(ChoreCategory.allCases) { category in
+                let categoryChores = viewModel.routineCatalogChores.filter {
+                    ChoreCategory.resolve($0.category, choreName: $0.name) == category
+                }
+                if !categoryChores.isEmpty {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text(category.rawValue)
+                            .font(.system(size: 15, weight: .semibold))
+                            .foregroundStyle(DSColor.mutedInk)
+
+                        LazyVGrid(columns: gridColumns, spacing: 8) {
+                            ForEach(categoryChores) { chore in
+                                Button {
+                                    toggleSelection(chore)
+                                } label: {
+                                    DSChoreCard(chore: chore)
+                                        .overlay(alignment: .topLeading) {
+                                            if selectedIDs.contains(chore.id) {
+                                                Image(systemName: "checkmark.circle.fill")
+                                                    .font(.system(size: 22, weight: .bold))
+                                                    .foregroundStyle(DSColor.infoBlue)
+                                                    .background(DSColor.pureSurface.clipShape(Circle()))
+                                                    .padding(7)
+                                            }
+                                        }
+                                }
+                                .buttonStyle(.plain)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private var customManagementSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Text("自定义家务")
+                    .font(DSFont.functionalSectionTitle)
+                Spacer()
+                Text("\(viewModel.customChores.count)/\(viewModel.customChoreLimit)")
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(DSColor.mutedInk)
+            }
+
+            Text(viewModel.hasPremiumAccess
+                ? "高级版最多创建 10 项；常用页每次只展示接下来的 2 个空位。"
+                : "免费版最多创建 2 项；创建前可查看高级版权益。")
+                .font(.system(size: 12))
+                .foregroundStyle(DSColor.mutedInk)
+
+            ForEach(viewModel.customChores) { chore in
+                HStack(spacing: 12) {
+                    routineIcon(chore, size: 46)
+                    Text(chore.name)
+                        .font(.system(size: 15, weight: .semibold))
+                    Spacer()
+                    Button("编辑") {
+                        if viewModel.canEditCommonChoreLayout {
+                            customEditorContext = .init(id: chore.id, chore: chore)
+                        } else {
+                            premiumUpgradeTrigger = .personalLayout
+                        }
+                    }
+                    Button(role: .destructive) {
+                        if viewModel.canEditCommonChoreLayout {
+                            customChoreToDelete = chore
+                        } else {
+                            premiumUpgradeTrigger = .personalLayout
+                        }
+                    } label: {
+                        Image(systemName: "trash")
+                    }
+                }
+                .padding(12)
+                .background(DSColor.pureSurface)
+                .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+            }
+
+            if viewModel.availableCustomChoreSlots > 0 || !viewModel.hasPremiumAccess {
+                Button {
+                    let context = CustomChoreEditorContext(id: "new-\(UUID().uuidString)", chore: nil)
+                    if viewModel.hasPremiumAccess {
+                        customEditorContext = context
+                    } else {
+                        pendingCustomEditorContext = context
+                        premiumUpgradeTrigger = .customChore
+                        UINotificationFeedbackGenerator().notificationOccurred(.warning)
+                    }
+                } label: {
+                    Label(
+                        viewModel.availableCustomChoreSlots > 0 ? "新增自定义家务" : "扩展自定义额度",
+                        systemImage: viewModel.availableCustomChoreSlots > 0 ? "plus.circle.fill" : "crown.fill"
+                    )
+                        .font(.system(size: 15, weight: .semibold))
+                        .frame(maxWidth: .infinity, minHeight: 48)
+                        .background(DSColor.yellow)
+                        .foregroundStyle(DSColor.ink)
+                        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                }
+                .buttonStyle(.plain)
+            }
+        }
+    }
+
+    private var saveBar: some View {
+        VStack(spacing: 8) {
+            if let message = localMessage ?? viewModel.errorMessage {
+                Text(message)
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(DSColor.coral)
+            }
+
+            HStack(spacing: 10) {
+                if !isInitialSetup {
+                    Button("取消") { dismiss() }
+                        .frame(minWidth: 78, minHeight: 50)
+                }
+
+                Button {
+                    Task {
+                        isSaving = true
+                        let succeeded = await viewModel.saveChoreLayout(
+                            choreIDs: normalizedSelection,
+                            pinnedIDs: pinnedIDs
+                        )
+                        isSaving = false
+                        if succeeded && !isInitialSetup { dismiss() }
+                    }
+                } label: {
+                    Group {
+                        if isSaving { ProgressView().tint(DSColor.ink) }
+                        else { Label(isInitialSetup ? "保存并开始记录" : "保存常用家务", systemImage: "checkmark.circle.fill") }
+                    }
+                    .font(.system(size: 16, weight: .semibold))
+                    .frame(maxWidth: .infinity, minHeight: 50)
+                    .background(selectedIDs.isEmpty ? DSColor.surface : DSColor.yellow)
+                    .foregroundStyle(DSColor.ink)
+                    .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                }
+                .buttonStyle(.plain)
+                .disabled(isSaving || selectedIDs.isEmpty)
+            }
+        }
+        .padding(.horizontal, 20)
+        .padding(.vertical, 12)
+        .background(.ultraThinMaterial)
+    }
+
+    private var selectedChores: [ChoreItem] {
+        let byID = Dictionary(uniqueKeysWithValues: viewModel.allAvailableChores.map { ($0.id, $0) })
+        return normalizedSelection.compactMap { byID[$0] }
+    }
+
+    private var normalizedSelection: [String] {
+        selectedIDs.filter(pinnedIDs.contains) + selectedIDs.filter { !pinnedIDs.contains($0) }
+    }
+
+    private var initialSelection: [String] {
+        if isInitialSetup && !viewModel.choreLayoutConfigured {
+            return []
+        }
+
+        let available = Set(viewModel.routineCatalogChores.map(\.id))
+        let saved = viewModel.choreOrder.filter(available.contains)
+        return saved
+    }
+
+    private var gridColumns: [GridItem] {
+        dynamicTypeSize.isAccessibilitySize
+            ? [GridItem(.flexible())]
+            : [GridItem(.flexible(), spacing: 8), GridItem(.flexible(), spacing: 8)]
+    }
+
+    private func toggleSelection(_ chore: ChoreItem) {
+        localMessage = nil
+        if selectedIDs.contains(chore.id) {
+            selectedIDs.removeAll { $0 == chore.id }
+            pinnedIDs.remove(chore.id)
+        } else if selectionLimit.map({ selectedIDs.count < $0 }) ?? true {
+            selectedIDs.append(chore.id)
+            UISelectionFeedbackGenerator().selectionChanged()
+        } else {
+            premiumUpgradeTrigger = .commonLimit
+            UINotificationFeedbackGenerator().notificationOccurred(.warning)
+        }
+    }
+
+    private func normalizePinnedOrder() {
+        selectedIDs = normalizedSelection
+    }
+
+    private func move(_ choreID: String, offset: Int) {
+        guard let index = selectedIDs.firstIndex(of: choreID) else { return }
+        let target = index + offset
+        guard selectedIDs.indices.contains(target), pinnedIDs.contains(selectedIDs[target]) == pinnedIDs.contains(choreID) else { return }
+        selectedIDs.swapAt(index, target)
+    }
+
+    private func canMove(_ choreID: String, offset: Int) -> Bool {
+        guard let index = selectedIDs.firstIndex(of: choreID) else { return false }
+        let target = index + offset
+        return selectedIDs.indices.contains(target)
+            && pinnedIDs.contains(selectedIDs[target]) == pinnedIDs.contains(choreID)
+    }
+
+    private func fillSelectionIfNeeded() {
+        let selected = Set(selectedIDs)
+        let targetCount = selectionLimit ?? viewModel.routineCatalogChores.count
+        for chore in viewModel.routineCatalogChores where selectedIDs.count < targetCount && !selected.contains(chore.id) {
+            selectedIDs.append(chore.id)
+        }
+    }
+
+    private func continueWithFreeCustomSlot() {
+        let context = pendingCustomEditorContext
+        pendingCustomEditorContext = nil
+        premiumUpgradeTrigger = nil
+        DispatchQueue.main.async {
+            customEditorContext = context
+        }
+    }
+
+    private func openCustomEditorAfterUpgrade() {
+        continueWithFreeCustomSlot()
+    }
+
+    private func premiumUpgradeSheet(for trigger: PremiumUpgradeTrigger) -> some View {
+        let canContinueFree = trigger == .customChore
+            && viewModel.isCurrentUserOwner
+            && viewModel.availableCustomChoreSlots > 0
+        let continueAction: (() -> Void)? = canContinueFree
+            ? { continueWithFreeCustomSlot() }
+            : nil
+        let unlockedAction: (() -> Void)? = trigger == .customChore
+            ? { openCustomEditorAfterUpgrade() }
+            : nil
+
+        return PremiumUpgradeSheet(
+            trigger: trigger,
+            onContinueFree: continueAction,
+            onUnlocked: unlockedAction
+        )
+        .environmentObject(viewModel)
+        .presentationDetents([.large])
+        .presentationDragIndicator(.visible)
+    }
+
+    @ViewBuilder
+    private func routineIcon(_ chore: ChoreItem, size: CGFloat) -> some View {
+        let presentation = ChorePresentation.resolve(chore)
+        if let assetName = presentation.assetName {
+            Image(assetName)
+                .resizable()
+                .scaledToFit()
+                .clipShape(RoundedRectangle(cornerRadius: size * 0.2, style: .continuous))
+                .frame(width: size, height: size)
+        } else {
+            Image(systemName: chore.icon)
+                .font(.system(size: size * 0.42, weight: .semibold))
+                .frame(width: size, height: size)
+                .background(chore.color.opacity(0.8))
+                .clipShape(RoundedRectangle(cornerRadius: size * 0.2, style: .continuous))
+        }
+    }
+}
+
+enum PremiumUpgradeTrigger: String, Identifiable, Equatable {
+    case profile
+    case commonLimit
+    case customChore
+    case personalLayout
+    case pointsMultiplier
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .profile: "解锁高级家庭空间"
+        case .commonLimit: "常用家务已经放满啦"
+        case .customChore: "把你们家的独门家务记下来"
+        case .personalLayout: "每个人都能有自己的常用区"
+        case .pointsMultiplier: "让积分更贴合家务难度"
+        }
+    }
+
+    var subtitle: String {
+        switch self {
+        case .profile: "把常用家务、自定义家务和家庭成员的个人偏好一起升级。"
+        case .commonLimit: "免费版最多放 6 项常用家务，高级版不限制数量。"
+        case .customChore: "免费版可创建 2 项，高级版可创建 10 项自定义家务。"
+        case .personalLayout: "免费版由一家之主统一设置；高级版每位成员都能单独定制。"
+        case .pointsMultiplier: "高级版可在每次记录时调整 0.5x...2.0x 积分倍率。"
+        }
+    }
+}
+
+struct PremiumUpgradeSheet: View {
+    @EnvironmentObject private var viewModel: AppViewModel
+    @Environment(\.dismiss) private var dismiss
+
+    let trigger: PremiumUpgradeTrigger
+    var onContinueFree: (() -> Void)? = nil
+    var onUnlocked: (() -> Void)? = nil
+
+    @State private var code = ""
+    @State private var errorMessage: String?
+    @State private var isRedeeming = false
+    @State private var isRedeemed = false
+    @FocusState private var isCodeFocused: Bool
+
+    var body: some View {
+        ScrollView {
+            VStack(spacing: 20) {
+                if isRedeemed {
+                    successContent
+                } else {
+                    upgradeContent
+                }
+            }
+            .padding(.horizontal, 20)
+            .padding(.top, 24)
+            .padding(.bottom, 28)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(DSColor.quietBackground.ignoresSafeArea())
+    }
+
+    private var upgradeContent: some View {
+        VStack(spacing: 20) {
+            Image(systemName: "crown.fill")
+                .font(.system(size: 32, weight: .bold))
+                .foregroundStyle(DSColor.ink)
+                .frame(width: 68, height: 68)
+                .background(DSColor.yellow)
+                .clipShape(Circle())
+
+            VStack(spacing: 7) {
+                Text(trigger.title)
+                    .font(.system(size: 25, weight: .bold, design: .rounded))
+                    .foregroundStyle(DSColor.ink)
+                    .multilineTextAlignment(.center)
+
+                Text(trigger.subtitle)
+                    .font(.system(size: 14))
+                    .foregroundStyle(DSColor.mutedInk)
+                    .multilineTextAlignment(.center)
+            }
+
+            comparisonTable
+
+            VStack(alignment: .leading, spacing: 8) {
+                Text("开发测试兑换")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(DSColor.mutedInk)
+
+            TextField("输入兑换码", text: $code)
+                .keyboardType(.numberPad)
+                .textContentType(.oneTimeCode)
+                .multilineTextAlignment(.center)
+                .font(.system(size: 22, weight: .semibold))
+                .monospacedDigit()
+                .focused($isCodeFocused)
+                .padding(.horizontal, 16)
+                .frame(height: 58)
+                .background(DSColor.pureSurface)
+                .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        .stroke(errorMessage == nil ? DSColor.subtleStroke : DSColor.coral, lineWidth: 1.5)
+                )
+            }
+
+            if let errorMessage {
+                Label(errorMessage, systemImage: "exclamationmark.triangle.fill")
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(DSColor.coral)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+
+            Button {
+                Task {
+                    isRedeeming = true
+                    errorMessage = nil
+                    let succeeded = await viewModel.redeemPremium(code: code)
+                    isRedeeming = false
+
+                    if succeeded {
+                        isCodeFocused = false
+                        withAnimation(.easeOut(duration: 0.2)) {
+                            isRedeemed = true
+                        }
+                    } else {
+                        errorMessage = viewModel.errorMessage ?? "兑换失败，请稍后重试"
+                    }
+                }
+            } label: {
+                Group {
+                    if isRedeeming {
+                        ProgressView()
+                            .tint(DSColor.ink)
+                    } else {
+                        Label("兑换并开通高级版", systemImage: "sparkles")
+                    }
+                }
+                .font(.system(size: 17, weight: .semibold))
+                .foregroundStyle(DSColor.ink)
+                .frame(maxWidth: .infinity, minHeight: 52)
+                .background(DSColor.yellow)
+                .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+            }
+            .buttonStyle(.plain)
+            .disabled(isRedeeming || code.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+
+            if let onContinueFree {
+                Button("先使用免费额度") {
+                    dismiss()
+                    DispatchQueue.main.async { onContinueFree() }
+                }
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(DSColor.ink)
+                .frame(maxWidth: .infinity, minHeight: 48)
+                .background(DSColor.pureSurface)
+                .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        .stroke(DSColor.subtleStroke, lineWidth: 1)
+                )
+            }
+
+            Button("暂不开通", role: .cancel) { dismiss() }
+                .foregroundStyle(DSColor.mutedInk)
+                .disabled(isRedeeming)
+        }
+    }
+
+    private var comparisonTable: some View {
+        VStack(spacing: 0) {
+            comparisonHeader
+            comparisonRow(label: "常用家务", free: "最多 6 项", premium: "不限数量")
+            comparisonRow(label: "自定义家务", free: "最多 2 项", premium: "最多 10 项")
+            comparisonRow(label: "成员常用区", free: "全家共享", premium: "每人定制")
+            comparisonRow(label: "积分倍率", free: "系统固定", premium: "0.5–2.0x")
+            comparisonRow(label: "家庭共享", free: "不共享", premium: "全家可用")
+        }
+        .background(DSColor.pureSurface.opacity(0.9))
+        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .stroke(DSColor.subtleStroke, lineWidth: 1)
+        )
+    }
+
+    private var comparisonHeader: some View {
+        HStack(spacing: 0) {
+            Text("权益")
+                .frame(maxWidth: .infinity, alignment: .leading)
+            Text("免费版")
+                .frame(width: 82)
+            Text("高级版")
+                .frame(width: 82)
+                .foregroundStyle(DSColor.ink)
+        }
+        .font(.system(size: 13, weight: .bold))
+        .foregroundStyle(DSColor.mutedInk)
+        .padding(.horizontal, 14)
+        .frame(height: 44)
+        .background(DSColor.yellow.opacity(0.34))
+    }
+
+    private func comparisonRow(label: String, free: String, premium: String) -> some View {
+        HStack(spacing: 0) {
+            Text(label)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            Text(free)
+                .foregroundStyle(DSColor.mutedInk)
+                .frame(width: 82)
+            Text(premium)
+                .fontWeight(.semibold)
+                .foregroundStyle(DSColor.ink)
+                .frame(width: 82)
+        }
+        .font(.system(size: 13))
+        .multilineTextAlignment(.center)
+        .padding(.horizontal, 14)
+        .frame(minHeight: 48)
+        .overlay(alignment: .top) {
+            Divider().padding(.leading, 14)
+        }
+    }
+
+    private var successContent: some View {
+        VStack(spacing: 20) {
+            Image(systemName: "checkmark.seal.fill")
+                .font(.system(size: 58, weight: .bold))
+                .foregroundStyle(DSColor.mint)
+
+            VStack(spacing: 8) {
+                Text("家庭高级版已解锁")
+                    .font(.system(size: 25, weight: .bold))
+                    .foregroundStyle(DSColor.ink)
+
+                Text("全家已共享高级权益：常用家务不限数量，可创建 10 项自定义家务；每位成员都能定制常用区，并按实际难度调整积分倍率。")
+                    .font(.system(size: 15))
+                    .foregroundStyle(DSColor.mutedInk)
+                    .multilineTextAlignment(.center)
+            }
+
+            Button("开始使用高级版") {
+                dismiss()
+                DispatchQueue.main.async { onUnlocked?() }
+            }
+            .font(.system(size: 17, weight: .semibold))
+            .foregroundStyle(DSColor.ink)
+            .frame(maxWidth: .infinity, minHeight: 52)
+            .background(DSColor.mint)
+            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .buttonStyle(.plain)
+        }
+    }
+}
+
+private struct CustomChoreEditorContext: Identifiable {
+    let id: String
+    let chore: ChoreItem?
+}
+
+private struct CustomChoreEditorSheet: View {
+    let chore: ChoreItem?
+    let onSave: (CustomChoreDraft) async -> Bool
+    let onCancel: () -> Void
+
+    @State private var draft: CustomChoreDraft
+    @State private var isSaving = false
+    @FocusState private var isNameFocused: Bool
+
+    init(
+        chore: ChoreItem?,
+        onSave: @escaping (CustomChoreDraft) async -> Bool,
+        onCancel: @escaping () -> Void
+    ) {
+        self.chore = chore
+        self.onSave = onSave
+        self.onCancel = onCancel
+        _draft = State(initialValue: chore.map { CustomChoreDraft(chore: $0) } ?? CustomChoreDraft())
+    }
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 22) {
+                    previewCard
+                    nameField
+                    categoryPicker
+                    iconLibrary
+                    durationControl
+                    multiplierControl
+                    pointsPreview
+                }
+                .padding(.horizontal, 20)
+                .padding(.vertical, 16)
+                .padding(.bottom, 24)
+            }
+            .background(DSColor.quietBackground.ignoresSafeArea())
+            .navigationTitle(chore == nil ? "添加自定义家务" : "编辑自定义家务")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("取消", action: onCancel)
+                        .disabled(isSaving)
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("保存") {
+                        Task {
+                            isSaving = true
+                            _ = await onSave(draft)
+                            isSaving = false
+                        }
+                    }
+                    .fontWeight(.semibold)
+                    .disabled(isSaving || draft.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                }
+            }
+        }
+    }
+
+    private var selectedOption: CustomChoreIconOption {
+        CustomChoreCatalog.option(for: draft.iconKey) ?? CustomChoreCatalog.options[0]
+    }
+
+    private var previewCard: some View {
+        HStack(spacing: 14) {
+            Image(draft.iconKey)
+                .resizable()
+                .scaledToFit()
+                .frame(width: 76, height: 76)
+                .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+
+            VStack(alignment: .leading, spacing: 5) {
+                Text(draft.name.isEmpty ? "未命名家务" : draft.name)
+                    .font(.system(size: 20, weight: .bold))
+                    .foregroundStyle(DSColor.ink)
+                    .lineLimit(2)
+
+                Text(draft.category.rawValue)
+                    .font(.system(size: 13))
+                    .foregroundStyle(DSColor.mutedInk)
+
+                Text("\(draft.standardMinutes) 分钟 · +\(draft.defaultPoints) 分")
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(DSColor.ink)
+                    .monospacedDigit()
+            }
+
+            Spacer(minLength: 0)
+        }
+        .padding(16)
+        .background(selectedOption.color.opacity(0.14))
+        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 18).stroke(DSColor.ink.opacity(0.16), lineWidth: 1.5))
+    }
+
+    private var nameField: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            sectionTitle("家务名称")
+            TextField("输入家务名称", text: $draft.name)
+                .textInputAutocapitalization(.never)
+                .focused($isNameFocused)
+                .onChange(of: draft.name) { _, newValue in
+                    if newValue.count > 5 {
+                        draft.name = String(newValue.prefix(5))
+                    }
+                }
+                .padding(.horizontal, 14)
+                .frame(minHeight: 52)
+                .background(DSColor.pureSurface)
+                .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: 14).stroke(DSColor.subtleStroke, lineWidth: 1.5))
+
+            Text("最多 5 个字")
+                .font(.system(size: 12))
+                .foregroundStyle(DSColor.mutedInk)
+        }
+    }
+
+    private var categoryPicker: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            sectionTitle("统计大类")
+
+            HStack(spacing: 12) {
+                Label("归入本周战况和月度战报", systemImage: "chart.bar.fill")
+                    .font(.system(size: 13, weight: .regular))
+                    .foregroundStyle(DSColor.mutedInk)
+
+                Spacer(minLength: 0)
+
+                Picker("统计大类", selection: $draft.category) {
+                    ForEach(ChoreCategory.allCases) { category in
+                        Text(category.rawValue).tag(category)
+                    }
+                }
+                .pickerStyle(.menu)
+                .tint(DSColor.infoBlue)
+            }
+            .padding(.horizontal, 14)
+            .frame(minHeight: 52)
+            .background(DSColor.pureSurface)
+            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 14).stroke(DSColor.subtleStroke, lineWidth: 1.5))
+        }
+    }
+
+    private var iconLibrary: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            sectionTitle("选择通用图标")
+
+            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 10), count: 4), spacing: 10) {
+                ForEach(CustomChoreCatalog.options) { option in
+                    Button {
+                        draft.iconKey = option.id
+                    } label: {
+                        Image(option.id)
+                            .resizable()
+                            .scaledToFit()
+                            .clipShape(RoundedRectangle(cornerRadius: 13, style: .continuous))
+                            .padding(3)
+                            .background(DSColor.pureSurface)
+                            .clipShape(RoundedRectangle(cornerRadius: 13, style: .continuous))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 13)
+                                    .stroke(
+                                        draft.iconKey == option.id ? DSColor.ink : Color.clear,
+                                        lineWidth: 2.5
+                                    )
+                            )
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(option.accessibilityLabel)
+                    .accessibilityAddTraits(draft.iconKey == option.id ? .isSelected : [])
+                }
+            }
+        }
+    }
+
+    private var durationControl: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                sectionTitle("默认时长")
+                Spacer()
+                Text("\(draft.standardMinutes) 分钟")
+                    .font(.system(size: 16, weight: .semibold))
+                    .monospacedDigit()
+            }
+            Stepper("调整默认时长", value: $draft.standardMinutes, in: 1...180, step: 1)
+                .labelsHidden()
+                .frame(maxWidth: .infinity, alignment: .trailing)
+            Slider(value: Binding(
+                get: { Double(draft.standardMinutes) },
+                set: { draft.standardMinutes = Int($0.rounded()) }
+            ), in: 1...180, step: 1)
+            .tint(DSColor.infoBlue)
+        }
+    }
+
+    private var multiplierControl: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                sectionTitle("积分倍率")
+                Spacer()
+                Text(String(format: "%.1fx", draft.difficultyMultiplier))
+                    .font(.system(size: 16, weight: .semibold))
+                    .monospacedDigit()
+            }
+            Slider(value: $draft.difficultyMultiplier, in: 0.5...2.0, step: 0.1)
+                .tint(DSColor.coral)
+            Text("倍率越高，每分钟积分越高。")
+                .font(.system(size: 12))
+                .foregroundStyle(DSColor.mutedInk)
+        }
+    }
+
+    private var pointsPreview: some View {
+        HStack {
+            Label("默认完成一次", systemImage: "sparkles")
+                .font(.system(size: 15, weight: .semibold))
+            Spacer()
+            Text("+\(draft.defaultPoints) 分")
+                .font(.system(size: 24, weight: .bold))
+                .monospacedDigit()
+        }
+        .foregroundStyle(DSColor.ink)
+        .padding(16)
+        .background(DSColor.yellow.opacity(0.72))
+        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+    }
+
+    private func sectionTitle(_ title: String) -> some View {
+        Text(title)
+            .font(.system(size: 16, weight: .semibold))
+            .foregroundStyle(DSColor.ink)
     }
 }
 

@@ -1,8 +1,10 @@
-import { BadRequestException, Injectable, UnauthorizedException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Injectable, UnauthorizedException } from '@nestjs/common';
 import { createHmac, timingSafeEqual } from 'node:crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuthUser } from './auth-user';
 import { MockLoginDto } from './dto/mock-login.dto';
+import { RedeemPremiumDto } from './dto/redeem-premium.dto';
+import { UpdateCurrentUserDto } from './dto/update-current-user.dto';
 
 interface TokenPayload {
   sub: string;
@@ -54,6 +56,54 @@ export class AuthService {
     return {
       id: user.id,
       displayName: user.displayName,
+    };
+  }
+
+  async getCurrentUser(user: AuthUser) {
+    const currentUser = await this.prisma.user.findUnique({ where: { id: user.id } });
+
+    if (!currentUser) {
+      throw new UnauthorizedException('User not found');
+    }
+
+    return currentUser;
+  }
+
+  async updateCurrentUser(user: AuthUser, dto: UpdateCurrentUserDto) {
+    const displayName = dto.displayName.trim();
+
+    if (!displayName) {
+      throw new BadRequestException('displayName is required');
+    }
+
+    return this.prisma.user.update({
+      where: { id: user.id },
+      data: { displayName },
+    });
+  }
+
+  async redeemPremium(user: AuthUser, dto: RedeemPremiumDto) {
+    if (process.env.NODE_ENV === 'production') {
+      throw new ForbiddenException('Test premium redemption is disabled in production');
+    }
+
+    const expectedCode = process.env.TEST_PREMIUM_REDEMPTION_CODE || '241255';
+    if (dto.code.trim() !== expectedCode) {
+      throw new BadRequestException('Invalid premium redemption code');
+    }
+
+    const redeemedAt = new Date();
+    const updatedUser = await this.prisma.user.update({
+      where: { id: user.id },
+      data: {
+        plan: 'premium',
+        premiumRedeemedAt: redeemedAt,
+      },
+    });
+
+    return {
+      plan: updatedUser.plan,
+      premiumRedeemedAt: updatedUser.premiumRedeemedAt,
     };
   }
 

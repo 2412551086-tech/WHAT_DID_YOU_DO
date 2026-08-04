@@ -53,8 +53,9 @@ enum APIConfig {
 
     static var localNetworkBaseURL: URL {
         url(
-            from: ProcessInfo.processInfo.environment["WDD_LOCAL_NETWORK_BASE_URL"],
-            fallback: "http://192.168.1.10:3000"
+            from: ProcessInfo.processInfo.environment["WDD_LOCAL_NETWORK_BASE_URL"]
+                ?? Bundle.main.object(forInfoDictionaryKey: "WDDLocalNetworkBaseURL") as? String,
+            fallback: "http://192.168.1.30:3000"
         )
     }
 
@@ -89,7 +90,11 @@ enum APIConfig {
 
     private static var defaultEnvironment: APIEnvironment {
         #if DEBUG
+        #if targetEnvironment(simulator)
         .localSimulator
+        #else
+        .localNetwork
+        #endif
         #else
         .production
         #endif

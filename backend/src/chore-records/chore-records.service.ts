@@ -4,12 +4,13 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { MemberRole, Prisma } from '@prisma/client';
+import { MemberRole, MemberStatus, Prisma } from '@prisma/client';
 import { AuthUser } from '../auth/auth-user';
-import { getDayRangeForTimeZone, getMonthRangeForTimeZone } from '../common/timezone-ranges';
+import { getDayRangeForTimeZone, getMonthRangeForTimeZone, getWeekRangeForTimeZone } from '../common/timezone-ranges';
 import { FamiliesService } from '../families/families.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateChoreRecordDto } from './dto/create-chore-record.dto';
+import { CHORE_REACTION_KEYS, ChoreReactionKey } from './dto/react-to-chore-record.dto';
 
 type RecordWithDetails = Prisma.ChoreRecordGetPayload<{
   include: {
@@ -58,16 +59,28 @@ export class ChoreRecordsService {
       throw new BadRequestException('Image proof is required for this family');
     }
 
-    const chore = await this.prisma.chore.findUnique({
-      where: { id: dto.choreId },
-    });
+    const chore = await this.prisma.chore.findUnique({ where: { id: dto.choreId } });
 
     if (!chore) {
       throw new NotFoundException('Chore not found');
     }
 
+    if (chore.isCustom && (chore.familyId !== dto.familyId || chore.archivedAt)) {
+      throw new NotFoundException('Custom chore not found in this family');
+    }
+
     const actualMinutes = dto.actualMinutes ?? chore.standardMinutes;
-    const points = this.calculatePoints(chore.defaultPoints, actualMinutes, chore.standardMinutes);
+    let points = this.calculatePoints(chore.defaultPoints, actualMinutes, chore.standardMinutes);
+
+    if (dto.pointsMultiplier !== undefined) {
+      const hasPremiumAccess = await this.familiesService.hasPremiumAccess(dto.familyId);
+      if (!hasPremiumAccess) {
+        throw new ForbiddenException('Custom points multiplier requires family premium access');
+      }
+
+      const multiplier = Math.round(dto.pointsMultiplier * 10) / 10;
+      points = Math.max(1, Math.round(actualMinutes * multiplier));
+    }
 
     const createdRecord = await this.prisma.choreRecord.create({
       data: {
@@ -94,20 +107,24 @@ export class ChoreRecordsService {
     return this.formatRecord(record, user.id, membership.memberRole);
   }
 
-  async getActivity(user: AuthUser, familyId: string, range: 'day' | 'recent' = 'recent') {
+  async getActivity(user: AuthUser, familyId: string, range: 'day' | 'week' | 'recent' = 'recent') {
     const membership = await this.familiesService.assertActiveMember(familyId, user.id);
-    const timezone = range === 'day' ? await this.familiesService.getFamilyTimeZone(familyId) : null;
-    const dayRange = timezone ? getDayRangeForTimeZone(timezone) : null;
+    const timezone = range === 'recent' ? null : await this.familiesService.getFamilyTimeZone(familyId);
+    const dateRange = timezone
+      ? range === 'week'
+        ? getWeekRangeForTimeZone(timezone)
+        : getDayRangeForTimeZone(timezone)
+      : null;
 
     const records = await this.prisma.choreRecord.findMany({
       where: {
         familyId,
         deletedAt: null,
-        ...(dayRange
+        ...(dateRange
           ? {
               createdAt: {
-                gte: dayRange.start,
-                lt: dayRange.end,
+                gte: dateRange.start,
+                lt: dateRange.end,
               },
             }
           : {}),
@@ -122,13 +139,48 @@ export class ChoreRecordsService {
     return records.map((record) => this.formatRecord(record, user.id, membership.memberRole));
   }
 
-  async getLeaderboard(user: AuthUser, familyId: string, range: 'day' | 'month' = 'month') {
+  async getMemberActivity(user: AuthUser, familyId: string, memberId: string) {
+    const currentMembership = await this.familiesService.assertActiveMember(familyId, user.id);
+    const targetMembership = await this.prisma.familyMember.findFirst({
+      where: {
+        id: memberId,
+        familyId,
+        status: MemberStatus.ACTIVE,
+      },
+      select: { userId: true },
+    });
+
+    if (!targetMembership) {
+      throw new NotFoundException('Active family member not found');
+    }
+
+    const start = new Date();
+    start.setUTCDate(start.getUTCDate() - 30);
+
+    const records = await this.prisma.choreRecord.findMany({
+      where: {
+        familyId,
+        userId: targetMembership.userId,
+        deletedAt: null,
+        createdAt: { gte: start },
+      },
+      include: this.recordDetailsInclude(familyId),
+      orderBy: { createdAt: 'desc' },
+      take: 100,
+    });
+
+    return records.map((record) => this.formatRecord(record, user.id, currentMembership.memberRole));
+  }
+
+  async getLeaderboard(user: AuthUser, familyId: string, range: 'day' | 'week' | 'month' = 'month') {
     await this.familiesService.assertActiveMember(familyId, user.id);
     const timezone = await this.familiesService.getFamilyTimeZone(familyId);
     const dateRange =
       range === 'day'
         ? getDayRangeForTimeZone(timezone)
-        : getMonthRangeForTimeZone(this.currentMonthForTimeZone(timezone), timezone);
+        : range === 'week'
+          ? getWeekRangeForTimeZone(timezone)
+          : getMonthRangeForTimeZone(this.currentMonthForTimeZone(timezone), timezone);
 
     const records = await this.prisma.choreRecord.findMany({
       where: {
@@ -206,7 +258,7 @@ export class ChoreRecordsService {
     };
   }
 
-  async likeRecord(user: AuthUser, recordId: string) {
+  async likeRecord(user: AuthUser, recordId: string, reactionKey: ChoreReactionKey = 'like') {
     const record = await this.findActiveRecord(recordId);
     await this.familiesService.assertActiveMember(record.familyId, user.id);
 
@@ -217,10 +269,11 @@ export class ChoreRecordsService {
           userId: user.id,
         },
       },
-      update: {},
+      update: { reactionKey },
       create: {
         recordId,
         userId: user.id,
+        reactionKey,
       },
     });
 
@@ -261,23 +314,18 @@ export class ChoreRecordsService {
   }
 
   private async likeState(recordId: string, userId: string) {
-    const [likeCount, likedByMe] = await Promise.all([
-      this.prisma.choreRecordLike.count({ where: { recordId } }),
-      this.prisma.choreRecordLike.findUnique({
-        where: {
-          recordId_userId: {
-            recordId,
-            userId,
-          },
-        },
-        select: { id: true },
-      }),
-    ]);
+    const reactions = await this.prisma.choreRecordLike.findMany({
+      where: { recordId },
+      select: { userId: true, reactionKey: true },
+    });
+    const currentReaction = reactions.find((reaction) => reaction.userId === userId);
 
     return {
       recordId,
-      likeCount,
-      likedByMe: Boolean(likedByMe),
+      likeCount: reactions.length,
+      likedByMe: Boolean(currentReaction),
+      myReaction: currentReaction?.reactionKey ?? null,
+      reactionCounts: this.countReactions(reactions),
     };
   }
 
@@ -355,8 +403,10 @@ export class ChoreRecordsService {
         identityLabel: likerMembership?.identityLabel ?? '家庭成员',
         customIdentity: likerMembership?.customIdentity ?? null,
         avatarKey: likerMembership?.avatarKey ?? null,
+        reactionKey: like.reactionKey,
       };
     });
+    const currentReaction = record.likes.find((like) => like.userId === currentUserId);
 
     return {
       id: record.id,
@@ -378,9 +428,26 @@ export class ChoreRecordsService {
       imageUrls: record.imageUrls,
       likeCount: record._count.likes,
       likedBy,
-      likedByMe: record.likes.some((like) => like.userId === currentUserId),
+      likedByMe: Boolean(currentReaction),
+      myReaction: currentReaction?.reactionKey ?? null,
+      reactionCounts: this.countReactions(record.likes),
       canDelete: record.userId === currentUserId || currentMemberRole === MemberRole.OWNER,
       createdAt: record.createdAt,
     };
+  }
+
+  private countReactions(reactions: Array<{ reactionKey: string }>) {
+    const counts = Object.fromEntries(CHORE_REACTION_KEYS.map((key) => [key, 0])) as Record<
+      ChoreReactionKey,
+      number
+    >;
+
+    for (const reaction of reactions) {
+      if (CHORE_REACTION_KEYS.includes(reaction.reactionKey as ChoreReactionKey)) {
+        counts[reaction.reactionKey as ChoreReactionKey] += 1;
+      }
+    }
+
+    return counts;
   }
 }
