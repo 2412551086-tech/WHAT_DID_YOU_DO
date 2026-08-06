@@ -1,21 +1,40 @@
 import SwiftUI
-import UniformTypeIdentifiers
 import UIKit
 
 struct ChoreSelectionView: View {
     @EnvironmentObject private var viewModel: AppViewModel
+    @EnvironmentObject private var dragCoordinator: CommonChoreDragCoordinator
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @Environment(\.scenePhase) private var scenePhase
     @State private var choreForDurationPicker: ChoreItem?
     @State private var showsRoutineEditor = false
     @State private var customEditorContext: CustomChoreEditorContext?
     @State private var pendingCustomEditorContext: CustomChoreEditorContext?
     @State private var premiumUpgradeTrigger: PremiumUpgradeTrigger?
-    @State private var draggingGridItemID: String?
-    @State private var isReordering = false
-    @State private var isTrashTargeted = false
+    @State private var dragState = CommonChoreDragState.idle
     @State private var isBottomSentinelVisible = false
     @State private var isTrackingLibraryPull = false
     @State private var libraryPullStartedAtBottom = false
+    @State private var scrollResetID = UUID()
+    @State private var commonChoreFrames: [String: CGRect] = [:]
+    @State private var commonChoreContainerGlobalFrame: CGRect = .zero
+    @State private var cardPressState = CommonChorePressState.idle
+    @State private var reorderActivationTask: Task<Void, Never>?
+
+    private static let commonChoreCoordinateSpace = "common-chore-grid"
+    private static let reorderHoldDuration = 0.65
+    private static let reorderMovementTolerance: CGFloat = 10
+
+    private var draggingGridItemID: String? { dragState.itemID }
+    private var dragLocation: CGPoint? { dragState.location }
+    private var isReordering: Bool { dragState.isActive }
+    private var isTrashTargeted: Bool { dragState.isTrashTargeted }
+    private var isPresentingModal: Bool {
+        choreForDurationPicker != nil
+            || showsRoutineEditor
+            || customEditorContext != nil
+            || premiumUpgradeTrigger != nil
+    }
 
     var body: some View {
         ZStack {
@@ -32,13 +51,33 @@ struct ChoreSelectionView: View {
                 .padding(.top, 10)
                 .padding(.bottom, 108)
             }
+            .id(scrollResetID)
             .simultaneousGesture(libraryRevealGesture)
         }
         .navigationBarBackButtonHidden(true)
         .onAppear {
+            resetTransientInteractionState()
             viewModel.prepareCommonChoreGrid()
         }
-        .sheet(item: $choreForDurationPicker) { chore in
+        .onDisappear {
+            resetTransientInteractionState()
+        }
+        .onChange(of: scenePhase) { _, newPhase in
+            if newPhase != .active {
+                resetTransientInteractionState()
+            }
+        }
+        .onChange(of: viewModel.commonChoreGridItemIDs) { _, itemIDs in
+            if let activeItemID = dragState.itemID, !itemIDs.contains(activeItemID) {
+                resetTransientInteractionState()
+            }
+        }
+        .onChange(of: viewModel.isLoading) { _, isLoading in
+            if isLoading {
+                resetTransientInteractionState()
+            }
+        }
+        .sheet(item: $choreForDurationPicker, onDismiss: resetAfterModal) { chore in
             ChoreDurationPickerSheet(
                 chore: chore,
                 initialMinutes: viewModel.getDefaultDuration(for: chore),
@@ -57,14 +96,14 @@ struct ChoreSelectionView: View {
                 }
             )
             .environmentObject(viewModel)
-            .presentationDetents([.large])
-            .presentationDragIndicator(.hidden)
+            .presentationDetents(dynamicTypeSize.isAccessibilitySize ? [.large] : [.fraction(0.70), .large])
+            .presentationDragIndicator(.visible)
         }
-        .sheet(isPresented: $showsRoutineEditor) {
+        .sheet(isPresented: $showsRoutineEditor, onDismiss: resetAfterRoutineEditor) {
             ChoreRoutineEditorView(isInitialSetup: false)
                 .environmentObject(viewModel)
         }
-        .sheet(item: $customEditorContext) { context in
+        .sheet(item: $customEditorContext, onDismiss: resetAfterCustomEditor) { context in
             CustomChoreEditorSheet(chore: context.chore) { draft in
                 let saved = await viewModel.saveCustomChore(draft, editing: context.chore)
                 if saved {
@@ -75,9 +114,10 @@ struct ChoreSelectionView: View {
             } onCancel: {
                 customEditorContext = nil
             }
+            .environmentObject(viewModel)
             .presentationDetents([.large])
         }
-        .sheet(item: $premiumUpgradeTrigger) { trigger in
+        .sheet(item: $premiumUpgradeTrigger, onDismiss: resetAfterModal) { trigger in
             premiumUpgradeSheet(for: trigger)
         }
     }
@@ -115,41 +155,26 @@ struct ChoreSelectionView: View {
                     commonGridCard(item)
                 }
             }
-
-            if isReordering {
-                commonChoreTrashZone
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
+        }
+        .coordinateSpace(name: Self.commonChoreCoordinateSpace)
+        .background {
+            GeometryReader { proxy in
+                Color.clear.preference(
+                    key: CommonChoreContainerFramePreferenceKey.self,
+                    value: proxy.frame(in: .global)
+                )
             }
         }
-        .animation(.spring(response: 0.26, dampingFraction: 0.82), value: isReordering)
-    }
-
-    private var commonChoreTrashZone: some View {
-        HStack(spacing: 10) {
-            Image(systemName: isTrashTargeted ? "trash.fill" : "trash")
-                .font(.system(size: 20, weight: .semibold))
-            Text(isTrashTargeted ? "松手移出常用" : "拖到这里移出常用")
-                .font(.system(size: 15, weight: .semibold, design: .rounded))
+        .onPreferenceChange(CommonChoreFramePreferenceKey.self) { frames in
+            commonChoreFrames = frames
         }
-        .foregroundStyle(isTrashTargeted ? Color.white : DSColor.coral)
-        .frame(maxWidth: .infinity, minHeight: 58)
-        .background(isTrashTargeted ? DSColor.coral : DSColor.coral.opacity(0.10))
-        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .stroke(DSColor.coral.opacity(isTrashTargeted ? 1 : 0.45), lineWidth: 1.2)
-        )
-        .scaleEffect(isTrashTargeted ? 1.015 : 1)
-        .onDrop(
-            of: [UTType.text],
-            delegate: CommonChoreTrashDropDelegate(
-                draggingID: $draggingGridItemID,
-                isReordering: $isReordering,
-                isTargeted: $isTrashTargeted,
-                viewModel: viewModel
-            )
-        )
-        .accessibilityLabel("移出常用家务")
+        .onPreferenceChange(CommonChoreContainerFramePreferenceKey.self) { frame in
+            commonChoreContainerGlobalFrame = frame
+        }
+        .overlay(alignment: .topLeading) {
+            floatingDragCard
+        }
+        .animation(.spring(response: 0.26, dampingFraction: 0.82), value: isReordering)
     }
 
     @ViewBuilder
@@ -159,50 +184,128 @@ struct ChoreSelectionView: View {
             style: .continuous
         )
 
-        Button {
-            if isReordering {
-                finishReordering()
-            } else {
-                open(item)
-            }
-        } label: {
-            gridCardContent(item)
-        }
-        .buttonStyle(.plain)
-        .disabled(viewModel.isLoading)
+        gridCardContent(item)
         .contentShape(.interaction, dragShape)
-        .contentShape(.dragPreview, dragShape)
         .scaleEffect(draggingGridItemID == item.id ? 1.035 : (isReordering ? 0.985 : 1))
-        .opacity(draggingGridItemID == item.id ? 0.86 : 1)
+        .opacity(draggingGridItemID == item.id ? 0.16 : 1)
         .animation(.spring(response: 0.24, dampingFraction: 0.78), value: draggingGridItemID)
         .animation(.spring(response: 0.24, dampingFraction: 0.78), value: isReordering)
-        .onDrag {
-            guard viewModel.canEditCommonChoreLayout else {
-                requestPremiumUpgrade(for: .personalLayout)
-                return NSItemProvider(object: "premium-layout-required" as NSString)
+        .background {
+            GeometryReader { proxy in
+                Color.clear.preference(
+                    key: CommonChoreFramePreferenceKey.self,
+                    value: [
+                        item.id: proxy.frame(in: .named(Self.commonChoreCoordinateSpace)),
+                    ]
+                )
             }
-            let provider = NSItemProvider(object: item.id as NSString)
-            DispatchQueue.main.async {
-                beginReordering(item.id)
-            }
-            return provider
-        } preview: {
-            gridCardContent(item)
-                .frame(width: 164)
-                .clipShape(dragShape)
-                .contentShape(.dragPreview, dragShape)
-                .compositingGroup()
-                .scaleEffect(1.03)
         }
-        .onDrop(
-            of: [UTType.text],
-            delegate: CommonChoreGridDropDelegate(
-                targetID: item.id,
-                draggingID: $draggingGridItemID,
-                isReordering: $isReordering,
-                viewModel: viewModel
-            )
+        .simultaneousGesture(cardTouchGesture(for: item))
+        .accessibilityAddTraits(.isButton)
+        .accessibilityAction {
+            guard !viewModel.isLoading else { return }
+            open(item)
+        }
+    }
+
+    @ViewBuilder
+    private var floatingDragCard: some View {
+        if let itemID = draggingGridItemID,
+           let item = commonGridItems.first(where: { $0.id == itemID }),
+           let location = dragLocation,
+           let frame = commonChoreFrames[itemID]
+        {
+            gridCardContent(item)
+                .frame(width: frame.width, height: frame.height)
+                .clipShape(
+                    RoundedRectangle(
+                        cornerRadius: DSCornerRadius.smallCard,
+                        style: .continuous
+                    )
+                )
+                .shadow(color: DSColor.ink.opacity(0.16), radius: 14, x: 0, y: 8)
+                .scaleEffect(1.03)
+                .position(location)
+                .allowsHitTesting(false)
+                .zIndex(20)
+        }
+    }
+
+    private func cardTouchGesture(for item: CommonChoreGridItem) -> some Gesture {
+        DragGesture(
+            minimumDistance: 0,
+            coordinateSpace: .named(Self.commonChoreCoordinateSpace)
         )
+            .onChanged { value in
+                if cardPressState.itemID != item.id {
+                    startCardPress(itemID: item.id, location: value.startLocation)
+                }
+
+                cardPressState.location = value.location
+
+                if draggingGridItemID == item.id {
+                    updateReordering(itemID: item.id, location: value.location)
+                    return
+                }
+
+                let distance = hypot(value.translation.width, value.translation.height)
+                if distance > Self.reorderMovementTolerance {
+                    cardPressState.isEligibleForLongPress = false
+                    reorderActivationTask?.cancel()
+                    reorderActivationTask = nil
+                }
+            }
+            .onEnded { value in
+                let wasReordering = draggingGridItemID == item.id
+                let shouldOpen = cardPressState.itemID == item.id
+                    && cardPressState.isEligibleForLongPress
+                    && !wasReordering
+                    && !viewModel.isLoading
+
+                cancelCardPressTracking()
+
+                if wasReordering {
+                    updateReordering(itemID: item.id, location: value.location)
+                    completeReordering(itemID: item.id)
+                } else if shouldOpen {
+                    open(item)
+                }
+            }
+    }
+
+    private func startCardPress(itemID: String, location: CGPoint) {
+        guard !viewModel.isLoading, !isPresentingModal else { return }
+
+        reorderActivationTask?.cancel()
+        cardPressState = CommonChorePressState(
+            itemID: itemID,
+            location: location,
+            isEligibleForLongPress: true
+        )
+
+        reorderActivationTask = Task { @MainActor in
+            do {
+                try await Task.sleep(for: .seconds(Self.reorderHoldDuration))
+            } catch {
+                return
+            }
+
+            guard cardPressState.itemID == itemID,
+                  cardPressState.isEligibleForLongPress,
+                  !Task.isCancelled
+            else { return }
+
+            beginReordering(itemID)
+            if let location = cardPressState.location, draggingGridItemID == itemID {
+                updateReordering(itemID: itemID, location: location)
+            }
+        }
+    }
+
+    private func cancelCardPressTracking() {
+        reorderActivationTask?.cancel()
+        reorderActivationTask = nil
+        cardPressState = .idle
     }
 
     @ViewBuilder
@@ -277,6 +380,8 @@ struct ChoreSelectionView: View {
     }
 
     private func open(_ item: CommonChoreGridItem) {
+        resetTransientInteractionState()
+
         switch item {
         case let .chore(chore):
             choreForDurationPicker = chore
@@ -296,30 +401,111 @@ struct ChoreSelectionView: View {
     }
 
     private func beginReordering(_ itemID: String) {
+        guard !isPresentingModal, !viewModel.isLoading else { return }
         guard viewModel.canEditCommonChoreLayout else {
             requestPremiumUpgrade(for: .personalLayout)
             return
         }
         guard draggingGridItemID != itemID else { return }
-        draggingGridItemID = itemID
-        isReordering = true
+        let initialLocation = commonChoreFrames[itemID].map {
+            CGPoint(x: $0.midX, y: $0.midY)
+        }
+        dragState = CommonChoreDragState(
+            itemID: itemID,
+            location: initialLocation,
+            isTrashTargeted: false
+        )
+        dragCoordinator.begin()
         UIImpactFeedbackGenerator(style: .medium).impactOccurred()
     }
 
+    private func updateReordering(itemID: String, location: CGPoint) {
+        guard draggingGridItemID == itemID else { return }
+        dragState.location = location
+
+        let globalLocation = CGPoint(
+            x: commonChoreContainerGlobalFrame.minX + location.x,
+            y: commonChoreContainerGlobalFrame.minY + location.y
+        )
+        let targetsTrash = dragCoordinator.trashFrame != .zero
+            && dragCoordinator.trashFrame.contains(globalLocation)
+        if targetsTrash != isTrashTargeted {
+            dragState.isTrashTargeted = targetsTrash
+            dragCoordinator.isTrashTargeted = targetsTrash
+            UIImpactFeedbackGenerator(style: targetsTrash ? .rigid : .light).impactOccurred()
+        }
+        guard !targetsTrash else { return }
+
+        guard let targetID = commonChoreFrames.first(where: { id, frame in
+            id != itemID && frame.contains(location)
+        })?.key else {
+            return
+        }
+
+        withAnimation(.spring(response: 0.22, dampingFraction: 0.84)) {
+            if viewModel.moveCommonChoreGridItem(itemID, to: targetID, persist: false) {
+                UISelectionFeedbackGenerator().selectionChanged()
+            }
+        }
+    }
+
+    private func completeReordering(itemID: String) {
+        guard draggingGridItemID == itemID else {
+            finishReordering()
+            return
+        }
+
+        let shouldRemove = isTrashTargeted
+        finishReordering()
+
+        Task {
+            if shouldRemove {
+                let removed = await viewModel.removeCommonChoreGridItem(itemID)
+                UINotificationFeedbackGenerator().notificationOccurred(removed ? .success : .error)
+            } else {
+                await viewModel.persistCommonChoreGridLayout()
+            }
+        }
+
+    }
+
     private func finishReordering() {
-        draggingGridItemID = nil
-        isReordering = false
-        isTrashTargeted = false
+        dragState = .idle
+        dragCoordinator.end()
+    }
+
+    private func resetTransientInteractionState() {
+        cancelCardPressTracking()
+        finishReordering()
+        isTrackingLibraryPull = false
+        libraryPullStartedAtBottom = false
+    }
+
+    private func resetAfterModal() {
+        resetTransientInteractionState()
+    }
+
+    private func resetAfterCustomEditor() {
+        resetTransientInteractionState()
+        viewModel.prepareCommonChoreGrid()
+    }
+
+    private func resetAfterRoutineEditor() {
+        resetTransientInteractionState()
+        isBottomSentinelVisible = false
+        viewModel.prepareCommonChoreGrid()
+        scrollResetID = UUID()
     }
 
     private func requestPremiumUpgrade(for trigger: PremiumUpgradeTrigger) {
+        resetTransientInteractionState()
         UINotificationFeedbackGenerator().notificationOccurred(.warning)
         premiumUpgradeTrigger = trigger
     }
 
     private func openRoutineEditor() {
         UINotificationFeedbackGenerator().notificationOccurred(.success)
-        finishReordering()
+        resetTransientInteractionState()
         showsRoutineEditor = true
     }
 
@@ -334,6 +520,7 @@ struct ChoreSelectionView: View {
         let context = pendingCustomEditorContext
         pendingCustomEditorContext = nil
         premiumUpgradeTrigger = nil
+        resetTransientInteractionState()
         DispatchQueue.main.async {
             customEditorContext = context
         }
@@ -394,6 +581,80 @@ struct ChoreSelectionView: View {
             DSErrorBanner(message: errorMessage)
         }
     }
+}
+
+struct CommonChoreDragState: Equatable {
+    static let idle = CommonChoreDragState()
+
+    var itemID: String?
+    var location: CGPoint?
+    var isTrashTargeted = false
+
+    var isActive: Bool { itemID != nil }
+}
+
+@MainActor
+final class CommonChoreDragCoordinator: ObservableObject {
+    @Published private(set) var isActive = false
+    @Published var isTrashTargeted = false
+    var trashFrame: CGRect = .zero
+
+    func begin() {
+        isTrashTargeted = false
+        isActive = true
+    }
+
+    func end() {
+        isActive = false
+        isTrashTargeted = false
+        trashFrame = .zero
+    }
+}
+
+struct CommonChoreRemovalTarget: View {
+    let isTargeted: Bool
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(systemName: isTargeted ? "trash.fill" : "trash")
+                .font(.system(size: 21, weight: .semibold))
+                .scaleEffect(isTargeted ? 1.12 : 1)
+
+            Text(isTargeted ? "松手移出常用" : "拖到这里移出常用")
+                .font(.system(size: 16, weight: .semibold, design: .rounded))
+        }
+        .foregroundStyle(isTargeted ? Color.white : DSColor.coral)
+        .frame(maxWidth: .infinity, minHeight: 64)
+        .background {
+            RoundedRectangle(cornerRadius: 22, style: .continuous)
+                .fill(isTargeted ? DSColor.coral : DSColor.redSoft.opacity(0.98))
+                .shadow(
+                    color: DSColor.ink.opacity(isTargeted ? 0.18 : 0.10),
+                    radius: isTargeted ? 16 : 10,
+                    x: 0,
+                    y: 5
+                )
+        }
+        .overlay {
+            RoundedRectangle(cornerRadius: 22, style: .continuous)
+                .stroke(
+                    isTargeted ? DSColor.coral : DSColor.coral.opacity(0.36),
+                    lineWidth: 1
+                )
+        }
+        .scaleEffect(isTargeted ? 1.015 : 1)
+        .animation(.spring(response: 0.22, dampingFraction: 0.78), value: isTargeted)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(isTargeted ? "松手移出常用家务" : "拖到这里移出常用家务")
+    }
+}
+
+private struct CommonChorePressState {
+    static let idle = CommonChorePressState()
+
+    var itemID: String?
+    var location: CGPoint?
+    var isEligibleForLongPress = false
 }
 
 private enum CommonChoreGridItem: Identifiable {
@@ -464,76 +725,30 @@ private struct DSCustomChoreSlotCard: View {
 }
 
 @MainActor
-private struct CommonChoreGridDropDelegate: DropDelegate {
-    let targetID: String
-    @Binding var draggingID: String?
-    @Binding var isReordering: Bool
-    let viewModel: AppViewModel
+private struct CommonChoreFramePreferenceKey: PreferenceKey {
+    nonisolated static let defaultValue: [String: CGRect] = [:]
 
-    func dropEntered(info: DropInfo) {
-        guard viewModel.canEditCommonChoreLayout,
-              let draggingID,
-              draggingID != targetID
-        else { return }
-
-        withAnimation(.spring(response: 0.24, dampingFraction: 0.8)) {
-            if viewModel.moveCommonChoreGridItem(draggingID, to: targetID) {
-                UISelectionFeedbackGenerator().selectionChanged()
-            }
-        }
-    }
-
-    func dropUpdated(info: DropInfo) -> DropProposal? {
-        DropProposal(operation: .move)
-    }
-
-    func performDrop(info: DropInfo) -> Bool {
-        draggingID = nil
-        isReordering = false
-        if viewModel.canEditCommonChoreLayout {
-            Task {
-                await viewModel.persistCommonChoreGridLayout()
-            }
-        }
-        return true
+    nonisolated static func reduce(value: inout [String: CGRect], nextValue: () -> [String: CGRect]) {
+        value.merge(nextValue(), uniquingKeysWith: { _, next in next })
     }
 }
 
-@MainActor
-private struct CommonChoreTrashDropDelegate: DropDelegate {
-    @Binding var draggingID: String?
-    @Binding var isReordering: Bool
-    @Binding var isTargeted: Bool
-    let viewModel: AppViewModel
+private struct CommonChoreContainerFramePreferenceKey: PreferenceKey {
+    nonisolated static let defaultValue: CGRect = .zero
 
-    func dropEntered(info: DropInfo) {
-        guard draggingID != nil else { return }
-        isTargeted = true
-        UIImpactFeedbackGenerator(style: .rigid).impactOccurred()
-    }
-
-    func dropExited(info: DropInfo) {
-        isTargeted = false
-    }
-
-    func dropUpdated(info: DropInfo) -> DropProposal? {
-        DropProposal(operation: .move)
-    }
-
-    func performDrop(info: DropInfo) -> Bool {
-        guard let itemID = draggingID else { return false }
-        draggingID = nil
-        isTargeted = false
-        isReordering = false
-
-        Task {
-            if await viewModel.removeCommonChoreGridItem(itemID) {
-                UINotificationFeedbackGenerator().notificationOccurred(.success)
-            } else {
-                UINotificationFeedbackGenerator().notificationOccurred(.error)
-            }
+    nonisolated static func reduce(value: inout CGRect, nextValue: () -> CGRect) {
+        let next = nextValue()
+        if next != .zero {
+            value = next
         }
-        return true
+    }
+}
+
+struct CommonChoreRemovalFramePreferenceKey: PreferenceKey {
+    nonisolated static let defaultValue: CGRect = .zero
+
+    nonisolated static func reduce(value: inout CGRect, nextValue: () -> CGRect) {
+        value = nextValue()
     }
 }
 
@@ -595,6 +810,7 @@ struct ChoreRoutineEditorView: View {
             } onCancel: {
                 customEditorContext = nil
             }
+            .environmentObject(viewModel)
             .presentationDetents([.large])
         }
         .sheet(item: $premiumUpgradeTrigger) { trigger in
@@ -1136,20 +1352,7 @@ struct ChoreRoutineEditorView: View {
 
     @ViewBuilder
     private func routineIcon(_ chore: ChoreItem, size: CGFloat) -> some View {
-        let presentation = ChorePresentation.resolve(chore)
-        if let assetName = presentation.assetName {
-            Image(assetName)
-                .resizable()
-                .scaledToFit()
-                .clipShape(RoundedRectangle(cornerRadius: size * 0.2, style: .continuous))
-                .frame(width: size, height: size)
-        } else {
-            Image(systemName: chore.icon)
-                .font(.system(size: size * 0.42, weight: .semibold))
-                .frame(width: size, height: size)
-                .background(chore.color.opacity(0.8))
-                .clipShape(RoundedRectangle(cornerRadius: size * 0.2, style: .continuous))
-        }
+        DSChoreIconTile(chore: chore, size: size)
     }
 }
 
@@ -1414,12 +1617,15 @@ private struct CustomChoreEditorContext: Identifiable {
 }
 
 private struct CustomChoreEditorSheet: View {
+    @EnvironmentObject private var viewModel: AppViewModel
+
     let chore: ChoreItem?
     let onSave: (CustomChoreDraft) async -> Bool
     let onCancel: () -> Void
 
     @State private var draft: CustomChoreDraft
     @State private var isSaving = false
+    @State private var localErrorMessage: String?
     @FocusState private var isNameFocused: Bool
 
     init(
@@ -1458,13 +1664,7 @@ private struct CustomChoreEditorSheet: View {
                         .disabled(isSaving)
                 }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("保存") {
-                        Task {
-                            isSaving = true
-                            _ = await onSave(draft)
-                            isSaving = false
-                        }
-                    }
+                    Button("保存", action: save)
                     .fontWeight(.semibold)
                     .disabled(isSaving || draft.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 }
@@ -1514,20 +1714,24 @@ private struct CustomChoreEditorSheet: View {
             TextField("输入家务名称", text: $draft.name)
                 .textInputAutocapitalization(.never)
                 .focused($isNameFocused)
-                .onChange(of: draft.name) { _, newValue in
-                    if newValue.count > 5 {
-                        draft.name = String(newValue.prefix(5))
-                    }
-                }
                 .padding(.horizontal, 14)
                 .frame(minHeight: 52)
                 .background(DSColor.pureSurface)
                 .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
                 .overlay(RoundedRectangle(cornerRadius: 14).stroke(DSColor.subtleStroke, lineWidth: 1.5))
+                .onChange(of: draft.name) { _, _ in
+                    localErrorMessage = nil
+                }
 
             Text("最多 5 个字")
                 .font(.system(size: 12))
                 .foregroundStyle(DSColor.mutedInk)
+
+            if let localErrorMessage {
+                Text(localErrorMessage)
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(DSColor.coral)
+            }
         }
     }
 
@@ -1647,11 +1851,36 @@ private struct CustomChoreEditorSheet: View {
             .font(.system(size: 16, weight: .semibold))
             .foregroundStyle(DSColor.ink)
     }
+
+    private func save() {
+        isNameFocused = false
+        localErrorMessage = nil
+
+        let normalizedName = draft.name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedName.isEmpty else {
+            localErrorMessage = "请给这个家务起个名字。"
+            return
+        }
+        guard normalizedName.count <= 5 else {
+            localErrorMessage = "家务名称最多 5 个字。"
+            return
+        }
+
+        Task {
+            isSaving = true
+            let saved = await onSave(draft)
+            if !saved {
+                localErrorMessage = viewModel.errorMessage ?? "保存失败，请稍后重试。"
+            }
+            isSaving = false
+        }
+    }
 }
 
 #Preview {
     NavigationStack {
         ChoreSelectionView()
             .environmentObject(AppViewModel.previewLoggedIn())
+            .environmentObject(CommonChoreDragCoordinator())
     }
 }

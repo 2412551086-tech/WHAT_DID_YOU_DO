@@ -162,6 +162,7 @@ struct FamilyFlowSecondaryButton: View {
 
 struct FamilyAvatarCarousel: View {
     @Binding var avatarKey: String
+    @GestureState private var dragTranslation: CGFloat = 0
 
     private var selectedIndex: Int { FamilyIdentityOptions.index(for: avatarKey) }
 
@@ -188,13 +189,9 @@ struct FamilyAvatarCarousel: View {
             }
             .frame(maxWidth: .infinity)
             .contentShape(Rectangle())
-            .gesture(
-                DragGesture(minimumDistance: 24)
-                    .onEnded { value in
-                        guard abs(value.translation.width) > 36 else { return }
-                        move(by: value.translation.width < 0 ? 1 : -1)
-                    }
-            )
+            .offset(x: max(-18, min(18, dragTranslation)))
+            .animation(.interactiveSpring(response: 0.22, dampingFraction: 0.82), value: dragTranslation)
+            .highPriorityGesture(avatarSwipeGesture)
 
             Text(FamilyIdentityOptions.name(for: avatarKey))
                 .font(.system(size: 14, weight: .semibold))
@@ -209,6 +206,21 @@ struct FamilyAvatarCarousel: View {
                 .foregroundStyle(DSColor.mutedInk.opacity(0.75))
         }
         .accessibilityElement(children: .contain)
+    }
+
+    private var avatarSwipeGesture: some Gesture {
+        DragGesture(minimumDistance: 14)
+            .updating($dragTranslation) { value, state, _ in
+                guard abs(value.translation.width) > abs(value.translation.height) else { return }
+                state = value.translation.width
+            }
+            .onEnded { value in
+                let horizontalDistance = value.translation.width
+                guard abs(horizontalDistance) > abs(value.translation.height),
+                      abs(horizontalDistance) > 28
+                else { return }
+                move(by: horizontalDistance < 0 ? 1 : -1)
+            }
     }
 
     private func avatarImage(at index: Int, size: CGFloat, opacity: Double) -> some View {

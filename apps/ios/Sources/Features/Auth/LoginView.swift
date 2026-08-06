@@ -187,21 +187,7 @@ private struct PhoneLoginSheet: View {
                             }
                     }
 
-                    loginTextField(
-                        title: "输入昵称",
-                        systemImage: "person"
-                    ) {
-                        TextField("输入昵称（可选）", text: $viewModel.displayName)
-                            .font(.system(size: 18, weight: .medium))
-                            .textContentType(.nickname)
-                            .focused($focusedField, equals: .nickname)
-                            .submitLabel(.done)
-                            .onSubmit {
-                                viewModel.mockLogin()
-                            }
-                    }
-
-                    Text("当前开发阶段暂不校验验证码；昵称最多 30 个字，留空会沿用原昵称。")
+                    Text("当前开发阶段暂不校验验证码；登录后会沿用账号已有昵称。")
                         .font(.system(size: 12, weight: .regular))
                         .foregroundStyle(DSColor.mutedInk)
                         .fixedSize(horizontal: false, vertical: true)
@@ -263,7 +249,6 @@ private struct PhoneLoginSheet: View {
 private enum PhoneLoginField: Hashable {
     case phone
     case code
-    case nickname
 }
 
 private struct PhoneLoginSubmitButton: View {

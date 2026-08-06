@@ -24,7 +24,12 @@ export class ChoreRecordsController {
     @Param('familyId') familyId: string,
     @Query() query: ActivityQueryDto,
   ) {
-    return this.choreRecordsService.getActivity(user, familyId, query.range ?? 'recent');
+    return this.choreRecordsService.getActivity(
+      user,
+      familyId,
+      query.range ?? 'recent',
+      query.weekOffset ?? 0,
+    );
   }
 
   @Get('families/:familyId/members/:memberId/activity')
@@ -42,7 +47,12 @@ export class ChoreRecordsController {
     @Param('familyId') familyId: string,
     @Query() query: LeaderboardQueryDto,
   ) {
-    return this.choreRecordsService.getLeaderboard(user, familyId, query.range ?? 'month');
+    return this.choreRecordsService.getLeaderboard(
+      user,
+      familyId,
+      query.range ?? 'month',
+      query.weekOffset ?? 0,
+    );
   }
 
   @Delete('chore-records/:recordId')

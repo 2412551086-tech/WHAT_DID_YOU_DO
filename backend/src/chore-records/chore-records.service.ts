@@ -107,12 +107,17 @@ export class ChoreRecordsService {
     return this.formatRecord(record, user.id, membership.memberRole);
   }
 
-  async getActivity(user: AuthUser, familyId: string, range: 'day' | 'week' | 'recent' = 'recent') {
+  async getActivity(
+    user: AuthUser,
+    familyId: string,
+    range: 'day' | 'week' | 'recent' = 'recent',
+    weekOffset = 0,
+  ) {
     const membership = await this.familiesService.assertActiveMember(familyId, user.id);
     const timezone = range === 'recent' ? null : await this.familiesService.getFamilyTimeZone(familyId);
     const dateRange = timezone
       ? range === 'week'
-        ? getWeekRangeForTimeZone(timezone)
+        ? getWeekRangeForTimeZone(timezone, new Date(), weekOffset)
         : getDayRangeForTimeZone(timezone)
       : null;
 
@@ -172,14 +177,19 @@ export class ChoreRecordsService {
     return records.map((record) => this.formatRecord(record, user.id, currentMembership.memberRole));
   }
 
-  async getLeaderboard(user: AuthUser, familyId: string, range: 'day' | 'week' | 'month' = 'month') {
+  async getLeaderboard(
+    user: AuthUser,
+    familyId: string,
+    range: 'day' | 'week' | 'month' = 'month',
+    weekOffset = 0,
+  ) {
     await this.familiesService.assertActiveMember(familyId, user.id);
     const timezone = await this.familiesService.getFamilyTimeZone(familyId);
     const dateRange =
       range === 'day'
         ? getDayRangeForTimeZone(timezone)
         : range === 'week'
-          ? getWeekRangeForTimeZone(timezone)
+          ? getWeekRangeForTimeZone(timezone, new Date(), weekOffset)
           : getMonthRangeForTimeZone(this.currentMonthForTimeZone(timezone), timezone);
 
     const records = await this.prisma.choreRecord.findMany({

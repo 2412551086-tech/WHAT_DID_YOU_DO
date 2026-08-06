@@ -569,13 +569,17 @@ struct DSChoreIconTile: View {
 
     var body: some View {
         let presentation = ChorePresentation.resolve(chore)
+        let shape = RoundedRectangle(cornerRadius: 13, style: .continuous)
 
-        Group {
+        ZStack {
+            DSColor.pureSurface
+
             if let assetName = presentation.assetName {
                 Image(assetName)
                     .resizable()
-                    .scaledToFit()
-                    .clipShape(RoundedRectangle(cornerRadius: 13, style: .continuous))
+                    .scaledToFill()
+                    .frame(width: size, height: size)
+                    .scaleEffect(contentScale(for: assetName))
             } else {
                 Image(systemName: chore.icon)
                     .font(.system(size: size * 0.43, weight: .semibold))
@@ -583,21 +587,22 @@ struct DSChoreIconTile: View {
                     .foregroundStyle(DSColor.ink)
                     .frame(width: size, height: size)
                     .background(chore.color.opacity(0.88))
-                    .clipShape(RoundedRectangle(cornerRadius: 13, style: .continuous))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 13, style: .continuous)
-                            .stroke(.white.opacity(0.9), lineWidth: 3)
-                    )
-                    .shadow(
-                        color: DSColor.ink.opacity(0.08),
-                        radius: 4,
-                        x: 0,
-                        y: 2
-                    )
             }
         }
         .frame(width: size, height: size)
+        .clipShape(shape)
+        .overlay(shape.strokeBorder(.white.opacity(0.94), lineWidth: 3))
+        .shadow(color: DSColor.ink.opacity(0.08), radius: 4, x: 0, y: 2)
         .accessibilityHidden(true)
+    }
+
+    private func contentScale(for assetName: String) -> CGFloat {
+        switch assetName {
+        case "chore_core_trash_recycling", "chore_core_shopping_supplies":
+            return 1.08
+        default:
+            return 1
+        }
     }
 }
 

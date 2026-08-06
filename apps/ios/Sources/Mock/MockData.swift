@@ -151,7 +151,7 @@ enum MockData {
         ChoreItem(id: "daily-dust-surfaces", name: "擦桌除尘", category: "清洁", minutes: 15, points: 15, icon: "chore_custom_dust", color: DSColor.mint, themeKey: ChoreTheme.daily.rawValue),
         ChoreItem(id: "daily-clean-windows", name: "擦窗玻璃", category: "清洁", minutes: 30, points: 39, icon: "chore_custom_window", color: DSColor.sky, themeKey: ChoreTheme.daily.rawValue),
         ChoreItem(id: "daily-make-bed", name: "整理床铺", category: "整理", minutes: 10, points: 10, icon: "chore_custom_bed", color: DSColor.lavender, themeKey: ChoreTheme.daily.rawValue),
-        ChoreItem(id: "love-care-plants", name: "浇花养护", category: "照顾", minutes: 10, points: 8, icon: "chore_custom_plant", color: DSColor.mint, themeKey: ChoreTheme.love.rawValue),
+        ChoreItem(id: "love-care-plants", name: "浇花养护", category: "照顾", minutes: 10, points: 8, icon: "chore_custom_plant", color: DSColor.mint, themeKey: ChoreTheme.daily.rawValue),
         ChoreItem(id: "pet-general-care", name: "宠物照料", category: "照顾", minutes: 15, points: 17, icon: "chore_custom_pet", color: DSColor.coral, themeKey: ChoreTheme.pet.rawValue),
         ChoreItem(id: "daily-wash-car", name: "清洗车辆", category: "清洁", minutes: 40, points: 56, icon: "chore_custom_car", color: DSColor.sky, themeKey: ChoreTheme.daily.rawValue),
         ChoreItem(id: "daily-clean-fridge", name: "清理冰箱", category: "清洁", minutes: 30, points: 39, icon: "chore_custom_fridge", color: DSColor.yellow, themeKey: ChoreTheme.daily.rawValue),

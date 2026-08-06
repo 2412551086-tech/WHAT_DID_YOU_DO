@@ -228,6 +228,70 @@ final class WhatDidYouDoTests: XCTestCase {
         XCTAssertEqual(restoredViewModel.commonChoreGridItemIDs.first, customSlotID)
     }
 
+    func testCommonChoreGridTransientMovePersistsOnlyAfterDropCompletion() async throws {
+        let fixture = makeDefaultsFixture()
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.suiteName) }
+        let viewModel = makeViewModel(defaults: fixture.defaults)
+        let choreIDs = Array(viewModel.allAvailableChores.prefix(6).map(\.id))
+        let initialSaved = await viewModel.saveChoreLayout(choreIDs: choreIDs, pinnedIDs: [])
+        XCTAssertTrue(initialSaved)
+        viewModel.prepareCommonChoreGrid()
+        let sourceID = try XCTUnwrap(viewModel.commonChoreGridItemIDs.last)
+        let targetID = try XCTUnwrap(viewModel.commonChoreGridItemIDs.first)
+
+        XCTAssertTrue(viewModel.moveCommonChoreGridItem(sourceID, to: targetID, persist: false))
+
+        let beforeDropViewModel = makeViewModel(defaults: fixture.defaults)
+        let beforeDropSaved = await beforeDropViewModel.saveChoreLayout(choreIDs: choreIDs, pinnedIDs: [])
+        XCTAssertTrue(beforeDropSaved)
+        beforeDropViewModel.prepareCommonChoreGrid()
+        XCTAssertNotEqual(beforeDropViewModel.commonChoreGridItemIDs.first, sourceID)
+
+        await viewModel.persistCommonChoreGridLayout()
+        let afterDropViewModel = makeViewModel(defaults: fixture.defaults)
+        let afterDropSaved = await afterDropViewModel.saveChoreLayout(choreIDs: choreIDs, pinnedIDs: [])
+        XCTAssertTrue(afterDropSaved)
+        afterDropViewModel.prepareCommonChoreGrid()
+        XCTAssertEqual(afterDropViewModel.commonChoreGridItemIDs.first, sourceID)
+    }
+
+    func testCommonChoreDragStateReturnsToIdleAfterInterruptedInteraction() {
+        var state = CommonChoreDragState(
+            itemID: "chore-1",
+            location: CGPoint(x: 120, y: 240),
+            isTrashTargeted: true
+        )
+
+        XCTAssertTrue(state.isActive)
+        XCTAssertEqual(state.itemID, "chore-1")
+        XCTAssertTrue(state.isTrashTargeted)
+
+        state = .idle
+
+        XCTAssertFalse(state.isActive)
+        XCTAssertNil(state.itemID)
+        XCTAssertNil(state.location)
+        XCTAssertFalse(state.isTrashTargeted)
+    }
+
+    func testCommonChoreDragCoordinatorReplacesAndRestoresTabTargetState() {
+        let coordinator = CommonChoreDragCoordinator()
+
+        coordinator.begin()
+        coordinator.trashFrame = CGRect(x: 20, y: 700, width: 350, height: 70)
+        coordinator.isTrashTargeted = true
+
+        XCTAssertTrue(coordinator.isActive)
+        XCTAssertTrue(coordinator.isTrashTargeted)
+        XCTAssertNotEqual(coordinator.trashFrame, .zero)
+
+        coordinator.end()
+
+        XCTAssertFalse(coordinator.isActive)
+        XCTAssertFalse(coordinator.isTrashTargeted)
+        XCTAssertEqual(coordinator.trashFrame, .zero)
+    }
+
     func testCommonGridRoutineReorderUpdatesSavedLayoutOrder() async {
         let fixture = makeDefaultsFixture()
         defer { fixture.defaults.removePersistentDomain(forName: fixture.suiteName) }
@@ -256,6 +320,40 @@ final class WhatDidYouDoTests: XCTestCase {
 
         XCTAssertFalse(viewModel.displayedChores.map(\.id).contains(choreIDs[1]))
         XCTAssertTrue(viewModel.allAvailableChores.map(\.id).contains(choreIDs[1]))
+    }
+
+    func testRemovingEmptyCustomPlaceholderPersists() async throws {
+        let fixture = makeDefaultsFixture()
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.suiteName) }
+        let viewModel = makeViewModel(defaults: fixture.defaults)
+        viewModel.prepareCommonChoreGrid()
+        let placeholderID = try XCTUnwrap(
+            viewModel.commonChoreGridItemIDs.first { $0.contains("custom-chore-slot-") }
+        )
+
+        let removed = await viewModel.removeCommonChoreGridItem(placeholderID)
+        XCTAssertTrue(removed)
+        XCTAssertFalse(viewModel.commonChoreGridItemIDs.contains(placeholderID))
+
+        let restoredViewModel = makeViewModel(defaults: fixture.defaults)
+        restoredViewModel.prepareCommonChoreGrid()
+        XCTAssertFalse(restoredViewModel.commonChoreGridItemIDs.contains(placeholderID))
+    }
+
+    func testMockWeekNavigationMovesBackAndReturnsToCurrentWeek() {
+        let fixture = makeDefaultsFixture()
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.suiteName) }
+        let viewModel = makeViewModel(defaults: fixture.defaults)
+
+        viewModel.selectPreviousWeek()
+        XCTAssertEqual(viewModel.selectedWeekOffset, -1)
+        XCTAssertEqual(viewModel.selectedWeekLabel, "上周 · 周一至周日")
+        XCTAssertTrue(viewModel.weekRecords.isEmpty)
+
+        viewModel.selectNextWeek()
+        XCTAssertEqual(viewModel.selectedWeekOffset, 0)
+        XCTAssertFalse(viewModel.canSelectNextWeek)
+        XCTAssertEqual(viewModel.weekRecords.count, MockData.todayRecords.count)
     }
 
     func testPremiumCommonGridShowsOnlyTwoEmptyCustomPlaceholders() async {
@@ -291,8 +389,8 @@ final class WhatDidYouDoTests: XCTestCase {
 
     func testMockCatalogContainsFourThemesInProductOrder() {
         XCTAssertEqual(ChoreTheme.allCases.map(\.title), ["家庭", "恋爱", "育儿", "宠物"])
-        XCTAssertEqual(MockData.chores.filter { $0.themeKey == ChoreTheme.daily.rawValue }.count, 21)
-        XCTAssertEqual(MockData.chores.filter { $0.themeKey == ChoreTheme.love.rawValue }.count, 9)
+        XCTAssertEqual(MockData.chores.filter { $0.themeKey == ChoreTheme.daily.rawValue }.count, 22)
+        XCTAssertEqual(MockData.chores.filter { $0.themeKey == ChoreTheme.love.rawValue }.count, 8)
         XCTAssertEqual(MockData.chores.filter { $0.themeKey == ChoreTheme.childcare.rawValue }.count, 9)
         XCTAssertEqual(MockData.chores.filter { $0.themeKey == ChoreTheme.pet.rawValue }.count, 7)
     }
@@ -793,7 +891,7 @@ final class WhatDidYouDoTests: XCTestCase {
         }
     }
 
-    func testAPILoginSavesAccessToken() async throws {
+    func testAPILoginSavesAccessTokenWithoutOverwritingNickname() async throws {
         let fixture = makeDefaultsFixture()
         defer { fixture.defaults.removePersistentDomain(forName: fixture.suiteName) }
         let client = StubAPIClient(responses: Self.loginResponses)
@@ -806,7 +904,6 @@ final class WhatDidYouDoTests: XCTestCase {
             automaticallyRestoreSession: false
         )
         viewModel.phoneNumber = "123456"
-        viewModel.displayName = "可编辑昵称"
 
         viewModel.mockLogin()
         try await waitUntil { tokenStore.token == "api-token" && !viewModel.isLoading }
@@ -817,11 +914,9 @@ final class WhatDidYouDoTests: XCTestCase {
         XCTAssertEqual(viewModel.rootScreen, .createFamily)
         let requestBodies = await client.requestBodies
         let requestBody = try XCTUnwrap(requestBodies["POST /auth/mock-login"])
-        let json = try XCTUnwrap(
-            JSONSerialization.jsonObject(with: requestBody) as? [String: String]
-        )
-        XCTAssertEqual(json["phoneNumber"], "123456")
-        XCTAssertEqual(json["displayName"], "可编辑昵称")
+        let json = try XCTUnwrap(JSONSerialization.jsonObject(with: requestBody) as? [String: Any])
+        XCTAssertEqual(json["phoneNumber"] as? String, "123456")
+        XCTAssertNil(json["displayName"])
     }
 
     func testLogoutDeletesStoredToken() {
@@ -910,8 +1005,8 @@ final class WhatDidYouDoTests: XCTestCase {
         XCTAssertTrue(didSetToken)
         XCTAssertTrue(requestPaths.contains("GET /auth/me"))
         XCTAssertTrue(requestPaths.contains("GET /families/me"))
-        XCTAssertTrue(requestPaths.contains("GET /families/family-1/activity?range=week"))
-        XCTAssertTrue(requestPaths.contains("GET /families/family-1/leaderboard?range=week"))
+        XCTAssertTrue(requestPaths.contains("GET /families/family-1/activity?range=week&weekOffset=0"))
+        XCTAssertTrue(requestPaths.contains("GET /families/family-1/leaderboard?range=week&weekOffset=0"))
     }
 
     func testStoredTokenRestoresPendingJoinApplication() async throws {
@@ -1022,9 +1117,9 @@ final class WhatDidYouDoTests: XCTestCase {
         "GET /families/family-1/chore-layout": Data(
             #"{"choreIds":[],"pinnedChoreIds":[],"isConfigured":false}"#.utf8
         ),
-        "GET /families/family-1/activity?range=week": Data("[]".utf8),
+        "GET /families/family-1/activity?range=week&weekOffset=0": Data("[]".utf8),
         "GET /families/family-1/activity?range=recent": Data("[]".utf8),
-        "GET /families/family-1/leaderboard?range=week": Data("[]".utf8),
+        "GET /families/family-1/leaderboard?range=week&weekOffset=0": Data("[]".utf8),
         "GET /families/family-1/leaderboard?range=month": Data("[]".utf8),
         "GET /families/family-1/monthly-report": Data(
             #"{"familyId":"family-1","month":"2026-06","totalPoints":0,"totalRecords":0,"headline":"暂无记录","leaderboard":[],"categoryStats":[],"recentRecords":[]}"#.utf8

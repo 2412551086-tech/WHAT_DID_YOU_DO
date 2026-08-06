@@ -106,7 +106,7 @@ describe("MVP API (e2e)", () => {
         expect.objectContaining({ name: "遛娃", icon: "chore_catalog_walk_child", points: 63, isLocked: false }),
         expect.objectContaining({ name: "接送孩子", icon: "chore_catalog_school_run", points: 56, isLocked: false }),
         expect.objectContaining({ name: "擦窗玻璃", themeKey: "daily", icon: "chore_custom_window" }),
-        expect.objectContaining({ name: "浇花养护", themeKey: "love", icon: "chore_custom_plant" }),
+        expect.objectContaining({ name: "浇花养护", themeKey: "daily", icon: "chore_custom_plant" }),
         expect.objectContaining({ name: "陪伴孩子", themeKey: "childcare", icon: "chore_custom_childcare" }),
         expect.objectContaining({ name: "宠物照料", themeKey: "pet", icon: "chore_custom_pet" }),
       ]),

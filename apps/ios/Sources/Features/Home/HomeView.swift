@@ -64,16 +64,100 @@ struct HomeView: View {
     }
 
     private var header: some View {
-        VStack(alignment: .leading, spacing: 5) {
-            Text("本周战况")
-                .font(.system(size: 34, weight: .bold, design: .rounded))
-                .foregroundStyle(DSColor.floatingPrimaryText)
+        Group {
+            if dynamicTypeSize.isAccessibilitySize {
+                VStack(alignment: .leading, spacing: 14) {
+                    headerIdentity
+                    weekSelector
+                        .frame(maxWidth: 142, alignment: .leading)
+                }
+            } else {
+                ViewThatFits(in: .horizontal) {
+                    HStack(alignment: .center, spacing: 16) {
+                        headerIdentity
+                            .fixedSize(horizontal: true, vertical: false)
 
-            Text("\(viewModel.familyDisplayName) · \(weekDateLabel)")
-                .font(.system(size: 16, weight: .regular))
-                .foregroundStyle(DSColor.floatingSecondaryText)
+                        Spacer(minLength: 0)
+
+                        weekSelector
+                            .frame(width: 126)
+                    }
+
+                    VStack(alignment: .leading, spacing: 14) {
+                        headerIdentity
+                        weekSelector
+                            .frame(maxWidth: 142, alignment: .leading)
+                    }
+                }
+            }
         }
-        .accessibilityElement(children: .combine)
+    }
+
+    private var headerIdentity: some View {
+        VStack(alignment: .leading, spacing: 7) {
+            Text("本周战况")
+                .font(.system(size: 36, weight: .bold, design: .rounded))
+                .foregroundStyle(DSColor.floatingPrimaryText)
+                .lineLimit(1)
+
+            HStack(spacing: 7) {
+                Image(systemName: "house.fill")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(DSColor.yellow)
+                    .frame(width: 20, height: 20)
+
+                Text(viewModel.familyDisplayName)
+                    .font(.system(size: 20, weight: .semibold, design: .rounded))
+                    .foregroundStyle(DSColor.floatingSecondaryText)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.78)
+            }
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel("当前家庭，\(viewModel.familyDisplayName)")
+        }
+    }
+
+    private var weekSelector: some View {
+        HStack(spacing: 2) {
+            weekNavigationButton(
+                systemImage: "chevron.left",
+                accessibilityLabel: "查看上一周",
+                isEnabled: viewModel.selectedWeekOffset > -52,
+                action: viewModel.selectPreviousWeek
+            )
+
+            Text(selectedWeekTitle)
+                .font(.system(size: 15, weight: .semibold, design: .rounded))
+                .foregroundStyle(DSColor.floatingPrimaryText)
+                .lineLimit(1)
+                .frame(maxWidth: .infinity)
+
+            weekNavigationButton(
+                systemImage: "chevron.right",
+                accessibilityLabel: "查看下一周",
+                isEnabled: viewModel.canSelectNextWeek,
+                action: viewModel.selectNextWeek
+            )
+        }
+        .frame(minHeight: 44)
+        .accessibilityElement(children: .contain)
+    }
+
+    private func weekNavigationButton(
+        systemImage: String,
+        accessibilityLabel: String,
+        isEnabled: Bool,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            Image(systemName: systemImage)
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(isEnabled ? DSColor.ink : DSColor.mutedInk.opacity(0.38))
+                .frame(width: 40, height: 40)
+        }
+        .buttonStyle(.plain)
+        .disabled(!isEnabled || viewModel.isLoading)
+        .accessibilityLabel(accessibilityLabel)
     }
 
     private var familyScoreCard: some View {
@@ -344,6 +428,12 @@ struct HomeView: View {
         viewModel.weekRecords.reduce(0) { $0 + $1.actualMinutes }
     }
 
+    private var selectedWeekTitle: String {
+        viewModel.selectedWeekLabel
+            .components(separatedBy: " · ")
+            .first ?? viewModel.selectedWeekLabel
+    }
+
     private var myWeekRecords: [ChoreRecord] {
         viewModel.weekRecords.filter { record in
             if let currentUserID = viewModel.currentUser?.id,
@@ -442,20 +532,6 @@ struct HomeView: View {
         }
     }
 
-    private var weekDateLabel: String {
-        var calendar = Calendar(identifier: .gregorian)
-        calendar.locale = Locale(identifier: "zh_CN")
-        calendar.firstWeekday = 2
-
-        guard let interval = calendar.dateInterval(of: .weekOfYear, for: Date()) else {
-            return Date().formatted(.dateTime.month().day())
-        }
-
-        let end = calendar.date(byAdding: .day, value: -1, to: interval.end) ?? interval.end
-        let startText = interval.start.formatted(.dateTime.month().day().locale(Locale(identifier: "zh_CN")))
-        let endText = end.formatted(.dateTime.month().day().locale(Locale(identifier: "zh_CN")))
-        return "\(startText) - \(endText)"
-    }
 }
 
 private struct CategoryBattle: Identifiable {

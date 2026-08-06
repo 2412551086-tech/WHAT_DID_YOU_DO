@@ -50,8 +50,10 @@ final class AppViewModel: ObservableObject {
     @Published private(set) var weekRanking = MockData.members
     @Published private(set) var monthlyRanking = MockData.members
     @Published private(set) var monthlyReport: MonthlyReport? = MockData.monthlyReport
+    @Published private(set) var selectedWeekOffset = 0
     @Published private(set) var selectedReportMonth: String
     @Published private(set) var isLoading = false
+    @Published private(set) var isLoadingMonthlyReport = false
     @Published private(set) var loadingMessage: String?
     @Published private(set) var isOffline = false
     @Published private(set) var lastSuccessfulSyncAt: Date?
@@ -69,6 +71,7 @@ final class AppViewModel: ObservableObject {
     private let dataMode: AppDataMode
     private let userDefaults: UserDefaults
     private var commonChoreGridScope: String?
+    private var hiddenCommonCustomSlotIDs: Set<String> = []
     private var accountHasPremiumAccess = false
 
     init(
@@ -196,6 +199,21 @@ final class AppViewModel: ObservableObject {
         selectedReportMonth < currentMonth
     }
 
+    var canSelectNextWeek: Bool {
+        selectedWeekOffset < 0
+    }
+
+    var selectedWeekLabel: String {
+        switch selectedWeekOffset {
+        case 0:
+            return "本周 · 周一至周日"
+        case -1:
+            return "上周 · 周一至周日"
+        default:
+            return "\(-selectedWeekOffset) 周前 · 周一至周日"
+        }
+    }
+
     var selectedReportMonthLabel: String {
         guard let date = Self.monthFormatter.date(from: selectedReportMonth) else {
             return selectedReportMonth
@@ -264,7 +282,11 @@ final class AppViewModel: ObservableObject {
     }
 
     @discardableResult
-    func moveCommonChoreGridItem(_ sourceID: String, to targetID: String) -> Bool {
+    func moveCommonChoreGridItem(
+        _ sourceID: String,
+        to targetID: String,
+        persist: Bool = true
+    ) -> Bool {
         guard sourceID != targetID else { return false }
 
         var order = commonChoreGridItemIDs
@@ -277,7 +299,9 @@ final class AppViewModel: ObservableObject {
         order.remove(at: sourceIndex)
         order.insert(sourceID, at: min(targetIndex, order.count))
         commonChoreGridOrder = order
-        persistCommonChoreGridOrder()
+        if persist {
+            persistCommonChoreGridOrder()
+        }
         return true
     }
 
@@ -290,9 +314,15 @@ final class AppViewModel: ObservableObject {
             return false
         }
 
-        guard customChoreSlot(forGridItemID: itemID) == nil else {
-            errorMessage = "自定义家务请进入编辑页删除，空白自定义位置会继续保留。"
-            return false
+        if let slot = customChoreSlot(forGridItemID: itemID) {
+            guard customChore(forSlot: slot) == nil else {
+                errorMessage = "已创建的自定义家务请进入家务库删除。"
+                return false
+            }
+            hiddenCommonCustomSlotIDs.insert(itemID)
+            commonChoreGridOrder.removeAll { $0 == itemID }
+            persistCommonChoreGridOrder()
+            return true
         }
 
         let routineIDs = displayedChores.map(\.id)
@@ -315,6 +345,7 @@ final class AppViewModel: ObservableObject {
     func persistCommonChoreGridLayout() async {
         let routineIDs = Set(routineCatalogChores.map(\.id))
         let orderedRoutineIDs = commonChoreGridItemIDs.filter(routineIDs.contains)
+        persistCommonChoreGridOrder()
         guard !orderedRoutineIDs.isEmpty else { return }
         _ = await saveChoreLayout(
             choreIDs: orderedRoutineIDs,
@@ -860,6 +891,31 @@ final class AppViewModel: ObservableObject {
         }
     }
 
+    func selectPreviousWeek() {
+        selectedWeekOffset = max(-52, selectedWeekOffset - 1)
+        refreshSelectedWeek()
+    }
+
+    func selectNextWeek() {
+        guard canSelectNextWeek else { return }
+        selectedWeekOffset = min(0, selectedWeekOffset + 1)
+        refreshSelectedWeek()
+    }
+
+    private func refreshSelectedWeek() {
+        if usesMockData {
+            weekRecords = selectedWeekOffset == 0 ? MockData.todayRecords : []
+            weekRanking = selectedWeekOffset == 0 ? MockData.members : []
+            return
+        }
+
+        Task {
+            await performLoading("正在切换家庭周报") {
+                try await refreshSelectedWeekFromAPI()
+            }
+        }
+    }
+
     func selectPreviousReportMonth() {
         changeReportMonth(by: -1)
     }
@@ -1326,6 +1382,7 @@ final class AppViewModel: ObservableObject {
         joinRequestSubmitted = false
         selectedChore = nil
         selectedTab = .today
+        selectedWeekOffset = 0
         phoneNumber = ""
         displayName = ""
         familyName = MockData.family.name
@@ -1369,6 +1426,7 @@ final class AppViewModel: ObservableObject {
         currentJoinApplication = nil
         selectedChore = nil
         selectedTab = .today
+        selectedWeekOffset = 0
         familyName = MockData.family.name
         choreOrder = []
         pinnedChoreIDs = []
@@ -1599,6 +1657,8 @@ final class AppViewModel: ObservableObject {
     }
 
     private func changeReportMonth(by offset: Int) {
+        guard !isLoadingMonthlyReport else { return }
+
         let previousMonth = selectedReportMonth
         guard let currentDate = Self.monthFormatter.date(from: selectedReportMonth),
               let targetDate = Calendar(identifier: .gregorian).date(byAdding: .month, value: offset, to: currentDate)
@@ -1615,6 +1675,7 @@ final class AppViewModel: ObservableObject {
             return
         }
 
+        isLoadingMonthlyReport = true
         Task {
             await performLoading("正在切换月度战报") {
                 try await loadMonthlyReportFromAPI()
@@ -1622,6 +1683,7 @@ final class AppViewModel: ObservableObject {
             if errorMessage != nil {
                 selectedReportMonth = previousMonth
             }
+            isLoadingMonthlyReport = false
         }
     }
 
@@ -1768,10 +1830,7 @@ final class AppViewModel: ObservableObject {
         await performLoading("正在连接本地后端") {
             let response: LoginResponse = try await apiClient.post(
                 "auth/mock-login",
-                body: MockLoginRequest(
-                    phoneNumber: normalizedPhoneNumber,
-                    displayName: normalizedDisplayName
-                )
+                body: MockLoginRequest(phoneNumber: normalizedPhoneNumber, displayName: nil)
             )
 
             accessToken = response.accessToken
@@ -2038,6 +2097,7 @@ final class AppViewModel: ObservableObject {
         let occupiedSet = Set(occupiedSlots)
         let emptySlots = (1...customChoreLimit)
             .filter { !occupiedSet.contains($0) }
+            .filter { !hiddenCommonCustomSlotIDs.contains(Self.customChoreSlotID($0)) }
             .prefix(2)
         let visibleCustomSlots = Array(Set(occupiedSlots).union(emptySlots)).sorted()
         let availableIDs = displayedChores.map(\.id) + visibleCustomSlots.map(Self.customChoreSlotID)
@@ -2058,17 +2118,28 @@ final class AppViewModel: ObservableObject {
         guard commonChoreGridScope != scope else { return }
         commonChoreGridScope = scope
         commonChoreGridOrder = userDefaults.stringArray(forKey: scope) ?? []
+        hiddenCommonCustomSlotIDs = Set(
+            userDefaults.stringArray(forKey: commonChoreHiddenSlotsDefaultsKey) ?? []
+        )
     }
 
     private func persistCommonChoreGridOrder() {
         commonChoreGridScope = commonChoreGridDefaultsKey
         userDefaults.set(commonChoreGridOrder, forKey: commonChoreGridDefaultsKey)
+        userDefaults.set(
+            Array(hiddenCommonCustomSlotIDs).sorted(),
+            forKey: commonChoreHiddenSlotsDefaultsKey
+        )
     }
 
     private var commonChoreGridDefaultsKey: String {
         let userID = currentUser?.id ?? "anonymous"
         let familyID = currentFamily?.id ?? "no-family"
         return "\(Self.commonChoreGridDefaultsKeyPrefix)-\(userID)-\(familyID)"
+    }
+
+    private var commonChoreHiddenSlotsDefaultsKey: String {
+        "\(commonChoreGridDefaultsKey)-hidden-custom-slots"
     }
 
     private func persistChoreLayout() {
@@ -2133,7 +2204,7 @@ final class AppViewModel: ObservableObject {
 
         async let weekActivity: [ActivityItemDTO] = apiClient.get(
             "families/\(familyId)/activity",
-            queryItems: [URLQueryItem(name: "range", value: "week")]
+            queryItems: selectedWeekQueryItems
         )
         async let recentActivity: [ActivityItemDTO] = apiClient.get(
             "families/\(familyId)/activity",
@@ -2141,7 +2212,7 @@ final class AppViewModel: ObservableObject {
         )
         async let weekLeaderboard: [LeaderboardItemDTO] = apiClient.get(
             "families/\(familyId)/leaderboard",
-            queryItems: [URLQueryItem(name: "range", value: "week")]
+            queryItems: selectedWeekQueryItems
         )
         async let report: MonthlyReportDTO = apiClient.get(
             "families/\(familyId)/monthly-report",
@@ -2159,6 +2230,32 @@ final class AppViewModel: ObservableObject {
         recentRecords = recentItems.map(mapActivity)
         weekRanking = mapRanking(weekLeaderboardItems)
         applyMonthlyReport(monthlyReportDTO)
+    }
+
+    private func refreshSelectedWeekFromAPI() async throws {
+        guard let familyId = currentFamily?.id else {
+            throw AppStateError.missingFamily
+        }
+
+        async let activity: [ActivityItemDTO] = apiClient.get(
+            "families/\(familyId)/activity",
+            queryItems: selectedWeekQueryItems
+        )
+        async let leaderboard: [LeaderboardItemDTO] = apiClient.get(
+            "families/\(familyId)/leaderboard",
+            queryItems: selectedWeekQueryItems
+        )
+
+        let (activityItems, leaderboardItems) = try await (activity, leaderboard)
+        weekRecords = activityItems.map(mapActivity)
+        weekRanking = mapRanking(leaderboardItems)
+    }
+
+    private var selectedWeekQueryItems: [URLQueryItem] {
+        [
+            URLQueryItem(name: "range", value: "week"),
+            URLQueryItem(name: "weekOffset", value: String(selectedWeekOffset)),
+        ]
     }
 
     private func loadMonthlyReportFromAPI() async throws {
@@ -2205,7 +2302,7 @@ final class AppViewModel: ObservableObject {
 
         async let weekActivity: [ActivityItemDTO] = apiClient.get(
             "families/\(familyId)/activity",
-            queryItems: [URLQueryItem(name: "range", value: "week")]
+            queryItems: selectedWeekQueryItems
         )
         async let recentActivity: [ActivityItemDTO] = apiClient.get(
             "families/\(familyId)/activity",

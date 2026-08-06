@@ -191,7 +191,7 @@ export const themedChoreCatalog = [
   },
   {
     id: 'love-care-plants',
-    themeKey: 'love',
+    themeKey: 'daily',
     name: '浇花养护',
     category: '照顾',
     standardMinutes: 10,

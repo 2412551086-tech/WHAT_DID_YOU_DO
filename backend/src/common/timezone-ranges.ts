@@ -41,12 +41,12 @@ export function getDayRangeForTimeZone(timezone: string, now = new Date()) {
   };
 }
 
-export function getWeekRangeForTimeZone(timezone: string, now = new Date()) {
+export function getWeekRangeForTimeZone(timezone: string, now = new Date(), weekOffset = 0) {
   const safeTimeZone = normalizeTimeZone(timezone);
   const parts = getZonedDateParts(now, safeTimeZone);
   const localDate = new Date(Date.UTC(parts.year, parts.month - 1, parts.day));
   const daysSinceMonday = (localDate.getUTCDay() + 6) % 7;
-  const mondayDay = parts.day - daysSinceMonday;
+  const mondayDay = parts.day - daysSinceMonday + weekOffset * 7;
 
   return {
     start: zonedDateTimeToUtc(
