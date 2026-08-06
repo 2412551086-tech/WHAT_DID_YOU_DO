@@ -1,4 +1,4 @@
-import { ArrayMinSize, ArrayUnique, IsArray, IsString } from 'class-validator';
+import { ArrayMinSize, ArrayUnique, IsArray, IsBoolean, IsOptional, IsString } from 'class-validator';
 
 export class UpdateChoreLayoutDto {
   @IsArray()
@@ -11,4 +11,8 @@ export class UpdateChoreLayoutDto {
   @ArrayUnique()
   @IsString({ each: true })
   pinnedChoreIds!: string[];
+
+  @IsOptional()
+  @IsBoolean()
+  followFamilyLayout?: boolean;
 }

@@ -92,6 +92,7 @@ model FamilyMember {
   choreOrder          String[]     @default([])
   pinnedChoreIds      String[]     @default([])
   choreSetupCompleted Boolean      @default(false)
+  followFamilyLayout  Boolean      @default(false)
   approvedAt          DateTime?
   approvedById        String?
   createdAt           DateTime     @default(now())

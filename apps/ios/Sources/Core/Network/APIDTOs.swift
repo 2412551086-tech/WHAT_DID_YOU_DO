@@ -202,11 +202,19 @@ struct ChoreLayoutDTO: Codable, Sendable {
     let selectionLimit: Int?
     let customChoreLimit: Int?
     let isPersonalized: Bool?
+    let followFamilyLayout: Bool?
 }
 
 struct UpdateChoreLayoutRequest: Encodable, Sendable {
     let choreIds: [String]
     let pinnedChoreIds: [String]
+    let followFamilyLayout: Bool?
+
+    init(choreIds: [String], pinnedChoreIds: [String], followFamilyLayout: Bool? = nil) {
+        self.choreIds = choreIds
+        self.pinnedChoreIds = pinnedChoreIds
+        self.followFamilyLayout = followFamilyLayout
+    }
 }
 
 struct ArchiveCustomChoreResponseDTO: Decodable {

@@ -6,6 +6,7 @@ struct ChoreSelectionView: View {
     @EnvironmentObject private var dragCoordinator: CommonChoreDragCoordinator
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @Environment(\.scenePhase) private var scenePhase
+    @State private var copySeed = Int.random(in: 0..<10_000)
     @State private var choreForDurationPicker: ChoreItem?
     @State private var showsRoutineEditor = false
     @State private var customEditorContext: CustomChoreEditorContext?
@@ -18,12 +19,9 @@ struct ChoreSelectionView: View {
     @State private var scrollResetID = UUID()
     @State private var commonChoreFrames: [String: CGRect] = [:]
     @State private var commonChoreContainerGlobalFrame: CGRect = .zero
-    @State private var cardPressState = CommonChorePressState.idle
-    @State private var reorderActivationTask: Task<Void, Never>?
 
     private static let commonChoreCoordinateSpace = "common-chore-grid"
     private static let reorderHoldDuration = 0.65
-    private static let reorderMovementTolerance: CGFloat = 10
 
     private var draggingGridItemID: String? { dragState.itemID }
     private var dragLocation: CGPoint? { dragState.location }
@@ -52,7 +50,6 @@ struct ChoreSelectionView: View {
                 .padding(.bottom, 108)
             }
             .id(scrollResetID)
-            .simultaneousGesture(libraryRevealGesture)
         }
         .navigationBarBackButtonHidden(true)
         .onAppear {
@@ -120,6 +117,9 @@ struct ChoreSelectionView: View {
         .sheet(item: $premiumUpgradeTrigger, onDismiss: resetAfterModal) { trigger in
             premiumUpgradeSheet(for: trigger)
         }
+        .onAppear {
+            copySeed = Int.random(in: 0..<10_000)
+        }
     }
 
     private var pageHeader: some View {
@@ -129,9 +129,27 @@ struct ChoreSelectionView: View {
                     .font(DSFont.functionalPageTitle)
                     .foregroundStyle(DSColor.ink)
 
-                Text("刚干完什么？从家庭常用里把功劳记上。")
+                Text(RotatingCopy.value(from: RotatingCopy.choreSelection, seed: copySeed))
                     .font(.system(size: 16, weight: .regular, design: .default))
                     .foregroundStyle(DSColor.mutedInk)
+
+                if viewModel.canChooseChoreLayoutMode {
+                    Toggle(isOn: Binding(
+                        get: { viewModel.followsFamilyChoreLayout },
+                        set: { viewModel.setFollowsFamilyChoreLayout($0) }
+                    )) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("跟随一家之主布局")
+                                .font(.subheadline.weight(.semibold))
+                                .foregroundStyle(DSColor.ink)
+                            Text(viewModel.followsFamilyChoreLayout ? "一家之主更新后会同步" : "只显示我的常用家务")
+                                .font(.caption)
+                                .foregroundStyle(DSColor.mutedInk)
+                        }
+                    }
+                    .tint(DSColor.yellow)
+                    .padding(.top, 4)
+                }
             }
 
             Spacer(minLength: 0)
@@ -200,7 +218,11 @@ struct ChoreSelectionView: View {
                 )
             }
         }
-        .simultaneousGesture(cardTouchGesture(for: item))
+        .onTapGesture {
+            guard !viewModel.isLoading else { return }
+            open(item)
+        }
+        .simultaneousGesture(reorderGesture(for: item))
         .accessibilityAddTraits(.isButton)
         .accessibilityAction {
             guard !viewModel.isLoading else { return }
@@ -231,81 +253,38 @@ struct ChoreSelectionView: View {
         }
     }
 
-    private func cardTouchGesture(for item: CommonChoreGridItem) -> some Gesture {
-        DragGesture(
-            minimumDistance: 0,
-            coordinateSpace: .named(Self.commonChoreCoordinateSpace)
-        )
-            .onChanged { value in
-                if cardPressState.itemID != item.id {
-                    startCardPress(itemID: item.id, location: value.startLocation)
+    private func reorderGesture(for item: CommonChoreGridItem) -> some Gesture {
+        LongPressGesture(minimumDuration: Self.reorderHoldDuration)
+            .sequenced(before: DragGesture(
+                minimumDistance: 0,
+                coordinateSpace: .named(Self.commonChoreCoordinateSpace)
+            ))
+            .onChanged { phase in
+                guard !viewModel.isLoading, !isPresentingModal else { return }
+
+                switch phase {
+                case .first(true):
+                    if draggingGridItemID == nil {
+                        beginReordering(item.id)
+                    }
+                case .second(true, let drag):
+                    guard let drag, draggingGridItemID == item.id else { return }
+                    updateReordering(itemID: item.id, location: drag.location)
+                default:
+                    break
                 }
-
-                cardPressState.location = value.location
-
-                if draggingGridItemID == item.id {
-                    updateReordering(itemID: item.id, location: value.location)
+            }
+            .onEnded { phase in
+                guard case .second(true, let drag) = phase,
+                      let drag,
+                      draggingGridItemID == item.id
+                else {
                     return
                 }
 
-                let distance = hypot(value.translation.width, value.translation.height)
-                if distance > Self.reorderMovementTolerance {
-                    cardPressState.isEligibleForLongPress = false
-                    reorderActivationTask?.cancel()
-                    reorderActivationTask = nil
-                }
+                updateReordering(itemID: item.id, location: drag.location)
+                completeReordering(itemID: item.id)
             }
-            .onEnded { value in
-                let wasReordering = draggingGridItemID == item.id
-                let shouldOpen = cardPressState.itemID == item.id
-                    && cardPressState.isEligibleForLongPress
-                    && !wasReordering
-                    && !viewModel.isLoading
-
-                cancelCardPressTracking()
-
-                if wasReordering {
-                    updateReordering(itemID: item.id, location: value.location)
-                    completeReordering(itemID: item.id)
-                } else if shouldOpen {
-                    open(item)
-                }
-            }
-    }
-
-    private func startCardPress(itemID: String, location: CGPoint) {
-        guard !viewModel.isLoading, !isPresentingModal else { return }
-
-        reorderActivationTask?.cancel()
-        cardPressState = CommonChorePressState(
-            itemID: itemID,
-            location: location,
-            isEligibleForLongPress: true
-        )
-
-        reorderActivationTask = Task { @MainActor in
-            do {
-                try await Task.sleep(for: .seconds(Self.reorderHoldDuration))
-            } catch {
-                return
-            }
-
-            guard cardPressState.itemID == itemID,
-                  cardPressState.isEligibleForLongPress,
-                  !Task.isCancelled
-            else { return }
-
-            beginReordering(itemID)
-            if let location = cardPressState.location, draggingGridItemID == itemID {
-                updateReordering(itemID: itemID, location: location)
-            }
-        }
-    }
-
-    private func cancelCardPressTracking() {
-        reorderActivationTask?.cancel()
-        reorderActivationTask = nil
-        cardPressState = .idle
     }
 
     @ViewBuilder
@@ -339,7 +318,9 @@ struct ChoreSelectionView: View {
 
     private var bottomSentinel: some View {
         Color.clear
-            .frame(height: 1)
+            .frame(height: 72)
+            .contentShape(Rectangle())
+            .gesture(libraryRevealGesture)
             .onAppear { isBottomSentinelVisible = true }
             .onDisappear { isBottomSentinelVisible = false }
             .accessibilityHidden(true)
@@ -371,7 +352,7 @@ struct ChoreSelectionView: View {
                 }
 
                 guard viewModel.canEditCommonChoreLayout else {
-                    requestPremiumUpgrade(for: .personalLayout)
+                    handleLayoutEditUnavailable()
                     return
                 }
 
@@ -403,7 +384,7 @@ struct ChoreSelectionView: View {
     private func beginReordering(_ itemID: String) {
         guard !isPresentingModal, !viewModel.isLoading else { return }
         guard viewModel.canEditCommonChoreLayout else {
-            requestPremiumUpgrade(for: .personalLayout)
+            handleLayoutEditUnavailable()
             return
         }
         guard draggingGridItemID != itemID else { return }
@@ -475,7 +456,6 @@ struct ChoreSelectionView: View {
     }
 
     private func resetTransientInteractionState() {
-        cancelCardPressTracking()
         finishReordering()
         isTrackingLibraryPull = false
         libraryPullStartedAtBottom = false
@@ -501,6 +481,14 @@ struct ChoreSelectionView: View {
         resetTransientInteractionState()
         UINotificationFeedbackGenerator().notificationOccurred(.warning)
         premiumUpgradeTrigger = trigger
+    }
+
+    private func handleLayoutEditUnavailable() {
+        if viewModel.canChooseChoreLayoutMode && viewModel.followsFamilyChoreLayout {
+            viewModel.errorMessage = "当前正在跟随一家之主布局，请先关闭开关再编辑。"
+        } else {
+            requestPremiumUpgrade(for: .personalLayout)
+        }
     }
 
     private func openRoutineEditor() {
@@ -647,14 +635,6 @@ struct CommonChoreRemovalTarget: View {
         .accessibilityElement(children: .combine)
         .accessibilityLabel(isTargeted ? "松手移出常用家务" : "拖到这里移出常用家务")
     }
-}
-
-private struct CommonChorePressState {
-    static let idle = CommonChorePressState()
-
-    var itemID: String?
-    var location: CGPoint?
-    var isEligibleForLongPress = false
 }
 
 private enum CommonChoreGridItem: Identifiable {
@@ -1162,6 +1142,8 @@ struct ChoreRoutineEditorView: View {
                     Button("编辑") {
                         if viewModel.canEditCommonChoreLayout {
                             customEditorContext = .init(id: chore.id, chore: chore)
+                        } else if viewModel.canChooseChoreLayoutMode && viewModel.followsFamilyChoreLayout {
+                            viewModel.errorMessage = "当前正在跟随一家之主布局，请先关闭开关再编辑。"
                         } else {
                             premiumUpgradeTrigger = .personalLayout
                         }
@@ -1169,6 +1151,8 @@ struct ChoreRoutineEditorView: View {
                     Button(role: .destructive) {
                         if viewModel.canEditCommonChoreLayout {
                             customChoreToDelete = chore
+                        } else if viewModel.canChooseChoreLayoutMode && viewModel.followsFamilyChoreLayout {
+                            viewModel.errorMessage = "当前正在跟随一家之主布局，请先关闭开关再编辑。"
                         } else {
                             premiumUpgradeTrigger = .personalLayout
                         }

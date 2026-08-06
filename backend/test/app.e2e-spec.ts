@@ -383,6 +383,33 @@ describe("MVP API (e2e)", () => {
       .set("Authorization", `Bearer ${member.token}`)
       .expect(200)
       .expect(({ body }) => expect(body.choreIds).toEqual(premiumSelection));
+
+    await request(app.getHttpServer())
+      .patch(`/families/${familyId}/chore-layout`)
+      .set("Authorization", `Bearer ${member.token}`)
+      .send({
+        choreIds: premiumSelection,
+        pinnedChoreIds: [],
+        followFamilyLayout: true,
+      })
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body).toMatchObject({
+          choreIds: freeSelection,
+          scope: "family",
+          isPersonalized: false,
+          followFamilyLayout: true,
+        });
+      });
+
+    await request(app.getHttpServer())
+      .get(`/families/${familyId}/chore-layout`)
+      .set("Authorization", `Bearer ${member.token}`)
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body.choreIds).toEqual(freeSelection);
+        expect(body.followFamilyLayout).toBe(true);
+      });
   });
 
   it("manages two family-scoped free custom chores and records their calculated points", async () => {

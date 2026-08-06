@@ -45,6 +45,7 @@ final class AppViewModel: ObservableObject {
     @Published private(set) var choreLayoutCanEdit = true
     @Published private(set) var choreLayoutScope = "family"
     @Published private(set) var choreLayoutIsPersonalized = false
+    @Published private(set) var followsFamilyChoreLayout = true
     @Published private(set) var weekRecords = MockData.todayRecords
     @Published private(set) var recentRecords = MockData.todayRecords
     @Published private(set) var weekRanking = MockData.members
@@ -206,12 +207,29 @@ final class AppViewModel: ObservableObject {
     var selectedWeekLabel: String {
         switch selectedWeekOffset {
         case 0:
-            return "本周 · 周一至周日"
+            return "本周"
         case -1:
-            return "上周 · 周一至周日"
+            return "上周"
+        case -2:
+            return "上上周"
         default:
-            return "\(-selectedWeekOffset) 周前 · 周一至周日"
+            let calendar = Self.weekCalendar
+            let anchor = calendar.date(byAdding: .weekOfYear, value: selectedWeekOffset, to: Date()) ?? Date()
+            let month = calendar.component(.month, from: anchor)
+            let weekOfMonth = calendar.component(.weekOfMonth, from: anchor)
+            return "\(month)月第\(weekOfMonth)周"
         }
+    }
+
+    var selectedWeekAccessibilityLabel: String {
+        let calendar = Self.weekCalendar
+        let anchor = calendar.date(byAdding: .weekOfYear, value: selectedWeekOffset, to: Date()) ?? Date()
+        guard let interval = calendar.dateInterval(of: .weekOfYear, for: anchor) else {
+            return selectedWeekLabel
+        }
+
+        let end = calendar.date(byAdding: .day, value: -1, to: interval.end) ?? interval.end
+        return "\(selectedWeekLabel)，\(Self.weekDateFormatter.string(from: interval.start))至\(Self.weekDateFormatter.string(from: end))"
     }
 
     var selectedReportMonthLabel: String {
@@ -263,7 +281,11 @@ final class AppViewModel: ObservableObject {
         if currentFamily == nil {
             return true
         }
-        return choreLayoutCanEdit
+        return choreLayoutCanEdit && !(canChooseChoreLayoutMode && followsFamilyChoreLayout)
+    }
+
+    var canChooseChoreLayoutMode: Bool {
+        hasPremiumAccess && currentFamily != nil && !isCurrentUserOwner
     }
 
     func customChore(forSlot slot: Int) -> ChoreItem? {
@@ -279,6 +301,48 @@ final class AppViewModel: ObservableObject {
         loadCommonChoreGridOrderIfNeeded()
         commonChoreGridOrder = normalizedCommonChoreGridOrder(from: commonChoreGridOrder)
         persistCommonChoreGridOrder()
+    }
+
+    func setFollowsFamilyChoreLayout(_ follows: Bool) {
+        guard canChooseChoreLayoutMode, follows != followsFamilyChoreLayout else { return }
+        clearError()
+
+        let orderedRoutineIDs = commonChoreGridItemIDs.filter { itemID in
+            routineCatalogChores.contains { $0.id == itemID }
+        }
+        let fallbackIDs = orderedRoutineIDs.isEmpty ? choreOrder : orderedRoutineIDs
+        guard !fallbackIDs.isEmpty else {
+            errorMessage = "请先选择至少 1 项常用家务。"
+            return
+        }
+        let pinnedIDs = pinnedChoreIDs.intersection(Set(fallbackIDs))
+
+        if usesMockData {
+            followsFamilyChoreLayout = follows
+            choreLayoutIsPersonalized = !follows
+            choreLayoutScope = follows ? "family" : "member"
+            choreLayoutCanEdit = true
+            synchronizeCommonChoreGridOrder()
+            return
+        }
+
+        Task {
+            await performLoading(follows ? "正在同步家庭布局" : "正在建立个人布局") {
+                guard let familyId = currentFamily?.id else {
+                    throw AppStateError.missingFamily
+                }
+
+                let response: ChoreLayoutDTO = try await apiClient.patch(
+                    "families/\(familyId)/chore-layout",
+                    body: UpdateChoreLayoutRequest(
+                        choreIds: fallbackIDs,
+                        pinnedChoreIds: fallbackIDs.filter(pinnedIDs.contains),
+                        followFamilyLayout: follows
+                    )
+                )
+                applyChoreLayout(response)
+            }
+        }
     }
 
     @discardableResult
@@ -693,6 +757,7 @@ final class AppViewModel: ObservableObject {
             choreLayoutCanEdit = true
             choreLayoutScope = hasPremiumAccess ? "member" : "family"
             choreLayoutIsPersonalized = hasPremiumAccess
+            followsFamilyChoreLayout = !choreLayoutIsPersonalized
             persistChoreLayout()
             synchronizeCommonChoreGridOrder()
             selectedTab = .record
@@ -709,7 +774,8 @@ final class AppViewModel: ObservableObject {
                 "families/\(familyId)/chore-layout",
                 body: UpdateChoreLayoutRequest(
                     choreIds: choreIDs,
-                    pinnedChoreIds: choreIDs.filter(normalizedPinned.contains)
+                    pinnedChoreIds: choreIDs.filter(normalizedPinned.contains),
+                    followFamilyLayout: isCurrentUserOwner ? true : followsFamilyChoreLayout
                 )
             )
             applyChoreLayout(response)
@@ -1403,6 +1469,7 @@ final class AppViewModel: ObservableObject {
         choreLayoutCanEdit = true
         choreLayoutScope = "family"
         choreLayoutIsPersonalized = false
+        followsFamilyChoreLayout = true
         weekRecords = usesMockData ? MockData.todayRecords : []
         recentRecords = usesMockData ? MockData.todayRecords : []
         monthlyRanking = usesMockData ? MockData.members : []
@@ -1436,6 +1503,7 @@ final class AppViewModel: ObservableObject {
         choreLayoutCanEdit = true
         choreLayoutScope = "family"
         choreLayoutIsPersonalized = false
+        followsFamilyChoreLayout = true
         weekRecords = []
         recentRecords = []
         weekRanking = []
@@ -1557,7 +1625,7 @@ final class AppViewModel: ObservableObject {
             standardMinutes: chore.minutes,
             actualMinutes: minutes,
             points: points,
-            note: "\(chore.name)完成，家务宇宙记一笔",
+            note: recordSuccessNote(for: chore.name),
             createdAt: Date(),
             icon: chore.icon,
             color: chore.color,
@@ -1991,7 +2059,7 @@ final class AppViewModel: ObservableObject {
                     choreId: chore.id,
                     actualMinutes: minutes,
                     pointsMultiplier: pointsMultiplier,
-                    note: "\(chore.name) · iOS 创建",
+                    note: recordSuccessNote(for: chore.name),
                     imageUrls: []
                 )
             )
@@ -2001,6 +2069,13 @@ final class AppViewModel: ObservableObject {
             selectedTab = .today
             try await refreshHomeDataFromAPI()
         }
+    }
+
+    private func recordSuccessNote(for choreName: String) -> String {
+        "\(choreName)：" + RotatingCopy.value(
+            from: RotatingCopy.recordSuccess,
+            seed: Int.random(in: 0..<10_000)
+        )
     }
 
     private func loadChoresFromAPI() async throws {
@@ -2029,6 +2104,7 @@ final class AppViewModel: ObservableObject {
         choreLayoutCanEdit = response.canEdit ?? (hasPremiumAccess || isCurrentUserOwner)
         choreLayoutScope = response.scope ?? (hasPremiumAccess ? "member" : "family")
         choreLayoutIsPersonalized = response.isPersonalized ?? false
+        followsFamilyChoreLayout = response.followFamilyLayout ?? !choreLayoutIsPersonalized
         synchronizeChoreLayout()
     }
 
@@ -2039,6 +2115,7 @@ final class AppViewModel: ObservableObject {
         choreLayoutCanEdit = true
         choreLayoutScope = hasPremiumAccess ? "member" : "family"
         choreLayoutIsPersonalized = false
+        followsFamilyChoreLayout = true
         persistChoreLayout()
         synchronizeCommonChoreGridOrder()
     }
@@ -2099,7 +2176,14 @@ final class AppViewModel: ObservableObject {
             .filter { !occupiedSet.contains($0) }
             .filter { !hiddenCommonCustomSlotIDs.contains(Self.customChoreSlotID($0)) }
             .prefix(2)
-        let visibleCustomSlots = Array(Set(occupiedSlots).union(emptySlots)).sorted()
+        let savedCustomSlots = savedOrder.compactMap { itemID -> Int? in
+            guard let slot = customChoreSlot(forGridItemID: itemID), occupiedSet.contains(slot) else {
+                return nil
+            }
+            return slot
+        }
+        let personalizedSlots = choreLayoutIsPersonalized ? savedCustomSlots : occupiedSlots
+        let visibleCustomSlots = Array(Set(personalizedSlots).union(emptySlots)).sorted()
         let availableIDs = displayedChores.map(\.id) + visibleCustomSlots.map(Self.customChoreSlotID)
         let availableSet = Set(availableIDs)
         let saved = savedOrder.filter { availableSet.contains($0) }
@@ -2837,6 +2921,23 @@ final class AppViewModel: ObservableObject {
         formatter.locale = Locale(identifier: "zh_CN")
         formatter.dateFormat = "yyyy年M月"
         return formatter
+    }()
+
+    private static let weekDateFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.calendar = weekCalendar
+        formatter.locale = Locale(identifier: "zh_CN")
+        formatter.dateFormat = "yyyy年M月d日"
+        return formatter
+    }()
+
+    private static let weekCalendar: Calendar = {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.locale = Locale(identifier: "zh_CN")
+        calendar.timeZone = .current
+        calendar.firstWeekday = 2
+        calendar.minimumDaysInFirstWeek = 1
+        return calendar
     }()
 
     static func previewLoggedIn() -> AppViewModel {

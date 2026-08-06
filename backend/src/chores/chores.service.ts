@@ -195,7 +195,13 @@ export class ChoresService {
       throw new NotFoundException('Family not found');
     }
 
-    const usesPersonalLayout = hasPremiumAccess && membership.choreSetupCompleted;
+    const followsFamilyLayout = membership.memberRole === MemberRole.OWNER
+      ? true
+      : membership.followFamilyLayout;
+    const usesPersonalLayout = hasPremiumAccess
+      && membership.memberRole !== MemberRole.OWNER
+      && !followsFamilyLayout
+      && membership.choreSetupCompleted;
     const source = usesPersonalLayout ? membership : family;
 
     const availableIds = await this.getAvailableChoreIds(familyId);
@@ -214,6 +220,7 @@ export class ChoresService {
       selectionLimit: hasPremiumAccess ? null : FREE_COMMON_CHORE_LIMIT,
       customChoreLimit: hasPremiumAccess ? PREMIUM_CUSTOM_CHORE_LIMIT : FREE_CUSTOM_CHORE_LIMIT,
       isPersonalized: usesPersonalLayout,
+      followFamilyLayout: followsFamilyLayout,
     };
   }
 
@@ -241,13 +248,49 @@ export class ChoresService {
       throw new BadRequestException('Pinned chores must be part of the selected chores');
     }
 
+    const followFamilyLayout = membership.memberRole === MemberRole.OWNER
+      ? true
+      : hasPremiumAccess
+        ? (dto.followFamilyLayout ?? false)
+        : true;
+
+    if (hasPremiumAccess && membership.memberRole !== MemberRole.OWNER && followFamilyLayout) {
+      await this.prisma.familyMember.update({
+        where: { id: membership.id },
+        data: { followFamilyLayout: true },
+      });
+
+      const family = await this.prisma.family.findUnique({
+        where: { id: familyId },
+        select: { choreOrder: true, pinnedChoreIds: true, choreSetupCompleted: true },
+      });
+      if (!family) {
+        throw new NotFoundException('Family not found');
+      }
+
+      return {
+        choreIds: family.choreSetupCompleted ? family.choreOrder : [],
+        pinnedChoreIds: family.choreSetupCompleted ? family.pinnedChoreIds.filter((id) => family.choreOrder.includes(id)) : [],
+        isConfigured: family.choreSetupCompleted && family.choreOrder.length > 0,
+        scope: 'family',
+        canEdit: true,
+        selectionLimit,
+        customChoreLimit: PREMIUM_CUSTOM_CHORE_LIMIT,
+        isPersonalized: false,
+        followFamilyLayout: true,
+      };
+    }
+
     const layoutData = {
       choreOrder: dto.choreIds,
       pinnedChoreIds: dto.pinnedChoreIds,
       choreSetupCompleted: true,
+      ...(hasPremiumAccess && membership.memberRole !== MemberRole.OWNER
+        ? { followFamilyLayout: false }
+        : {}),
     };
 
-    const updated = hasPremiumAccess
+    const updated = hasPremiumAccess && membership.memberRole !== MemberRole.OWNER
       ? await this.prisma.familyMember.update({
           where: { id: membership.id },
           data: layoutData,
@@ -274,7 +317,12 @@ export class ChoresService {
       canEdit: true,
       selectionLimit,
       customChoreLimit: hasPremiumAccess ? PREMIUM_CUSTOM_CHORE_LIMIT : FREE_CUSTOM_CHORE_LIMIT,
-      isPersonalized: hasPremiumAccess,
+      isPersonalized: hasPremiumAccess && membership.memberRole !== MemberRole.OWNER,
+      followFamilyLayout: membership.memberRole === MemberRole.OWNER
+        ? true
+        : hasPremiumAccess
+          ? false
+          : true,
     };
   }
 
