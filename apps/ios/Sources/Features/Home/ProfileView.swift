@@ -4,6 +4,7 @@ import UIKit
 struct ProfileView: View {
     @EnvironmentObject private var viewModel: AppViewModel
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @AppStorage(AppAppearance.storageKey) private var appearanceRawValue = AppAppearance.system.rawValue
     @State private var didCopyInviteCode = false
     @State private var isDebugExpanded = false
     @State private var isShowingLogoutConfirmation = false
@@ -28,6 +29,7 @@ struct ProfileView: View {
                     }
                     membersSection
                     accountSection
+                    appearanceSection
 
                     #if DEBUG
                     debugSection
@@ -119,7 +121,7 @@ struct ProfileView: View {
         .background(identityCardBackground)
         .overlay(
             RoundedRectangle(cornerRadius: 24, style: .continuous)
-                .stroke(.white.opacity(0.88), lineWidth: 1)
+                .stroke(DSColor.raisedHighlight, lineWidth: 1)
         )
     }
 
@@ -130,7 +132,7 @@ struct ProfileView: View {
                 ProfilePetalDecoration()
                     .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
             }
-            .shadow(color: DSColor.ink.opacity(0.10), radius: 13, x: 0, y: 7)
+            .shadow(color: DSColor.shadow.opacity(0.10), radius: 13, x: 0, y: 7)
     }
 
     private var userIdentity: some View {
@@ -149,7 +151,7 @@ struct ProfileView: View {
                 presentation: .flat
             )
             .padding(4)
-            .background(.white.opacity(0.92))
+            .background(DSColor.pureSurface.opacity(0.92))
             .clipShape(Circle())
 
             if viewModel.isCurrentUserOwner {
@@ -392,6 +394,42 @@ struct ProfileView: View {
         .animation(.easeOut(duration: 0.2), value: viewModel.hasPremiumAccess)
     }
 
+    private var appearanceSection: some View {
+        ProfileGroupCard {
+            HStack(spacing: 12) {
+                Image(systemName: "circle.lefthalf.filled")
+                    .font(.system(size: 20, weight: .medium))
+                    .frame(width: 36, height: 36)
+
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("显示与外观")
+                        .font(.system(size: 16, weight: .medium))
+                        .foregroundStyle(DSColor.ink)
+
+                    Text("深夜记功也不刺眼")
+                        .font(.system(size: 13, weight: .regular))
+                        .foregroundStyle(DSColor.mutedInk)
+                }
+            }
+
+            Picker("显示模式", selection: appearanceBinding) {
+                ForEach(AppAppearance.allCases) { appearance in
+                    Text(appearance.title)
+                        .tag(appearance)
+                }
+            }
+            .pickerStyle(.segmented)
+            .accessibilityHint("选择跟随系统、浅色或深色外观")
+        }
+    }
+
+    private var appearanceBinding: Binding<AppAppearance> {
+        Binding(
+            get: { AppAppearance.resolve(appearanceRawValue) },
+            set: { appearanceRawValue = $0.rawValue }
+        )
+    }
+
     #if DEBUG
     private var debugSection: some View {
         DisclosureGroup(isExpanded: $isDebugExpanded) {
@@ -470,7 +508,7 @@ struct ProfileView: View {
     }
 
     private var displayedMembers: [FamilyMemberProfile] {
-        let activeMembers = viewModel.familyMembers.filter { $0.status == .active }
+        let activeMembers = viewModel.orderedActiveFamilyMembers
         if !activeMembers.isEmpty {
             return activeMembers
         }
@@ -488,7 +526,8 @@ struct ProfileView: View {
                 customIdentity: membership.customIdentity,
                 avatarKey: membership.avatarKey,
                 memberRole: membership.memberRole,
-                status: membership.status
+                status: membership.status,
+                joinedAt: .distantPast
             ),
         ]
     }
@@ -596,7 +635,7 @@ private struct AppearanceSelectionView: View {
                 )
 
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("配套头像 · \(FamilyIdentityOptions.name(for: draftAvatarKey))")
+                    Text("头像同步更新")
                         .font(.system(size: 16, weight: .semibold))
                         .foregroundStyle(DSColor.ink)
                     Text("无需再次选择头像")
@@ -613,7 +652,7 @@ private struct AppearanceSelectionView: View {
             }
         }
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("配套头像，\(FamilyIdentityOptions.name(for: draftAvatarKey))")
+        .accessibilityLabel("头像将随家庭形象同步更新")
     }
 
     private var currentAvatarKey: String {
@@ -676,7 +715,7 @@ private struct MemberActivityDetailView: View {
                             RoundedRectangle(cornerRadius: 20, style: .continuous)
                                 .stroke(DSColor.subtleStroke, lineWidth: 1)
                         )
-                        .shadow(color: DSColor.ink.opacity(0.06), radius: 12, x: 0, y: 6)
+                        .shadow(color: DSColor.shadow.opacity(0.09), radius: 12, x: 0, y: 6)
                     }
 
                     if let errorMessage = viewModel.errorMessage {
@@ -702,7 +741,7 @@ private struct MemberActivityDetailView: View {
                             .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
                             .overlay(
                                 RoundedRectangle(cornerRadius: 18, style: .continuous)
-                                    .stroke(DSColor.ink.opacity(0.18), lineWidth: 1)
+                                    .stroke(DSColor.subtleStroke, lineWidth: 1)
                             )
                         }
                         .buttonStyle(.plain)
@@ -830,9 +869,6 @@ private struct ProfileAppearanceRow: View {
                 Text("家庭形象")
                     .font(.system(size: 16, weight: .regular))
                     .foregroundStyle(DSColor.ink)
-                Text(avatarKey.map(FamilyIdentityOptions.name(for:)) ?? "选择立绘")
-                    .font(DSFont.functionalCaption)
-                    .foregroundStyle(DSColor.mutedInk)
             }
 
             Spacer()
@@ -851,13 +887,13 @@ private struct ProfileAppearanceRow: View {
         .padding(.vertical, 4)
         .contentShape(Rectangle())
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("家庭形象，\(avatarKey.map(FamilyIdentityOptions.name(for:)) ?? "未选择")")
+        .accessibilityLabel(avatarKey == nil ? "家庭形象，未选择" : "家庭形象，已选择")
     }
 }
 
 private enum ProfilePalette {
-    static let identitySurface = Color(red: 0.91, green: 0.96, blue: 1.00)
-    static let petal = Color(red: 0.57, green: 0.91, blue: 0.93)
+    static let identitySurface = DSColor.choreBlueSurface
+    static let petal = DSColor.sky
 }
 
 private struct ProfilePetalDecoration: View {
@@ -903,7 +939,7 @@ private struct ProfileGroupCard<Content: View>: View {
             RoundedRectangle(cornerRadius: 20, style: .continuous)
                 .stroke(DSColor.subtleStroke.opacity(0.65), lineWidth: 1)
         )
-        .shadow(color: DSColor.ink.opacity(0.07), radius: 14, x: 0, y: 7)
+        .shadow(color: DSColor.shadow.opacity(0.07), radius: 14, x: 0, y: 7)
     }
 }
 
@@ -991,4 +1027,13 @@ private struct ProfileToolButtonStyle: ButtonStyle {
         ProfileView()
             .environmentObject(AppViewModel.previewLoggedIn())
     }
+}
+
+
+#Preview("我的 · 深色") {
+    NavigationStack {
+        ProfileView()
+            .environmentObject(AppViewModel.previewLoggedIn())
+    }
+    .preferredColorScheme(.dark)
 }

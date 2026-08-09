@@ -4,6 +4,7 @@ import SwiftUI
 struct HomeView: View {
     @EnvironmentObject private var viewModel: AppViewModel
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @State private var copySeed = Int.random(in: 0..<10_000)
 
     private let activityPreviewLimit = 5
 
@@ -61,64 +62,61 @@ struct HomeView: View {
         .task {
             viewModel.refreshHomeDataIfNeeded()
         }
+        .onAppear {
+            copySeed = Int.random(in: 0..<10_000)
+        }
     }
 
     private var header: some View {
-        Group {
-            if dynamicTypeSize.isAccessibilitySize {
-                VStack(alignment: .leading, spacing: 14) {
-                    headerIdentity
+        VStack(alignment: .leading, spacing: 9) {
+            ViewThatFits(in: .horizontal) {
+                HStack(alignment: .center, spacing: 10) {
+                    dashboardTitle
+
+                    Spacer(minLength: 0)
+
                     weekSelector
-                        .frame(maxWidth: 142, alignment: .leading)
+                        .frame(width: 172)
                 }
-            } else {
-                ViewThatFits(in: .horizontal) {
-                    HStack(alignment: .center, spacing: 16) {
-                        headerIdentity
-                            .fixedSize(horizontal: true, vertical: false)
 
-                        Spacer(minLength: 0)
-
-                        weekSelector
-                            .frame(width: 126)
-                    }
-
-                    VStack(alignment: .leading, spacing: 14) {
-                        headerIdentity
-                        weekSelector
-                            .frame(maxWidth: 142, alignment: .leading)
-                    }
+                VStack(alignment: .leading, spacing: 8) {
+                    dashboardTitle
+                    weekSelector
+                        .frame(width: 172, alignment: .leading)
                 }
             }
+
+            familyIdentity
         }
     }
 
-    private var headerIdentity: some View {
-        VStack(alignment: .leading, spacing: 7) {
-            Text("本周战况")
-                .font(.system(size: 36, weight: .bold, design: .rounded))
+    private var dashboardTitle: some View {
+        Text("本周战况")
+            .font(.system(size: 36, weight: .bold, design: .rounded))
+            .foregroundStyle(DSColor.floatingPrimaryText)
+            .lineLimit(1)
+            .fixedSize(horizontal: true, vertical: false)
+    }
+
+    private var familyIdentity: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "house.fill")
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(DSColor.yellow)
+                .frame(width: 21, height: 21)
+
+            Text(viewModel.familyDisplayName)
+                .font(.system(size: 22, weight: .semibold, design: .rounded))
                 .foregroundStyle(DSColor.floatingPrimaryText)
                 .lineLimit(1)
-
-            HStack(spacing: 7) {
-                Image(systemName: "house.fill")
-                    .font(.system(size: 14, weight: .semibold))
-                    .foregroundStyle(DSColor.yellow)
-                    .frame(width: 20, height: 20)
-
-                Text(viewModel.familyDisplayName)
-                    .font(.system(size: 20, weight: .semibold, design: .rounded))
-                    .foregroundStyle(DSColor.floatingSecondaryText)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.78)
-            }
-            .accessibilityElement(children: .combine)
-            .accessibilityLabel("当前家庭，\(viewModel.familyDisplayName)")
+                .minimumScaleFactor(0.76)
         }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("当前家庭，\(viewModel.familyDisplayName)")
     }
 
     private var weekSelector: some View {
-        HStack(spacing: 2) {
+        HStack(spacing: 0) {
             weekNavigationButton(
                 systemImage: "chevron.left",
                 accessibilityLabel: "查看上一周",
@@ -126,11 +124,17 @@ struct HomeView: View {
                 action: viewModel.selectPreviousWeek
             )
 
-            Text(selectedWeekTitle)
-                .font(.system(size: 15, weight: .semibold, design: .rounded))
-                .foregroundStyle(DSColor.floatingPrimaryText)
-                .lineLimit(1)
-                .frame(maxWidth: .infinity)
+            HStack(spacing: 5) {
+                Image(systemName: "calendar.badge.clock")
+                    .font(.system(size: 13, weight: .semibold))
+                Text(selectedWeekTitle)
+                    .font(.system(size: 15, weight: .semibold, design: .rounded))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.82)
+            }
+            .foregroundStyle(DSColor.floatingPrimaryText)
+            .frame(width: 84)
+            .accessibilityLabel(viewModel.selectedWeekAccessibilityLabel)
 
             weekNavigationButton(
                 systemImage: "chevron.right",
@@ -153,7 +157,8 @@ struct HomeView: View {
             Image(systemName: systemImage)
                 .font(.system(size: 12, weight: .semibold))
                 .foregroundStyle(isEnabled ? DSColor.ink : DSColor.mutedInk.opacity(0.38))
-                .frame(width: 40, height: 40)
+                .frame(width: 44, height: 44)
+                .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .disabled(!isEnabled || viewModel.isLoading)
@@ -404,7 +409,7 @@ struct HomeView: View {
     private var emptyActivityCard: some View {
         DSEmptyStateView(
             title: "本周还没有人记功",
-            message: "第一笔家务，等你来打响。",
+            message: RotatingCopy.value(from: RotatingCopy.homeEmpty, seed: copySeed),
             avatarKey: "home_empty_waiting_avatar",
             actionTitle: "去记一下",
             actionSystemImage: "plus.circle"
@@ -428,11 +433,7 @@ struct HomeView: View {
         viewModel.weekRecords.reduce(0) { $0 + $1.actualMinutes }
     }
 
-    private var selectedWeekTitle: String {
-        viewModel.selectedWeekLabel
-            .components(separatedBy: " · ")
-            .first ?? viewModel.selectedWeekLabel
-    }
+    private var selectedWeekTitle: String { viewModel.selectedWeekLabel }
 
     private var myWeekRecords: [ChoreRecord] {
         viewModel.weekRecords.filter { record in
@@ -598,4 +599,12 @@ private extension View {
         HomeView()
             .environmentObject(AppViewModel.previewHomeAfterNewRecord())
     }
+}
+
+#Preview("本周战况 · 深色") {
+    NavigationStack {
+        HomeView()
+            .environmentObject(AppViewModel.previewHomeAfterNewRecord())
+    }
+    .preferredColorScheme(.dark)
 }

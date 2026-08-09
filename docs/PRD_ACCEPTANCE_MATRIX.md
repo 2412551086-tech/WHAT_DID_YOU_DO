@@ -1,6 +1,6 @@
 # PRD Acceptance Matrix
 
-更新时间：2026-08-05
+更新时间：2026-08-10
 
 状态定义：`已完成`、`部分完成`、`暂缓`、`未开始`。状态以当前真实代码和最近验证结果为准。
 
@@ -43,15 +43,21 @@
 | FAMILY-06 | 家庭名称 | OWNER 可在个人页顶部身份卡修改家庭名称，MEMBER 只读 | 已完成 | `PATCH /families/:familyId` 仅 ACTIVE OWNER 可调用 |
 | FAMILY-07 | 成员详情 | ACTIVE 成员可查看其他成员滚动近 30 天未删除动态 | 已完成 | 成员详情展示次数、分钟、积分和记录；OWNER 在目标 MEMBER 详情中可转让家主 |
 | FAMILY-08 | 退出家庭 | MEMBER 可退出；OWNER 必须先转让，一旦退出立即清理当前家庭状态 | 已完成 | 后端 DELETE 路由和 iOS 退出入口已接通 |
-| AUTH-04 | 昵称更新 | 开发登录可输入昵称，同手机号再次登录可更新 | 已完成 | 仍不是正式注册资料系统 |
+| FAMILY-09 | 退出后重入 | 退出只标记 LEFT；再次申请复用原成员关系，不按昵称匹配 | 已完成 | migration、service 和 e2e 已覆盖 |
+| HISTORY-01 | 历史展示快照 | 改名、换形象、退出或重入后，旧动态仍显示记录发生时的昵称、身份和头像 | 已完成 | ChoreRecord 保存创建者展示快照 |
+| AUTH-04 | 昵称更新 | 登录不要求昵称；创建/加入家庭时可确认或修改昵称 | 已完成 | 仍不是正式注册资料系统 |
 | AUTH-05 | 个人页昵称 | 已登录用户可在个人页修改昵称并立即刷新 | 已完成 | `PATCH /auth/me` 已接入 |
 | PHOTO-01 | 图片凭证字段 | 后端保留 requirePhotoProof/imageUrls 和校验 | 已完成 | 为后续上传能力保留 |
 | PHOTO-02 | iOS 图片凭证 | 用户可拍照/选择并上传凭证 | 暂缓 | iOS 入口隐藏/禁用，创建固定 false |
 | UI-01 | 主界面 | 四 Tab、DesignSystem、卡片化视觉可运行 | 已完成 | SwiftUI Debug build 已验证 |
 | UI-02 | 网络反馈 | API 主请求有 loading、error 提示 | 已完成 | DebugPanel 仅 Debug 显示 |
 | UI-03 | 月报视觉层级 | 页面只有领跑者主卡使用一级强调，其余摘要、结构和排行降级 | 已完成 | 月份控件无独立阴影，排行使用平面列表，避免色块同时抢焦点 |
+| UI-04 | 外观模式 | 用户可选择跟随系统、浅色或深色，核心页面保持可读和一致 | 已完成 | AppStorage + 自适应 DesignSystem token |
+| UI-05 | 常用家务手势 | 滚动不误触；轻触记录；长按进入布局；拖动排序/删除；离开时退出编辑态 | 已完成 | UIKit 手势协调层和 XCTest 覆盖关键状态机 |
+| ACHIEVEMENT-01 | 成长成就 | 首记与连续 3/5/7 日奖励可查询并幂等发放 | 未开始 | 方案已完成，见 `ACHIEVEMENTS.md` |
+| ACHIEVEMENT-02 | 成就页面 | Home/Profile 可进入成就页并查看进度、徽章和奖励 | 未开始 | 不增加第五个 Tab |
 | TEST-01 | 后端回归 | build、unit、test、e2e 通过 | 已完成 | 提交前仍需重复执行 |
-| TEST-02 | iOS 自动化 | 关键纯逻辑具备 XCTest，主流程具备 UI Test | 部分完成 | 当前完整 Simulator XCTest 已通过，含高级倍率新增用例；双账号 UI Test 仍未开始 |
+| TEST-02 | iOS 自动化 | 关键纯逻辑具备 XCTest，主流程具备 UI Test | 部分完成 | 当前 64 项 Simulator XCTest 为 63 通过、1 项环境跳过、0 失败；双账号 UI Test 仍未开始 |
 | TEST-03 | API Smoke | 一条命令验证双账号 MVP API 主链路 | 已完成 | `pnpm run smoke:mvp` 共 19 项检查 |
 | TEST-04 | GitHub Actions | push/PR 自动执行后端和 iOS 基础验收 | 已完成 | backend-ci 与 ios-ci 独立运行 |
 | ENV-01 | 环境隔离 | Debug、局域网联调、Release/Production 独立配置 | 已完成 | Debug 默认模拟器本机后端，Scheme 环境变量可切换局域网；Release 禁止使用 `127.0.0.1` |

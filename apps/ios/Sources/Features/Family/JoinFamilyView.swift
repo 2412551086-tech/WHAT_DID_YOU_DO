@@ -120,7 +120,7 @@ struct JoinFamilyView: View {
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
                     .stroke(inviteBorderColor, lineWidth: 1)
             )
-            .shadow(color: DSColor.ink.opacity(0.06), radius: 8, y: 3)
+            .shadow(color: DSColor.shadow.opacity(0.09), radius: 8, y: 3)
 
             inviteValidationView
         }
@@ -139,7 +139,7 @@ struct JoinFamilyView: View {
             .font(.system(size: 12))
             .foregroundStyle(DSColor.mutedInk)
         case let .valid(family):
-            DSQuietCard(fill: Color(red: 0.96, green: 0.99, blue: 0.95), cornerRadius: 8, padding: 12) {
+            DSQuietCard(fill: DSColor.choreMintSurface, cornerRadius: 8, padding: 12) {
                 HStack(alignment: .top, spacing: 10) {
                     VStack(alignment: .leading, spacing: 4) {
                         Text(family.name)
@@ -158,21 +158,21 @@ struct JoinFamilyView: View {
 
                     VStack(spacing: 4) {
                         Image(systemName: "checkmark.circle.fill")
-                            .foregroundStyle(Color(red: 0.12, green: 0.62, blue: 0.28))
+                            .foregroundStyle(DSColor.ink)
                         Text("邀请码有效")
                             .font(.system(size: 10, weight: .medium))
-                            .foregroundStyle(Color(red: 0.12, green: 0.62, blue: 0.28))
+                            .foregroundStyle(DSColor.ink)
                     }
                 }
             }
         case let .invalid(message):
             Label(message, systemImage: "exclamationmark.circle.fill")
                 .font(.system(size: 12))
-                .foregroundStyle(Color(red: 0.78, green: 0.18, blue: 0.17))
+                .foregroundStyle(DSColor.coral)
                 .padding(.horizontal, 12)
                 .padding(.vertical, 8)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .background(Color(red: 1.0, green: 0.91, blue: 0.91))
+                .background(DSColor.redSoft)
                 .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
         }
     }
@@ -180,21 +180,10 @@ struct JoinFamilyView: View {
     private var nicknameSection: some View {
         VStack(alignment: .leading, spacing: 10) {
             FamilyFlowSectionLabel(title: "你的昵称")
-
-            HStack(spacing: 10) {
-                Image(systemName: "person")
-                    .foregroundStyle(DSColor.mutedInk)
-                Text(viewModel.currentUserName)
-                    .font(.system(size: 16))
-                Spacer()
-            }
-            .padding(.horizontal, 14)
-            .frame(height: 48)
-            .background(DSColor.pureSurface)
-            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .stroke(DSColor.subtleStroke, lineWidth: 1)
+            FamilyFlowTextField(
+                placeholder: "输入你的昵称",
+                systemImage: "person",
+                text: $viewModel.displayName
             )
         }
     }
@@ -202,9 +191,9 @@ struct JoinFamilyView: View {
     private var inviteBorderColor: Color {
         switch viewModel.inviteValidationState {
         case .valid:
-            return Color(red: 0.30, green: 0.68, blue: 0.36)
+            return DSColor.mint
         case .invalid:
-            return Color(red: 0.84, green: 0.31, blue: 0.29)
+            return DSColor.coral
         default:
             return DSColor.subtleStroke
         }
@@ -340,10 +329,10 @@ struct JoinStatusView: View {
         case .pending:
             VStack(alignment: .leading, spacing: 10) {
                 Label("等待一家之主审核", systemImage: "clock")
-                    .foregroundStyle(Color(red: 0.56, green: 0.42, blue: 0.12))
+                    .foregroundStyle(DSColor.ink)
                     .padding(.horizontal, 11)
                     .padding(.vertical, 7)
-                    .background(Color(red: 1.0, green: 0.96, blue: 0.81))
+                    .background(DSColor.choreYellowSurface)
                     .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
                 Text("回到 App 前台时会自动刷新，也可以手动检查。")
                     .font(.system(size: 11))
@@ -353,7 +342,7 @@ struct JoinStatusView: View {
         case .active:
             VStack(alignment: .leading, spacing: 7) {
                 Label("已加入家庭", systemImage: "checkmark.circle")
-                    .foregroundStyle(Color(red: 0.12, green: 0.62, blue: 0.28))
+                    .foregroundStyle(DSColor.mint)
                 Text("一家之主已通过你的申请。")
                     .font(.system(size: 15, weight: .semibold))
                 Text("现在可以查看家庭战况并记录家务了。")
@@ -364,7 +353,7 @@ struct JoinStatusView: View {
         case .rejected:
             VStack(alignment: .leading, spacing: 7) {
                 Label("已拒绝", systemImage: "xmark.circle")
-                    .foregroundStyle(Color(red: 0.78, green: 0.18, blue: 0.17))
+                    .foregroundStyle(DSColor.coral)
                 Text("这次申请没有通过。")
                     .font(.system(size: 15, weight: .semibold))
                 Text("可以确认邀请码和身份后重新申请，或切换账号。")

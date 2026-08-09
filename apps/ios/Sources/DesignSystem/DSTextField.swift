@@ -18,14 +18,14 @@ struct DSTextField: View {
         .padding(.horizontal, 16)
         .padding(.vertical, 14)
         .background(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .fill(DSColor.surface)
-                .shadow(color: .white.opacity(0.75), radius: 6, x: -4, y: -4)
-                .shadow(color: DSColor.ink.opacity(0.18), radius: 8, x: 5, y: 5)
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .fill(DSColor.surface)
+                    .shadow(color: DSColor.raisedHighlight, radius: 6, x: -4, y: -4)
+                    .shadow(color: DSColor.shadow.opacity(0.18), radius: 8, x: 5, y: 5)
         )
         .overlay(
             RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .stroke(DSColor.ink, lineWidth: 2)
+                .stroke(DSColor.outline, lineWidth: 2)
         )
     }
 }

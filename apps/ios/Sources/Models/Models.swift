@@ -59,6 +59,7 @@ struct FamilyMemberProfile: Identifiable, Hashable {
     let avatarKey: String?
     let memberRole: FamilyMemberRole
     let status: FamilyMemberStatus
+    let joinedAt: Date
 
     var displayIdentity: String {
         identityLabel == "自定义" ? (customIdentity ?? identityLabel) : identityLabel
@@ -147,6 +148,50 @@ enum ChoreTheme: String, CaseIterable, Hashable, Identifiable {
         case .childcare: "figure.and.child.holdinghands"
         case .pet: "pawprint.fill"
         }
+    }
+}
+
+enum RotatingCopy {
+    static let login = [
+        "家务不会自己消失，但功劳可以自动留下。",
+        "谁做了什么，这次终于有账可查。",
+        "不催家务，只负责让每份付出被看见。",
+        "做都做了，顺手把功劳领走吧。"
+    ]
+
+    static let homeEmpty = [
+        "本周还没人记功，首发位置等你。",
+        "功劳簿还是空白，等一位行动派。",
+        "战局尚未开启，先做的人先上榜。",
+        "家里很安静，积分也很安静。",
+        "第一笔家务，等你来打响。"
+    ]
+
+    static let choreSelection = [
+        "刚忙完什么？趁热把功劳记上。",
+        "做都做了，别让积分跑掉。",
+        "选一项，把这份付出写进功劳簿。",
+        "家务结束，领奖环节开始。",
+        "默默做事很好，顺手记功更好。"
+    ]
+
+    static let recordSuccess = [
+        "家庭战报更新，功劳已入账。",
+        "干得漂亮，这次付出没有隐身。",
+        "功劳簿喜提新记录。",
+        "已收录，家里又被守护了一次。"
+    ]
+
+    static let monthlyEmpty = [
+        "本月战局待开启，第一笔功劳等你登场。",
+        "功劳簿刚翻到新的一页。",
+        "本月暂时风平浪静，积分还没开张。",
+        "排行榜正在等它的第一位选手。"
+    ]
+
+    static func value(from values: [String], seed: Int) -> String {
+        guard !values.isEmpty else { return "" }
+        return values[abs(seed) % values.count]
     }
 }
 

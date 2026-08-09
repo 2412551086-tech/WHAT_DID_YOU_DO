@@ -92,6 +92,10 @@ export class ChoreRecordsService {
         minutes: chore.standardMinutes,
         actualMinutes,
         points,
+        creatorDisplayNameSnapshot: user.displayName,
+        creatorIdentityLabelSnapshot: membership.identityLabel,
+        creatorCustomIdentitySnapshot: membership.customIdentity,
+        creatorAvatarKeySnapshot: membership.avatarKey,
       },
       select: {
         id: true,
@@ -397,13 +401,12 @@ export class ChoreRecordsService {
   }
 
   private formatRecord(record: RecordWithDetails, currentUserId: string, currentMemberRole: MemberRole) {
-    const creatorMembership = record.user.memberships[0];
     const createdBy = {
       id: record.user.id,
-      displayName: record.user.displayName,
-      identityLabel: creatorMembership?.identityLabel ?? '家庭成员',
-      customIdentity: creatorMembership?.customIdentity ?? null,
-      avatarKey: creatorMembership?.avatarKey ?? null,
+      displayName: record.creatorDisplayNameSnapshot,
+      identityLabel: record.creatorIdentityLabelSnapshot,
+      customIdentity: record.creatorCustomIdentitySnapshot,
+      avatarKey: record.creatorAvatarKeySnapshot,
     };
     const likedBy = record.likes.map((like) => {
       const likerMembership = like.user.memberships[0];

@@ -7,6 +7,7 @@ struct FamilyDashboardView: View {
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @ScaledMetric(relativeTo: .largeTitle) private var leaderPointSize: CGFloat = 52
     @ScaledMetric(relativeTo: .body) private var leaderIllustrationWidth: CGFloat = 166
+    @State private var copySeed = Int.random(in: 0..<10_000)
 
     var body: some View {
         ZStack {
@@ -51,6 +52,9 @@ struct FamilyDashboardView: View {
             }
         }
         .navigationBarBackButtonHidden(true)
+        .onAppear {
+            copySeed = Int.random(in: 0..<10_000)
+        }
     }
 
     private var header: some View {
@@ -118,7 +122,7 @@ struct FamilyDashboardView: View {
         .padding(.horizontal, 3)
         .background(.ultraThinMaterial)
         .clipShape(Capsule())
-        .overlay(Capsule().stroke(.white.opacity(0.9), lineWidth: 1))
+        .overlay(Capsule().stroke(DSColor.raisedHighlight, lineWidth: 1))
     }
 
     private var leaderCard: some View {
@@ -726,7 +730,8 @@ struct FamilyDashboardView: View {
 
     private var monthlyInsightText: String {
         guard monthlyRecordCount > 0 else {
-            return viewModel.monthlyReport?.headline ?? "本月战局待开启，第一笔功劳等你登场。"
+            return viewModel.monthlyReport?.headline
+                ?? RotatingCopy.value(from: RotatingCopy.monthlyEmpty, seed: copySeed)
         }
 
         if let leadingTheme = themeRows.first {
@@ -852,4 +857,13 @@ private enum MonthlyReportPalette {
         FamilyDashboardView()
             .environmentObject(AppViewModel.previewHomeAfterNewRecord())
     }
+}
+
+
+#Preview("月度战报 · 深色") {
+    NavigationStack {
+        FamilyDashboardView()
+            .environmentObject(AppViewModel.previewHomeAfterNewRecord())
+    }
+    .preferredColorScheme(.dark)
 }

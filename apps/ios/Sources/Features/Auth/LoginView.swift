@@ -3,9 +3,11 @@ import SwiftUI
 struct LoginView: View {
     @EnvironmentObject private var viewModel: AppViewModel
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @Environment(\.colorScheme) private var colorScheme
     @State private var hasAcceptedAgreement = false
     @State private var isPhoneLoginPresented = false
     @State private var notice: LoginNotice?
+    @State private var copySeed = Int.random(in: 0..<10_000)
 
     var body: some View {
         ZStack {
@@ -15,6 +17,13 @@ struct LoginView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
                 .ignoresSafeArea()
                 .accessibilityHidden(true)
+
+            if colorScheme == .dark {
+                Color.black
+                    .opacity(0.42)
+                    .ignoresSafeArea()
+                    .accessibilityHidden(true)
+            }
 
             ScrollView(showsIndicators: false) {
                 VStack(spacing: 0) {
@@ -50,6 +59,12 @@ struct LoginView: View {
                             notice = .comingSoon("Apple 登录")
                         }
 
+                        Text(RotatingCopy.value(from: RotatingCopy.login, seed: copySeed))
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundStyle(DSColor.mutedInk)
+                            .multilineTextAlignment(.center)
+                            .fixedSize(horizontal: false, vertical: true)
+
                         agreementRow
                     }
                     .padding(.horizontal, 38)
@@ -79,6 +94,9 @@ struct LoginView: View {
             if newState == .authenticated {
                 isPhoneLoginPresented = false
             }
+        }
+        .onAppear {
+            copySeed = Int.random(in: 0..<10_000)
         }
     }
 
@@ -208,6 +226,7 @@ private struct PhoneLoginSheet: View {
                 .padding(.top, 12)
                 .padding(.bottom, 24)
             }
+            .background(DSColor.quietBackground)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("取消") {
@@ -240,7 +259,7 @@ private struct PhoneLoginSheet: View {
         .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .stroke(DSColor.ink.opacity(0.72), lineWidth: 1.5)
+                .stroke(DSColor.outline.opacity(0.9), lineWidth: 1.5)
         )
         .accessibilityLabel(title)
     }
@@ -280,7 +299,7 @@ private struct PhoneLoginSubmitButton: View {
             .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
             .overlay {
                 RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .stroke(DSColor.ink.opacity(0.9), lineWidth: 1.8)
+                    .stroke(DSColor.outline, lineWidth: 1.8)
             }
             .opacity(isLoading ? 0.65 : 1)
         }
@@ -305,7 +324,7 @@ private struct LoginActionButton: View {
         } label: {
             ZStack {
                 RoundedRectangle(cornerRadius: 11, style: .continuous)
-                    .fill(DSColor.ink)
+                    .fill(DSColor.shadow.opacity(0.92))
                     .offset(
                         x: isPressed ? 2 : 7,
                         y: isPressed ? 2 : 8
@@ -341,7 +360,7 @@ private struct LoginActionButton: View {
                 .clipShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
                 .overlay(
                     RoundedRectangle(cornerRadius: 11, style: .continuous)
-                        .stroke(DSColor.ink.opacity(0.92), lineWidth: 1.8)
+                        .stroke(DSColor.outline, lineWidth: 1.8)
                 )
             }
             .padding(.trailing, 7)
@@ -402,7 +421,7 @@ private struct LoginAccentStar: View {
             .fill(DSColor.yellow)
             .overlay {
                 FourPointSparkle()
-                    .stroke(DSColor.ink, lineWidth: 2.4)
+                    .stroke(DSColor.outline, lineWidth: 2.4)
             }
             .rotationEffect(.degrees(-12))
     }
@@ -430,10 +449,6 @@ private struct FourPointSparkle: Shape {
         path.closeSubpath()
         return path
     }
-}
-
-private enum LoginPalette {
-    static let canvas = Color(red: 0.99, green: 0.97, blue: 0.92)
 }
 
 private enum LoginNotice: Identifiable {

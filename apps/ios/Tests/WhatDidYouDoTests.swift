@@ -5,6 +5,20 @@ import XCTest
 
 @MainActor
 final class WhatDidYouDoTests: XCTestCase {
+    func testAppAppearanceProvidesThreeStableOptions() {
+        XCTAssertEqual(AppAppearance.allCases, [.system, .light, .dark])
+        XCTAssertEqual(AppAppearance.system.title, "跟随系统")
+        XCTAssertEqual(AppAppearance.light.title, "浅色")
+        XCTAssertEqual(AppAppearance.dark.title, "深色")
+    }
+
+    func testAppAppearanceFallsBackToSystemForUnknownStoredValue() {
+        XCTAssertEqual(AppAppearance.resolve("unexpected-value"), .system)
+        XCTAssertNil(AppAppearance.system.preferredColorScheme)
+        XCTAssertEqual(AppAppearance.light.preferredColorScheme, .light)
+        XCTAssertEqual(AppAppearance.dark.preferredColorScheme, .dark)
+    }
+
     func testEstimatedPointsUsesDefaultPointsAtStandardDuration() {
         let chore = makeChore(minutes: 15, points: 21)
 
@@ -292,6 +306,88 @@ final class WhatDidYouDoTests: XCTestCase {
         XCTAssertEqual(coordinator.trashFrame, .zero)
     }
 
+    func testChoreLibraryRevealRequiresARealUserScrollAndAnArmedTrigger() {
+        XCTAssertFalse(
+            ChoreLibraryRevealPolicy.shouldOpen(
+                distanceToBottom: 0,
+                threshold: -60,
+                userHasScrolled: false,
+                isArmed: true
+            )
+        )
+        XCTAssertFalse(
+            ChoreLibraryRevealPolicy.shouldOpen(
+                distanceToBottom: 0,
+                threshold: -60,
+                userHasScrolled: true,
+                isArmed: false
+            )
+        )
+        XCTAssertFalse(
+            ChoreLibraryRevealPolicy.shouldOpen(
+                distanceToBottom: -40,
+                threshold: -60,
+                userHasScrolled: true,
+                isArmed: true
+            )
+        )
+        XCTAssertTrue(
+            ChoreLibraryRevealPolicy.shouldOpen(
+                distanceToBottom: -64,
+                threshold: -60,
+                userHasScrolled: true,
+                isArmed: true
+            )
+        )
+    }
+
+    func testPremiumMemberCanSwitchBetweenSharedAndPersonalCommonChoreOrders() async throws {
+        let fixture = makeDefaultsFixture()
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.suiteName) }
+        let viewModel = AppViewModel.previewLoggedIn(userDefaults: fixture.defaults)
+        let redeemed = await viewModel.redeemPremium(code: "241255")
+        XCTAssertTrue(redeemed)
+        let initialRoutineIDs = Array(viewModel.routineCatalogChores.prefix(6).map(\.id))
+        let configured = await viewModel.saveChoreLayout(
+            choreIDs: initialRoutineIDs,
+            pinnedIDs: []
+        )
+        XCTAssertTrue(configured)
+        viewModel.prepareCommonChoreGrid()
+
+        let familyRoutineOrder = viewModel.commonChoreGridItemIDs.filter { itemID in
+            viewModel.routineCatalogChores.contains { $0.id == itemID }
+        }
+        let newOwner = try XCTUnwrap(viewModel.transferableFamilyMembers.first)
+        let transferred = await viewModel.transferOwnership(to: newOwner)
+        XCTAssertTrue(transferred)
+        XCTAssertTrue(viewModel.canChooseChoreLayoutMode)
+        XCTAssertTrue(viewModel.followsFamilyChoreLayout)
+        XCTAssertFalse(viewModel.canEditCommonChoreLayout)
+
+        viewModel.setFollowsFamilyChoreLayout(false)
+        XCTAssertFalse(viewModel.followsFamilyChoreLayout)
+        XCTAssertTrue(viewModel.canEditCommonChoreLayout)
+
+        let personalRoutineOrder = viewModel.commonChoreGridItemIDs.filter { itemID in
+            viewModel.routineCatalogChores.contains { $0.id == itemID }
+        }
+        let sourceID = try XCTUnwrap(personalRoutineOrder.last)
+        let targetID = try XCTUnwrap(personalRoutineOrder.first)
+        XCTAssertTrue(viewModel.moveCommonChoreGridItem(sourceID, to: targetID))
+        XCTAssertEqual(viewModel.commonChoreGridItemIDs.first, sourceID)
+
+        viewModel.setFollowsFamilyChoreLayout(true)
+        let restoredFamilyOrder = viewModel.commonChoreGridItemIDs.filter { itemID in
+            viewModel.routineCatalogChores.contains { $0.id == itemID }
+        }
+        XCTAssertEqual(restoredFamilyOrder, familyRoutineOrder)
+        XCTAssertFalse(viewModel.canEditCommonChoreLayout)
+
+        viewModel.setFollowsFamilyChoreLayout(false)
+        XCTAssertEqual(viewModel.commonChoreGridItemIDs.first, sourceID)
+    }
+
     func testCommonGridRoutineReorderUpdatesSavedLayoutOrder() async {
         let fixture = makeDefaultsFixture()
         defer { fixture.defaults.removePersistentDomain(forName: fixture.suiteName) }
@@ -340,6 +436,81 @@ final class WhatDidYouDoTests: XCTestCase {
         XCTAssertFalse(restoredViewModel.commonChoreGridItemIDs.contains(placeholderID))
     }
 
+    func testRemovingPremiumPlaceholderDoesNotBackfillAnotherBlankCard() async throws {
+        let fixture = makeDefaultsFixture()
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.suiteName) }
+        let viewModel = makeViewModel(defaults: fixture.defaults)
+        viewModel.phoneNumber = "premium-placeholder-removal"
+        viewModel.mockLogin()
+        let redeemed = await viewModel.redeemPremium(code: "241255")
+        XCTAssertTrue(redeemed)
+        viewModel.prepareCommonChoreGrid()
+
+        let initialPlaceholders = viewModel.commonChoreGridItemIDs.compactMap(
+            viewModel.customChoreSlot(forGridItemID:)
+        )
+        XCTAssertEqual(initialPlaceholders, [1, 2])
+        let firstPlaceholderID = try XCTUnwrap(
+            viewModel.commonChoreGridItemIDs.first { viewModel.customChoreSlot(forGridItemID: $0) == 1 }
+        )
+
+        let removed = await viewModel.removeCommonChoreGridItem(firstPlaceholderID)
+        XCTAssertTrue(removed)
+        XCTAssertEqual(
+            viewModel.commonChoreGridItemIDs.compactMap(viewModel.customChoreSlot(forGridItemID:)),
+            [2]
+        )
+    }
+
+    func testNewSharedCustomChoreAppearsInPersonalizedGridAfterPlaceholderWasHidden() async throws {
+        let fixture = makeDefaultsFixture()
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.suiteName) }
+        let viewModel = AppViewModel.previewLoggedIn(userDefaults: fixture.defaults)
+        let redeemed = await viewModel.redeemPremium(code: "241255")
+        XCTAssertTrue(redeemed)
+        let initialRoutineIDs = Array(viewModel.routineCatalogChores.prefix(6).map(\.id))
+        let configured = await viewModel.saveChoreLayout(
+            choreIDs: initialRoutineIDs,
+            pinnedIDs: []
+        )
+        XCTAssertTrue(configured)
+
+        for (name, icon) in [("擦桌", "chore_custom_generic_01"), ("浇花", "chore_custom_plant")] {
+            let saved = await viewModel.saveCustomChore(
+                CustomChoreDraft(
+                    name: name,
+                    iconKey: icon,
+                    standardMinutes: 10,
+                    difficultyMultiplier: 1
+                )
+            )
+            XCTAssertTrue(saved)
+        }
+
+        let newOwner = try XCTUnwrap(viewModel.transferableFamilyMembers.first)
+        let transferred = await viewModel.transferOwnership(to: newOwner)
+        XCTAssertTrue(transferred)
+        viewModel.setFollowsFamilyChoreLayout(false)
+
+        let thirdPlaceholderID = try XCTUnwrap(
+            viewModel.commonChoreGridItemIDs.first { viewModel.customChoreSlot(forGridItemID: $0) == 3 }
+        )
+        let removed = await viewModel.removeCommonChoreGridItem(thirdPlaceholderID)
+        XCTAssertTrue(removed)
+        let saved = await viewModel.saveCustomChore(
+            CustomChoreDraft(
+                name: "擦镜子",
+                iconKey: "chore_custom_window",
+                standardMinutes: 10,
+                difficultyMultiplier: 1
+            )
+        )
+        XCTAssertTrue(saved)
+
+        XCTAssertNotNil(viewModel.customChore(forSlot: 3))
+        XCTAssertTrue(viewModel.commonChoreGridItemIDs.contains(thirdPlaceholderID))
+    }
+
     func testMockWeekNavigationMovesBackAndReturnsToCurrentWeek() {
         let fixture = makeDefaultsFixture()
         defer { fixture.defaults.removePersistentDomain(forName: fixture.suiteName) }
@@ -347,13 +518,29 @@ final class WhatDidYouDoTests: XCTestCase {
 
         viewModel.selectPreviousWeek()
         XCTAssertEqual(viewModel.selectedWeekOffset, -1)
-        XCTAssertEqual(viewModel.selectedWeekLabel, "上周 · 周一至周日")
+        XCTAssertEqual(viewModel.selectedWeekLabel, "上周")
         XCTAssertTrue(viewModel.weekRecords.isEmpty)
 
         viewModel.selectNextWeek()
         XCTAssertEqual(viewModel.selectedWeekOffset, 0)
         XCTAssertFalse(viewModel.canSelectNextWeek)
         XCTAssertEqual(viewModel.weekRecords.count, MockData.todayRecords.count)
+    }
+
+    func testWeekLabelsUseNaturalChineseNamesBeforeMonthWeekFormat() {
+        let fixture = makeDefaultsFixture()
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.suiteName) }
+        let viewModel = makeViewModel(defaults: fixture.defaults)
+
+        XCTAssertEqual(viewModel.selectedWeekLabel, "本周")
+        viewModel.selectPreviousWeek()
+        XCTAssertEqual(viewModel.selectedWeekLabel, "上周")
+        viewModel.selectPreviousWeek()
+        XCTAssertEqual(viewModel.selectedWeekLabel, "上上周")
+        viewModel.selectPreviousWeek()
+        XCTAssertTrue(viewModel.selectedWeekLabel.contains("月第"))
+        XCTAssertTrue(viewModel.selectedWeekLabel.hasSuffix("周"))
+        XCTAssertFalse(viewModel.selectedWeekAccessibilityLabel.isEmpty)
     }
 
     func testPremiumCommonGridShowsOnlyTwoEmptyCustomPlaceholders() async {
@@ -643,6 +830,7 @@ final class WhatDidYouDoTests: XCTestCase {
 
     func testMockOwnerCanTransferOwnershipToActiveMember() async throws {
         let viewModel = AppViewModel.previewLoggedIn()
+        XCTAssertEqual(viewModel.orderedActiveFamilyMembers.first?.memberRole, .owner)
         let target = try XCTUnwrap(viewModel.transferableFamilyMembers.first)
 
         let succeeded = await viewModel.transferOwnership(to: target)
@@ -652,6 +840,11 @@ final class WhatDidYouDoTests: XCTestCase {
         XCTAssertEqual(
             viewModel.familyMembers.first(where: { $0.id == target.id })?.memberRole,
             .owner
+        )
+        XCTAssertEqual(viewModel.orderedActiveFamilyMembers.first?.id, target.id)
+        XCTAssertEqual(
+            Array(viewModel.orderedActiveFamilyMembers.dropFirst()).map(\.joinedAt),
+            Array(viewModel.orderedActiveFamilyMembers.dropFirst()).map(\.joinedAt).sorted()
         )
     }
 
@@ -710,8 +903,11 @@ final class WhatDidYouDoTests: XCTestCase {
         XCTAssertTrue(records.allSatisfy { $0.createdAt >= Date().addingTimeInterval(-30 * 24 * 60 * 60) })
     }
 
-    func testMockAppearanceUpdatesIllustrationAvatarAndExistingActivity() async {
+    func testMockAppearanceUpdatesCurrentProfileWithoutRewritingExistingActivity() async {
         let viewModel = AppViewModel.previewLoggedIn()
+        let originalActivityAvatars = viewModel.weekRecords
+            .filter { $0.creatorId == viewModel.currentUser?.id }
+            .map(\.avatarKey)
 
         XCTAssertEqual(viewModel.monthlyLeaderIllustrationAsset, "family_avatar_action_01")
 
@@ -723,10 +919,11 @@ final class WhatDidYouDoTests: XCTestCase {
             viewModel.familyMembers.first(where: { $0.userId == viewModel.currentUser?.id })?.avatarKey,
             "avatar_13"
         )
-        XCTAssertTrue(
+        XCTAssertEqual(
             viewModel.weekRecords
                 .filter { $0.creatorId == viewModel.currentUser?.id }
-                .allSatisfy { $0.avatarKey == "avatar_13" }
+                .map(\.avatarKey),
+            originalActivityAvatars
         )
         XCTAssertEqual(FamilyIdentityOptions.actionAsset(for: "avatar_13"), "family_avatar_action_13")
         XCTAssertEqual(viewModel.monthlyLeaderIllustrationAsset, "family_avatar_action_13")
@@ -840,6 +1037,48 @@ final class WhatDidYouDoTests: XCTestCase {
         XCTAssertTrue(updated)
         XCTAssertEqual(viewModel.currentUser?.displayName, "新的昵称")
         XCTAssertEqual(viewModel.displayName, "新的昵称")
+    }
+
+    func testMockCreateFamilySavesEditedNickname() {
+        let fixture = makeDefaultsFixture()
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.suiteName) }
+        let viewModel = AppViewModel(
+            forceMockData: true,
+            userDefaults: fixture.defaults,
+            automaticallyRestoreSession: false
+        )
+        viewModel.phoneNumber = "123456"
+        viewModel.mockLogin()
+        viewModel.displayName = "创建家庭昵称"
+        viewModel.familyName = "昵称测试家庭"
+
+        viewModel.createFamily()
+
+        XCTAssertEqual(viewModel.currentUser?.displayName, "创建家庭昵称")
+        XCTAssertEqual(viewModel.familyMembers.first?.name, "创建家庭昵称")
+        XCTAssertEqual(viewModel.rootScreen, .choreSetup)
+    }
+
+    func testMockJoinFamilySavesEditedNickname() {
+        let fixture = makeDefaultsFixture()
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.suiteName) }
+        let viewModel = AppViewModel(
+            forceMockData: true,
+            userDefaults: fixture.defaults,
+            automaticallyRestoreSession: false
+        )
+        viewModel.phoneNumber = "654321"
+        viewModel.mockLogin()
+        viewModel.showJoinFamily()
+        viewModel.displayName = "加入家庭昵称"
+        viewModel.joinInviteCode = MockData.invitePreview.inviteCode
+        viewModel.validateJoinInviteCode()
+
+        viewModel.submitJoinRequest()
+
+        XCTAssertEqual(viewModel.currentUser?.displayName, "加入家庭昵称")
+        XCTAssertEqual(viewModel.currentJoinApplication?.status, .pending)
+        XCTAssertEqual(viewModel.rootScreen, .joinStatus)
     }
 
     func testAPIModeUsesInjectedAPIClient() async throws {

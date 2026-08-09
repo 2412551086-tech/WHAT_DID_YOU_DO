@@ -343,7 +343,7 @@ describe("MVP API (e2e)", () => {
         });
       });
 
-    await request(app.getHttpServer())
+    const memberCustomResponse = await request(app.getHttpServer())
       .post(`/families/${familyId}/custom-chores`)
       .set("Authorization", `Bearer ${member.token}`)
       .send({
@@ -354,6 +354,18 @@ describe("MVP API (e2e)", () => {
         difficultyMultiplier: 1,
       })
       .expect(201);
+
+    for (const token of [owner.token, member.token]) {
+      await request(app.getHttpServer())
+        .get(`/families/${familyId}/custom-chores`)
+        .set("Authorization", `Bearer ${token}`)
+        .expect(200)
+        .expect(({ body }) => {
+          expect(body).toEqual(expect.arrayContaining([
+            expect.objectContaining({ id: memberCustomResponse.body.id, name: "成员自定" }),
+          ]));
+        });
+    }
 
     const premiumSelection = choreIds.slice(0, 12);
     await request(app.getHttpServer())
@@ -958,6 +970,9 @@ describe("MVP API (e2e)", () => {
         minutes: 15,
         actualMinutes: 15,
         points: 20,
+        creatorDisplayNameSnapshot: "E2E owner",
+        creatorIdentityLabelSnapshot: "老爸",
+        creatorAvatarKeySnapshot: "avatar_owner",
         createdAt: historicalDate,
       },
     });
@@ -1470,6 +1485,150 @@ describe("MVP API (e2e)", () => {
     expect(formerOwnerFamilies.body).toEqual([]);
   });
 
+  it("preserves membership and record history when a member leaves and rejoins", async () => {
+    const suffix = Date.now();
+    const originalMemberName = `returning-member-${suffix}`;
+    const renamedMemberName = `renamed-member-${suffix}`;
+    const owner = await login(`returning-owner-${suffix}`);
+    const member = await login(originalMemberName);
+
+    const familyResponse = await request(app.getHttpServer())
+      .post("/families")
+      .set("Authorization", `Bearer ${owner.token}`)
+      .send({ name: "E2E returning family", identityLabel: "老爸", avatarKey: "avatar_01" })
+      .expect(201);
+    const familyId = familyResponse.body.id as string;
+    const inviteCode = familyResponse.body.inviteCode as string;
+
+    const firstJoinResponse = await request(app.getHttpServer())
+      .post("/families/join-requests")
+      .set("Authorization", `Bearer ${member.token}`)
+      .send({ inviteCode, identityLabel: "室友", avatarKey: "avatar_02" })
+      .expect(201);
+    const membershipId = firstJoinResponse.body.id as string;
+
+    await request(app.getHttpServer())
+      .patch(`/families/${familyId}/join-requests/${membershipId}`)
+      .set("Authorization", `Bearer ${owner.token}`)
+      .send({ action: "approve" })
+      .expect(200);
+
+    const recordResponse = await request(app.getHttpServer())
+      .post("/chore-records")
+      .set("Authorization", `Bearer ${member.token}`)
+      .send({ familyId, choreId, actualMinutes: 15, note: "before leaving" })
+      .expect(201);
+
+    await request(app.getHttpServer())
+      .patch("/auth/me")
+      .set("Authorization", `Bearer ${member.token}`)
+      .send({ displayName: renamedMemberName })
+      .expect(200);
+
+    await request(app.getHttpServer())
+      .delete(`/families/${familyId}/members/me`)
+      .set("Authorization", `Bearer ${member.token}`)
+      .expect(200);
+
+    const leftMembership = await prisma.familyMember.findUniqueOrThrow({
+      where: { id: membershipId },
+    });
+    expect(leftMembership).toMatchObject({
+      id: membershipId,
+      status: "LEFT",
+      memberRole: "MEMBER",
+    });
+    expect(leftMembership.leftAt).toBeInstanceOf(Date);
+
+    const memberFamiliesWhileLeft = await request(app.getHttpServer())
+      .get("/families/me")
+      .set("Authorization", `Bearer ${member.token}`)
+      .expect(200);
+    expect(memberFamiliesWhileLeft.body).toEqual([]);
+
+    const activityWhileLeft = await request(app.getHttpServer())
+      .get(`/families/${familyId}/activity?range=recent`)
+      .set("Authorization", `Bearer ${owner.token}`)
+      .expect(200);
+    expect(activityWhileLeft.body).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          recordId: recordResponse.body.recordId,
+          createdBy: expect.objectContaining({
+            id: member.userId,
+            displayName: originalMemberName,
+            identityLabel: "室友",
+            avatarKey: "avatar_02",
+          }),
+        }),
+      ]),
+    );
+
+    const invitePreview = await request(app.getHttpServer())
+      .get(`/families/invitations/${inviteCode}`)
+      .set("Authorization", `Bearer ${member.token}`)
+      .expect(200);
+    expect(invitePreview.body.currentStatus).toBeNull();
+
+    const rejoinResponse = await request(app.getHttpServer())
+      .post("/families/join-requests")
+      .set("Authorization", `Bearer ${member.token}`)
+      .send({ inviteCode, identityLabel: "哥哥", avatarKey: "avatar_13" })
+      .expect(201);
+    expect(rejoinResponse.body).toMatchObject({
+      id: membershipId,
+      userId: member.userId,
+      status: "PENDING",
+      identityLabel: "哥哥",
+      avatarKey: "avatar_13",
+      leftAt: null,
+    });
+
+    await request(app.getHttpServer())
+      .patch(`/families/${familyId}/join-requests/${membershipId}`)
+      .set("Authorization", `Bearer ${owner.token}`)
+      .send({ action: "approve" })
+      .expect(200);
+
+    const memberFamiliesAfterRejoin = await request(app.getHttpServer())
+      .get("/families/me")
+      .set("Authorization", `Bearer ${member.token}`)
+      .expect(200);
+    expect(memberFamiliesAfterRejoin.body[0].myMembership).toMatchObject({
+      id: membershipId,
+      identityLabel: "哥哥",
+      avatarKey: "avatar_13",
+      status: "ACTIVE",
+    });
+
+    const activityAfterRejoin = await request(app.getHttpServer())
+      .get(`/families/${familyId}/activity?range=recent`)
+      .set("Authorization", `Bearer ${member.token}`)
+      .expect(200);
+    expect(activityAfterRejoin.body).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          recordId: recordResponse.body.recordId,
+          createdBy: expect.objectContaining({
+            displayName: originalMemberName,
+            identityLabel: "室友",
+            avatarKey: "avatar_02",
+          }),
+        }),
+      ]),
+    );
+
+    const leaderboardResponse = await request(app.getHttpServer())
+      .get(`/families/${familyId}/leaderboard?range=month`)
+      .set("Authorization", `Bearer ${member.token}`)
+      .expect(200);
+    expect(leaderboardResponse.body).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ userId: member.userId, points: recordResponse.body.points }),
+      ]),
+    );
+  });
+
   it("lets the owner rename a family and returns one member's recent activity", async () => {
     const suffix = Date.now();
     const ownerName = `profile-owner-${suffix}`;
@@ -1532,6 +1691,9 @@ describe("MVP API (e2e)", () => {
         minutes: 15,
         actualMinutes: 15,
         points: 20,
+        creatorDisplayNameSnapshot: memberName,
+        creatorIdentityLabelSnapshot: "室友",
+        creatorAvatarKeySnapshot: "avatar_02",
         createdAt: oldDate,
       },
     });
@@ -1545,6 +1707,9 @@ describe("MVP API (e2e)", () => {
         minutes: 15,
         actualMinutes: 15,
         points: 20,
+        creatorDisplayNameSnapshot: memberName,
+        creatorIdentityLabelSnapshot: "室友",
+        creatorAvatarKeySnapshot: "avatar_02",
         deletedAt: new Date(),
         deletedById: owner.userId,
       },
@@ -1584,7 +1749,7 @@ describe("MVP API (e2e)", () => {
     expect(memberFamilies.body[0].name).toBe("E2E new profile family");
   });
 
-  it("updates the active member appearance and reflects it in family activity", async () => {
+  it("updates the active member appearance without rewriting historical activity", async () => {
     const user = await login("E2E appearance member");
     const familyResponse = await request(app.getHttpServer())
       .post("/families")
@@ -1630,7 +1795,7 @@ describe("MVP API (e2e)", () => {
       expect.arrayContaining([
         expect.objectContaining({
           recordId: recordResponse.body.recordId,
-          createdBy: expect.objectContaining({ avatarKey: "avatar_13" }),
+          createdBy: expect.objectContaining({ avatarKey: "avatar_01" }),
         }),
       ]),
     );
@@ -1660,6 +1825,8 @@ describe("MVP API (e2e)", () => {
         minutes: 15,
         actualMinutes: 15,
         points: input.points,
+        creatorDisplayNameSnapshot: "历史成员",
+        creatorIdentityLabelSnapshot: "家庭成员",
         createdAt: input.createdAt,
       },
     });

@@ -99,16 +99,21 @@ export class FamiliesService {
       },
     });
 
-    if (existingMembership?.status === MemberStatus.REJECTED) {
+    if (
+      existingMembership?.status === MemberStatus.REJECTED ||
+      existingMembership?.status === MemberStatus.LEFT
+    ) {
       const resubmittedMembership = await this.prisma.familyMember.update({
         where: { id: existingMembership.id },
         data: {
           identityLabel: identity.identityLabel,
           customIdentity: identity.customIdentity,
           avatarKey: this.normalizeOptional(dto.avatarKey),
+          memberRole: MemberRole.MEMBER,
           status: MemberStatus.PENDING,
           approvedAt: null,
           approvedById: null,
+          leftAt: null,
           createdAt: new Date(),
         },
         include: {
@@ -183,7 +188,10 @@ export class FamiliesService {
 
     return {
       ...this.formatFamilyPreview(family),
-      currentStatus: existingMembership?.status ?? null,
+      currentStatus:
+        existingMembership?.status === MemberStatus.LEFT
+          ? null
+          : (existingMembership?.status ?? null),
     };
   }
 
@@ -192,6 +200,9 @@ export class FamiliesService {
       where: {
         userId: user.id,
         memberRole: MemberRole.MEMBER,
+        status: {
+          in: [MemberStatus.PENDING, MemberStatus.ACTIVE, MemberStatus.REJECTED],
+        },
       },
       include: {
         user: true,
@@ -334,8 +345,14 @@ export class FamiliesService {
       throw new BadRequestException('Transfer ownership before leaving family');
     }
 
-    await this.prisma.familyMember.delete({
+    const leftAt = new Date();
+    await this.prisma.familyMember.update({
       where: { id: membership.id },
+      data: {
+        memberRole: MemberRole.MEMBER,
+        status: MemberStatus.LEFT,
+        leftAt,
+      },
     });
 
     return {
@@ -471,6 +488,7 @@ export class FamiliesService {
     status: MemberStatus;
     approvedAt: Date | null;
     approvedById: string | null;
+    leftAt: Date | null;
     createdAt: Date;
     user?: {
       id: string;

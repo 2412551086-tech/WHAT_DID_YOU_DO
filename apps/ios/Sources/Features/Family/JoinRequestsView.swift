@@ -82,10 +82,10 @@ struct JoinRequestsView: View {
                 Spacer()
                 Text("\(viewModel.joinRequests.count) 个待处理")
                     .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(Color(red: 0.58, green: 0.41, blue: 0.08))
+                    .foregroundStyle(DSColor.ink)
                     .padding(.horizontal, 9)
                     .padding(.vertical, 5)
-                    .background(Color(red: 1.0, green: 0.96, blue: 0.82))
+                    .background(DSColor.choreYellowSurface)
                     .clipShape(Capsule())
             }
         }
@@ -131,17 +131,17 @@ struct JoinRequestsView: View {
                         Spacer()
                         Text("审核失败")
                             .font(.system(size: 11, weight: .medium))
-                            .foregroundStyle(Color(red: 0.78, green: 0.18, blue: 0.17))
+                            .foregroundStyle(DSColor.coral)
                         Button("重试") {
                             viewModel.reviewJoinRequest(request, approve: true)
                         }
                         .font(.system(size: 11, weight: .semibold))
-                        .foregroundStyle(Color(red: 0.78, green: 0.18, blue: 0.17))
+                        .foregroundStyle(DSColor.coral)
                         .padding(.horizontal, 10)
                         .padding(.vertical, 6)
                         .overlay(
                             RoundedRectangle(cornerRadius: 6, style: .continuous)
-                                .stroke(Color(red: 0.84, green: 0.31, blue: 0.29), lineWidth: 1)
+                                .stroke(DSColor.coral.opacity(0.65), lineWidth: 1)
                         )
                     }
                     Text(rowError)
@@ -162,14 +162,14 @@ struct JoinRequestsView: View {
                     .font(.system(size: 11, weight: .medium))
                     .lineLimit(1)
                     .fixedSize(horizontal: true, vertical: false)
-                    .foregroundStyle(Color(red: 0.10, green: 0.62, blue: 0.36))
+                    .foregroundStyle(DSColor.ink)
                     .padding(.horizontal, 7)
                     .frame(height: 32)
-                    .background(Color(red: 0.94, green: 0.99, blue: 0.96))
+                    .background(DSColor.choreMintSurface)
                     .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
                     .overlay(
                         RoundedRectangle(cornerRadius: 7, style: .continuous)
-                            .stroke(Color(red: 0.55, green: 0.83, blue: 0.68), lineWidth: 1)
+                            .stroke(DSColor.mint.opacity(0.65), lineWidth: 1)
                     )
             }
             .buttonStyle(.plain)
@@ -181,14 +181,14 @@ struct JoinRequestsView: View {
                     .font(.system(size: 11, weight: .medium))
                     .lineLimit(1)
                     .fixedSize(horizontal: true, vertical: false)
-                    .foregroundStyle(Color(red: 0.80, green: 0.22, blue: 0.19))
+                    .foregroundStyle(DSColor.coral)
                     .padding(.horizontal, 7)
                     .frame(height: 32)
                     .background(DSColor.pureSurface)
                     .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
                     .overlay(
                         RoundedRectangle(cornerRadius: 7, style: .continuous)
-                            .stroke(Color(red: 0.94, green: 0.66, blue: 0.62), lineWidth: 1)
+                            .stroke(DSColor.coral.opacity(0.45), lineWidth: 1)
                     )
             }
             .buttonStyle(.plain)
@@ -199,7 +199,7 @@ struct JoinRequestsView: View {
         VStack(spacing: 14) {
             ZStack {
                 Circle()
-                    .fill(Color(red: 0.92, green: 0.99, blue: 0.96))
+                    .fill(DSColor.choreMintSurface)
                     .frame(width: 68, height: 68)
                 Image(systemName: "checkmark")
                     .font(.system(size: 27, weight: .light))

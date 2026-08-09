@@ -196,6 +196,20 @@ final class AppViewModel: ObservableObject {
         }
     }
 
+    var orderedActiveFamilyMembers: [FamilyMemberProfile] {
+        familyMembers
+            .filter { $0.status == .active }
+            .sorted { left, right in
+                if left.memberRole != right.memberRole {
+                    return left.memberRole == .owner
+                }
+                if left.joinedAt != right.joinedAt {
+                    return left.joinedAt < right.joinedAt
+                }
+                return left.id < right.id
+            }
+    }
+
     var canSelectNextReportMonth: Bool {
         selectedReportMonth < currentMonth
     }
@@ -288,6 +302,11 @@ final class AppViewModel: ObservableObject {
         hasPremiumAccess && currentFamily != nil && !isCurrentUserOwner
     }
 
+    var usesSharedFamilyChoreLayout: Bool {
+        guard currentFamily != nil else { return false }
+        return isCurrentUserOwner || !hasPremiumAccess || followsFamilyChoreLayout
+    }
+
     func customChore(forSlot slot: Int) -> ChoreItem? {
         customChores.first { $0.customSlot == slot }
     }
@@ -298,9 +317,7 @@ final class AppViewModel: ObservableObject {
     }
 
     func prepareCommonChoreGrid() {
-        loadCommonChoreGridOrderIfNeeded()
-        commonChoreGridOrder = normalizedCommonChoreGridOrder(from: commonChoreGridOrder)
-        persistCommonChoreGridOrder()
+        synchronizeCommonChoreGridOrder()
     }
 
     func setFollowsFamilyChoreLayout(_ follows: Bool) {
@@ -394,27 +411,65 @@ final class AppViewModel: ObservableObject {
             return false
         }
 
-        let remainingIDs = routineIDs.filter { $0 != itemID }
+        let previousGridOrder = commonChoreGridOrder
+        let previousChoreOrder = choreOrder
+        let remainingGridOrder = commonChoreGridItemIDs.filter { $0 != itemID }
+        let remainingIDs = remainingGridOrder.filter { routineIDs.contains($0) }
         guard !remainingIDs.isEmpty else {
             errorMessage = "常用家务至少保留 1 项。"
             return false
         }
 
-        return await saveChoreLayout(
-            choreIDs: remainingIDs,
-            pinnedIDs: pinnedChoreIDs.intersection(Set(remainingIDs))
-        )
+        commonChoreGridOrder = remainingGridOrder
+        choreOrder = remainingIDs
+        pinnedChoreIDs = pinnedChoreIDs.intersection(Set(remainingIDs))
+        persistCommonChoreGridOrder()
+        let saved = await persistCommonChoreGridLayout()
+        if !saved {
+            commonChoreGridOrder = previousGridOrder
+            choreOrder = previousChoreOrder
+            persistCommonChoreGridOrder()
+            persistChoreLayout()
+        }
+        return saved
     }
 
-    func persistCommonChoreGridLayout() async {
+    @discardableResult
+    func persistCommonChoreGridLayout() async -> Bool {
         let routineIDs = Set(routineCatalogChores.map(\.id))
         let orderedRoutineIDs = commonChoreGridItemIDs.filter(routineIDs.contains)
         persistCommonChoreGridOrder()
-        guard !orderedRoutineIDs.isEmpty else { return }
-        _ = await saveChoreLayout(
-            choreIDs: orderedRoutineIDs,
-            pinnedIDs: pinnedChoreIDs.intersection(routineIDs)
-        )
+        guard !orderedRoutineIDs.isEmpty else { return false }
+
+        if usesMockData {
+            choreOrder = orderedRoutineIDs
+            choreLayoutConfigured = true
+            persistChoreLayout()
+            return true
+        }
+
+        var succeeded = false
+        await performLoading("正在保存常用家务") {
+            guard let familyId = currentFamily?.id else {
+                throw AppStateError.missingFamily
+            }
+            let response: ChoreLayoutDTO = try await apiClient.patch(
+                "families/\(familyId)/chore-layout",
+                body: UpdateChoreLayoutRequest(
+                    choreIds: orderedRoutineIDs,
+                    pinnedChoreIds: orderedRoutineIDs.filter(pinnedChoreIDs.contains),
+                    followFamilyLayout: isCurrentUserOwner ? true : followsFamilyChoreLayout
+                )
+            )
+            applyChoreLayout(response)
+            succeeded = true
+        }
+        return succeeded
+    }
+
+    func restoreCommonChoreGridOrder(_ order: [String]) {
+        commonChoreGridOrder = normalizedCommonChoreGridOrder(from: order)
+        persistCommonChoreGridOrder()
     }
 
     func mockLogin() {
@@ -631,16 +686,20 @@ final class AppViewModel: ObservableObject {
     func createFamily() {
         clearError()
 
-        guard validateIdentitySelection() else {
+        guard validateIdentitySelection(),
+              let nickname = validatedDisplayNameForFamilyFlow()
+        else {
             return
         }
 
         guard !usesMockData else {
+            applyMockDisplayName(nickname)
             createFamilyWithMock()
             return
         }
 
         Task {
+            guard await saveDisplayNameIfNeeded(nickname) else { return }
             await createFamilyWithAPI()
         }
     }
@@ -653,7 +712,9 @@ final class AppViewModel: ObservableObject {
             return
         }
 
-        guard validateIdentitySelection() else {
+        guard validateIdentitySelection(),
+              let nickname = validatedDisplayNameForFamilyFlow()
+        else {
             return
         }
 
@@ -663,6 +724,7 @@ final class AppViewModel: ObservableObject {
         }
 
         guard !usesMockData else {
+            applyMockDisplayName(nickname)
             joinRequestSubmitted = true
             currentJoinApplication = JoinApplication(
                 id: MockData.pendingJoinApplication.id,
@@ -679,6 +741,7 @@ final class AppViewModel: ObservableObject {
         }
 
         Task {
+            guard await saveDisplayNameIfNeeded(nickname) else { return }
             await submitJoinRequestWithAPI()
         }
     }
@@ -755,8 +818,8 @@ final class AppViewModel: ObservableObject {
             pinnedChoreIDs = normalizedPinned
             choreLayoutConfigured = true
             choreLayoutCanEdit = true
-            choreLayoutScope = hasPremiumAccess ? "member" : "family"
-            choreLayoutIsPersonalized = hasPremiumAccess
+            choreLayoutIsPersonalized = hasPremiumAccess && !isCurrentUserOwner
+            choreLayoutScope = choreLayoutIsPersonalized ? "member" : "family"
             followsFamilyChoreLayout = !choreLayoutIsPersonalized
             persistChoreLayout()
             synchronizeCommonChoreGridOrder()
@@ -1007,9 +1070,15 @@ final class AppViewModel: ObservableObject {
                 resetFamilyContextAfterLeaving()
                 try await loadChoresFromAPI()
                 rootScreen = .createFamily
-            } else if previouslyHadPremiumAccess != hasPremiumAccess,
-                      let refreshedFamilyId = currentFamily?.id {
-                try await loadChoreLayoutFromAPI(familyId: refreshedFamilyId)
+            } else if let refreshedFamilyId = currentFamily?.id {
+                if selectedTab == .record {
+                    // Keep the family layout and family-scoped custom chores in
+                    // sync while this screen is active. Personal premium layouts
+                    // are returned by the same endpoint and remain independent.
+                    try await loadChoresFromAPI()
+                } else if previouslyHadPremiumAccess != hasPremiumAccess {
+                    try await loadChoreLayoutFromAPI(familyId: refreshedFamilyId)
+                }
             }
             isOffline = false
             lastSuccessfulSyncAt = Date()
@@ -1146,30 +1215,11 @@ final class AppViewModel: ObservableObject {
         }
 
         if usesMockData {
-            guard let user = currentUser else {
+            guard currentUser != nil else {
                 errorMessage = AppStateError.missingUser.localizedDescription
                 return false
             }
-            currentUser = AppUser(
-                id: user.id,
-                displayName: name,
-                avatarInitial: String(name.prefix(1)),
-                badge: user.badge
-            )
-            displayName = name
-            familyMembers = familyMembers.map { member in
-                guard member.userId == user.id else { return member }
-                return FamilyMemberProfile(
-                    id: member.id,
-                    userId: member.userId,
-                    name: name,
-                    identityLabel: member.identityLabel,
-                    customIdentity: member.customIdentity,
-                    avatarKey: member.avatarKey,
-                    memberRole: member.memberRole,
-                    status: member.status
-                )
-            }
+            applyMockDisplayName(name)
             return true
         }
 
@@ -1541,6 +1591,49 @@ final class AppViewModel: ObservableObject {
         return true
     }
 
+    private func validatedDisplayNameForFamilyFlow() -> String? {
+        let nickname = displayName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !nickname.isEmpty, nickname.count <= 30 else {
+            errorMessage = "昵称需要填写，且不能超过 30 个字。"
+            return nil
+        }
+        return nickname
+    }
+
+    private func saveDisplayNameIfNeeded(_ nickname: String) async -> Bool {
+        if currentUser?.displayName == nickname {
+            displayName = nickname
+            return true
+        }
+        return await updateDisplayName(nickname)
+    }
+
+    private func applyMockDisplayName(_ nickname: String) {
+        guard let user = currentUser else { return }
+
+        currentUser = AppUser(
+            id: user.id,
+            displayName: nickname,
+            avatarInitial: String(nickname.prefix(1)),
+            badge: user.badge
+        )
+        displayName = nickname
+        familyMembers = familyMembers.map { member in
+            guard member.userId == user.id else { return member }
+            return FamilyMemberProfile(
+                id: member.id,
+                userId: member.userId,
+                name: nickname,
+                identityLabel: member.identityLabel,
+                customIdentity: member.customIdentity,
+                avatarKey: member.avatarKey,
+                memberRole: member.memberRole,
+                status: member.status,
+                joinedAt: member.joinedAt
+            )
+        }
+    }
+
     private func loginWithMock() {
         accessToken = "mock-token"
         let nickname = normalizedDisplayName ?? "用户\(normalizedPhoneNumber)"
@@ -1550,6 +1643,7 @@ final class AppViewModel: ObservableObject {
             avatarInitial: String(nickname.prefix(1)),
             badge: MockData.currentUser.badge
         )
+        displayName = nickname
         restoreMockPremiumAccess()
         currentFamily = nil
         currentMembership = nil
@@ -1592,7 +1686,8 @@ final class AppViewModel: ObservableObject {
                     customIdentity: membership.customIdentity,
                     avatarKey: membership.avatarKey,
                     memberRole: membership.memberRole,
-                    status: membership.status
+                    status: membership.status,
+                    joinedAt: Date()
                 ),
             ]
         }
@@ -1804,7 +1899,8 @@ final class AppViewModel: ObservableObject {
                 customIdentity: profile.customIdentity,
                 avatarKey: profile.avatarKey,
                 memberRole: profile.id == member.id ? .owner : .member,
-                status: profile.status
+                status: profile.status,
+                joinedAt: profile.joinedAt
             )
         }
 
@@ -1845,51 +1941,8 @@ final class AppViewModel: ObservableObject {
                 customIdentity: profile.customIdentity,
                 avatarKey: avatarKey,
                 memberRole: profile.memberRole,
-                status: profile.status
-            )
-        }
-        weekRecords = replacingAppearance(in: weekRecords, userId: membership.userId, avatarKey: avatarKey)
-        recentRecords = replacingAppearance(in: recentRecords, userId: membership.userId, avatarKey: avatarKey)
-    }
-
-    private func replacingAppearance(
-        in records: [ChoreRecord],
-        userId: String,
-        avatarKey: String
-    ) -> [ChoreRecord] {
-        records.map { record in
-            let likedBy = record.likedBy.map { liker in
-                liker.id == userId
-                    ? ActivityLiker(
-                        id: liker.id,
-                        displayName: liker.displayName,
-                        avatarKey: avatarKey,
-                        reaction: liker.reaction
-                    )
-                    : liker
-            }
-            return ChoreRecord(
-                id: record.id,
-                memberName: record.memberName,
-                choreName: record.choreName,
-                category: record.category,
-                standardMinutes: record.standardMinutes,
-                actualMinutes: record.actualMinutes,
-                points: record.points,
-                note: record.note,
-                createdAt: record.createdAt,
-                icon: record.icon,
-                color: record.color,
-                creatorId: record.creatorId,
-                identityLabel: record.identityLabel,
-                customIdentity: record.customIdentity,
-                avatarKey: record.creatorId == userId ? avatarKey : record.avatarKey,
-                likeCount: record.likeCount,
-                likedBy: likedBy,
-                likedByMe: record.likedByMe,
-                reactionCounts: record.reactionCounts,
-                myReaction: record.myReaction,
-                canDelete: record.canDelete
+                status: profile.status,
+                joinedAt: profile.joinedAt
             )
         }
     }
@@ -2172,18 +2225,11 @@ final class AppViewModel: ObservableObject {
     private func normalizedCommonChoreGridOrder(from savedOrder: [String]) -> [String] {
         let occupiedSlots = customChores.compactMap(\.customSlot)
         let occupiedSet = Set(occupiedSlots)
-        let emptySlots = (1...customChoreLimit)
+        let placeholderUpperBound = min(customChoreLimit, customChores.count + 2)
+        let emptySlots = (1...placeholderUpperBound)
             .filter { !occupiedSet.contains($0) }
             .filter { !hiddenCommonCustomSlotIDs.contains(Self.customChoreSlotID($0)) }
-            .prefix(2)
-        let savedCustomSlots = savedOrder.compactMap { itemID -> Int? in
-            guard let slot = customChoreSlot(forGridItemID: itemID), occupiedSet.contains(slot) else {
-                return nil
-            }
-            return slot
-        }
-        let personalizedSlots = choreLayoutIsPersonalized ? savedCustomSlots : occupiedSlots
-        let visibleCustomSlots = Array(Set(personalizedSlots).union(emptySlots)).sorted()
+        let visibleCustomSlots = Array(occupiedSet.union(emptySlots)).sorted()
         let availableIDs = displayedChores.map(\.id) + visibleCustomSlots.map(Self.customChoreSlotID)
         let availableSet = Set(availableIDs)
         let saved = savedOrder.filter { availableSet.contains($0) }
@@ -2193,8 +2239,38 @@ final class AppViewModel: ObservableObject {
 
     private func synchronizeCommonChoreGridOrder() {
         loadCommonChoreGridOrderIfNeeded()
-        commonChoreGridOrder = normalizedCommonChoreGridOrder(from: commonChoreGridOrder)
+        let normalized = normalizedCommonChoreGridOrder(from: commonChoreGridOrder)
+        if usesSharedFamilyChoreLayout {
+            commonChoreGridOrder = mergingFamilyRoutineOrder(
+                into: normalized,
+                routineIDs: displayedChores.filter { !$0.isCustom }.map(\.id)
+            )
+        } else {
+            commonChoreGridOrder = normalized
+        }
         persistCommonChoreGridOrder()
+    }
+
+    private func mergingFamilyRoutineOrder(
+        into savedOrder: [String],
+        routineIDs: [String]
+    ) -> [String] {
+        let routineSet = Set(routineCatalogChores.map(\.id))
+        var remainingRoutineIDs = ArraySlice(routineIDs)
+        var merged: [String] = []
+
+        for itemID in savedOrder {
+            if customChoreSlot(forGridItemID: itemID) != nil {
+                merged.append(itemID)
+            } else if routineSet.contains(itemID), let nextRoutineID = remainingRoutineIDs.popFirst() {
+                merged.append(nextRoutineID)
+            }
+        }
+
+        merged.append(contentsOf: remainingRoutineIDs)
+        let mergedSet = Set(merged)
+        merged.append(contentsOf: savedOrder.filter { !mergedSet.contains($0) })
+        return merged
     }
 
     private func loadCommonChoreGridOrderIfNeeded() {
@@ -2219,7 +2295,10 @@ final class AppViewModel: ObservableObject {
     private var commonChoreGridDefaultsKey: String {
         let userID = currentUser?.id ?? "anonymous"
         let familyID = currentFamily?.id ?? "no-family"
-        return "\(Self.commonChoreGridDefaultsKeyPrefix)-\(userID)-\(familyID)"
+        if usesSharedFamilyChoreLayout {
+            return "\(Self.commonChoreGridDefaultsKeyPrefix)-family-\(familyID)"
+        }
+        return "\(Self.commonChoreGridDefaultsKeyPrefix)-member-\(userID)-\(familyID)"
     }
 
     private var commonChoreHiddenSlotsDefaultsKey: String {
@@ -2632,7 +2711,8 @@ final class AppViewModel: ObservableObject {
             customIdentity: dto.customIdentity,
             avatarKey: dto.avatarKey,
             memberRole: role,
-            status: status
+            status: status,
+            joinedAt: dto.createdAt ?? .distantPast
         )
     }
 
@@ -2940,8 +3020,8 @@ final class AppViewModel: ObservableObject {
         return calendar
     }()
 
-    static func previewLoggedIn() -> AppViewModel {
-        let viewModel = AppViewModel(forceMockData: true)
+    static func previewLoggedIn(userDefaults: UserDefaults = .standard) -> AppViewModel {
+        let viewModel = AppViewModel(forceMockData: true, userDefaults: userDefaults)
         viewModel.currentUser = MockData.currentUser
         viewModel.currentFamily = MockData.family
         viewModel.currentMembership = MockData.currentMembership

@@ -42,7 +42,7 @@ struct AvatarView: View {
     private var strokeColor: Color {
         switch presentation {
         case .sticker:
-            return DSColor.ink
+            return DSColor.outline
         case .quiet:
             return DSColor.subtleStroke
         case .flat:
@@ -64,9 +64,9 @@ struct AvatarView: View {
     private var shadowColor: Color {
         switch presentation {
         case .sticker:
-            return DSColor.ink.opacity(0.22)
+            return DSColor.shadow.opacity(0.24)
         case .quiet:
-            return DSColor.ink.opacity(0.08)
+            return DSColor.shadow.opacity(0.10)
         case .flat:
             return .clear
         }

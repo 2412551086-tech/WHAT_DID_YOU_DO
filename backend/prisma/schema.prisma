@@ -15,6 +15,7 @@ enum MemberStatus {
   PENDING
   ACTIVE
   REJECTED
+  LEFT
 }
 
 model Chore {
@@ -95,6 +96,7 @@ model FamilyMember {
   followFamilyLayout  Boolean      @default(false)
   approvedAt          DateTime?
   approvedById        String?
+  leftAt              DateTime?
   createdAt           DateTime     @default(now())
   family              Family       @relation(fields: [familyId], references: [id], onDelete: Cascade)
   user                User         @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -106,23 +108,27 @@ model FamilyMember {
 }
 
 model ChoreRecord {
-  id            String            @id @default(cuid())
-  familyId      String
-  userId        String
-  choreId       String
-  note          String?
-  imageUrls     String[]
-  minutes       Int
-  actualMinutes Int
-  points        Int
-  createdAt     DateTime          @default(now())
-  deletedAt     DateTime?
-  deletedById   String?
-  chore         Chore             @relation(fields: [choreId], references: [id])
-  family        Family            @relation(fields: [familyId], references: [id], onDelete: Cascade)
-  user          User              @relation("RecordCreator", fields: [userId], references: [id], onDelete: Cascade)
-  deletedBy     User?             @relation("RecordDeletedBy", fields: [deletedById], references: [id], onDelete: SetNull)
-  likes         ChoreRecordLike[]
+  id                            String            @id @default(cuid())
+  familyId                      String
+  userId                        String
+  choreId                       String
+  note                          String?
+  imageUrls                     String[]
+  minutes                       Int
+  actualMinutes                 Int
+  points                        Int
+  creatorDisplayNameSnapshot    String
+  creatorIdentityLabelSnapshot  String
+  creatorCustomIdentitySnapshot String?
+  creatorAvatarKeySnapshot      String?
+  createdAt                     DateTime          @default(now())
+  deletedAt                     DateTime?
+  deletedById                   String?
+  chore                         Chore             @relation(fields: [choreId], references: [id])
+  family                        Family            @relation(fields: [familyId], references: [id], onDelete: Cascade)
+  user                          User              @relation("RecordCreator", fields: [userId], references: [id], onDelete: Cascade)
+  deletedBy                     User?             @relation("RecordDeletedBy", fields: [deletedById], references: [id], onDelete: SetNull)
+  likes                         ChoreRecordLike[]
 
   @@index([familyId, createdAt])
   @@index([familyId, userId, createdAt])

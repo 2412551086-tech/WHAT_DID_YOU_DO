@@ -42,7 +42,8 @@ enum MockData {
             customIdentity: nil,
             avatarKey: "avatar_01",
             memberRole: .owner,
-            status: .active
+            status: .active,
+            joinedAt: Date().addingTimeInterval(-86_400 * 3)
         ),
         FamilyMemberProfile(
             id: "mock-membership-xia",
@@ -52,7 +53,8 @@ enum MockData {
             customIdentity: nil,
             avatarKey: "avatar_02",
             memberRole: .member,
-            status: .active
+            status: .active,
+            joinedAt: Date().addingTimeInterval(-86_400 * 2)
         ),
         FamilyMemberProfile(
             id: "mock-membership-doudou",
@@ -62,7 +64,8 @@ enum MockData {
             customIdentity: nil,
             avatarKey: "avatar_03",
             memberRole: .member,
-            status: .active
+            status: .active,
+            joinedAt: Date().addingTimeInterval(-86_400)
         ),
     ]
 

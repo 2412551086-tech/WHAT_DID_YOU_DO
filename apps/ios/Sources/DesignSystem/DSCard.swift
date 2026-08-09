@@ -47,9 +47,9 @@ struct DSBrutalCard<Content: View>: View {
             .background(
                 RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
                     .fill(fill)
-                    .shadow(color: .white.opacity(0.72), radius: 8, x: -5, y: -5)
+                    .shadow(color: DSColor.raisedHighlight, radius: 8, x: -5, y: -5)
                     .shadow(
-                        color: DSColor.ink.opacity(DSShadow.hardOpacity),
+                        color: DSColor.shadow.opacity(DSShadow.hardOpacity),
                         radius: 0,
                         x: shadowOffset.width,
                         y: shadowOffset.height
@@ -57,7 +57,7 @@ struct DSBrutalCard<Content: View>: View {
             )
             .overlay(
                 RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                    .stroke(DSColor.ink, lineWidth: strokeWidth)
+                    .stroke(DSColor.outline, lineWidth: strokeWidth)
             )
     }
 }
@@ -88,7 +88,7 @@ struct DSQuietCard<Content: View>: View {
                 RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
                     .fill(fill)
                     .shadow(
-                        color: DSColor.ink.opacity(DSShadow.softOpacity),
+                        color: DSColor.shadow.opacity(DSShadow.softOpacity),
                         radius: DSShadow.softRadius,
                         x: 0,
                         y: DSShadow.softYOffset
@@ -178,13 +178,13 @@ struct DSFloatingSurface<Content: View>: View {
                 RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
                     .fill(DSColor.floatingSurface)
                     .shadow(
-                        color: DSColor.floatingPrimaryText.opacity(elevation.contactShadowOpacity),
+                        color: DSColor.shadow.opacity(elevation.contactShadowOpacity),
                         radius: elevation.contactShadowRadius,
                         x: 0,
                         y: elevation.contactShadowYOffset
                     )
                     .shadow(
-                        color: DSColor.floatingPrimaryText.opacity(elevation.shadowOpacity),
+                        color: DSColor.shadow.opacity(elevation.shadowOpacity),
                         radius: elevation.shadowRadius,
                         x: 0,
                         y: elevation.shadowYOffset
@@ -258,7 +258,7 @@ struct DSBadge: View {
             .padding(.vertical, 6)
             .background(fill)
             .clipShape(Capsule())
-            .overlay(Capsule().stroke(DSColor.ink, lineWidth: DSStroke.hairline))
+            .overlay(Capsule().stroke(DSColor.outline, lineWidth: DSStroke.hairline))
     }
 }
 
@@ -285,9 +285,9 @@ struct DSStickerLabel: View {
         .clipShape(RoundedRectangle(cornerRadius: DSCornerRadius.smallCard, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: DSCornerRadius.smallCard, style: .continuous)
-                .stroke(DSColor.ink, lineWidth: DSStroke.hairline)
+                .stroke(DSColor.outline, lineWidth: DSStroke.hairline)
         )
-        .shadow(color: DSColor.ink.opacity(DSShadow.weakOpacity), radius: 0, x: 2, y: 2)
+        .shadow(color: DSColor.shadow.opacity(DSShadow.weakOpacity), radius: 0, x: 2, y: 2)
     }
 }
 
@@ -309,7 +309,7 @@ struct DSScoreCard: View {
                         .clipShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
                         .overlay(
                             RoundedRectangle(cornerRadius: 11, style: .continuous)
-                                .stroke(DSColor.ink, lineWidth: DSStroke.hairline)
+                                .stroke(DSColor.outline, lineWidth: DSStroke.hairline)
                         )
                 }
 
@@ -575,11 +575,8 @@ struct DSChoreIconTile: View {
             DSColor.pureSurface
 
             if let assetName = presentation.assetName {
-                Image(assetName)
-                    .resizable()
-                    .scaledToFill()
+                DSChoreAssetImage(assetName: assetName)
                     .frame(width: size, height: size)
-                    .scaleEffect(contentScale(for: assetName))
             } else {
                 Image(systemName: chore.icon)
                     .font(.system(size: size * 0.43, weight: .semibold))
@@ -591,18 +588,42 @@ struct DSChoreIconTile: View {
         }
         .frame(width: size, height: size)
         .clipShape(shape)
-        .overlay(shape.strokeBorder(.white.opacity(0.94), lineWidth: 3))
-        .shadow(color: DSColor.ink.opacity(0.08), radius: 4, x: 0, y: 2)
+        .shadow(color: DSColor.shadow.opacity(0.12), radius: 4, x: 0, y: 2)
         .accessibilityHidden(true)
     }
+}
 
-    private func contentScale(for assetName: String) -> CGFloat {
-        switch assetName {
-        case "chore_core_trash_recycling", "chore_core_shopping_supplies":
-            return 1.08
-        default:
-            return 1
+struct DSChoreAssetImage: View {
+    let assetName: String
+
+    var body: some View {
+        Image(assetName)
+            .resizable()
+            .scaledToFill()
+            .scaleEffect(DSChoreIconFraming.contentScale(for: assetName))
+            .clipped()
+    }
+}
+
+enum DSChoreIconFraming {
+    static func contentScale(for assetName: String) -> CGFloat {
+        if assetName == "chore_premium_walk_dog" {
+            return 1.32
         }
+
+        if assetName.hasPrefix("chore_premium_") {
+            return 1.22
+        }
+
+        if assetName.hasPrefix("chore_core_") {
+            return 1.24
+        }
+
+        if assetName.hasPrefix("chore_custom_") {
+            return 1.12
+        }
+
+        return 1
     }
 }
 
@@ -741,7 +762,7 @@ struct DSActivityRow: View {
         return shape
             .fill(DSColor.floatingSurface)
             .shadow(
-                color: DSColor.floatingPrimaryText.opacity(isLast ? DSShadow.floatingSecondaryOpacity : 0),
+                color: DSColor.shadow.opacity(isLast ? DSShadow.floatingSecondaryOpacity : 0),
                 radius: isLast ? DSShadow.floatingSecondaryRadius : 0,
                 x: 0,
                 y: isLast ? DSShadow.floatingSecondaryYOffset : 0
@@ -1276,7 +1297,7 @@ struct DSOfflineStatusView: View {
         HStack(spacing: 14) {
             Image(systemName: "icloud.slash")
                 .font(.system(size: 27, weight: .regular))
-                .foregroundStyle(Color(red: 0.38, green: 0.49, blue: 0.68))
+                .foregroundStyle(DSColor.infoBlue)
                 .accessibilityHidden(true)
 
             Text("当前离线，正在展示上次更新的数据")
@@ -1297,7 +1318,7 @@ struct DSOfflineStatusView: View {
         .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .stroke(Color(red: 0.62, green: 0.70, blue: 0.82).opacity(0.55), lineWidth: 1)
+                .stroke(DSColor.infoBlue.opacity(0.35), lineWidth: 1)
         )
         .accessibilityElement(children: .combine)
     }

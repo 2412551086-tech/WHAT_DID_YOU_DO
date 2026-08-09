@@ -13,15 +13,30 @@ struct ChoreSelectionView: View {
     @State private var pendingCustomEditorContext: CustomChoreEditorContext?
     @State private var premiumUpgradeTrigger: PremiumUpgradeTrigger?
     @State private var dragState = CommonChoreDragState.idle
-    @State private var isBottomSentinelVisible = false
-    @State private var isTrackingLibraryPull = false
-    @State private var libraryPullStartedAtBottom = false
+    @State private var isLayoutEditing = false
+    @State private var userHasScrolled = false
+    @State private var bottomPickerArmed = true
+    @State private var bottomSentinelMinY = CGFloat.greatestFiniteMagnitude
+    @State private var scrollViewportHeight: CGFloat = 0
     @State private var scrollResetID = UUID()
     @State private var commonChoreFrames: [String: CGRect] = [:]
     @State private var commonChoreContainerGlobalFrame: CGRect = .zero
+    @State private var dragAnchorOffset: CGPoint = .zero
+    @State private var lastReorderTargetID: String?
+    @State private var lastReorderLocation: CGPoint?
+    @State private var lastReorderAt = Date.distantPast
+    @State private var dragStartSnapshot: [String] = []
 
     private static let commonChoreCoordinateSpace = "common-chore-grid"
-    private static let reorderHoldDuration = 0.65
+    private static let choreScrollCoordinateSpace = "chore-scroll"
+    private static let reorderHoldDuration = 0.80
+    private static let reorderMaximumMovement: CGFloat = 12
+    // Require the reveal sentinel to be almost fully visible so a normal scroll
+    // near the last row does not unexpectedly open the chore library.
+    private static let bottomTriggerThreshold: CGFloat = -60
+    private static let bottomRearmDistance: CGFloat = 180
+    private static let reorderCooldown: TimeInterval = 0.08
+    private static let reorderTravelThreshold: CGFloat = 18
 
     private var draggingGridItemID: String? { dragState.itemID }
     private var dragLocation: CGPoint? { dragState.location }
@@ -39,7 +54,11 @@ struct ChoreSelectionView: View {
             DSColor.quietBackground.ignoresSafeArea()
 
             ScrollView {
-                LazyVStack(alignment: .leading, spacing: 16) {
+                VStack(alignment: .leading, spacing: 16) {
+                    ChoreScrollActivityObserver {
+                        userHasScrolled = true
+                    }
+                    .frame(width: 0, height: 0)
                     pageHeader
                     statusBanner
                     commonChoresSection
@@ -48,11 +67,28 @@ struct ChoreSelectionView: View {
                 .padding(.horizontal, 20)
                 .padding(.top, 10)
                 .padding(.bottom, 108)
+                .frame(
+                    minHeight: max(0, scrollViewportHeight + 96),
+                    alignment: .top
+                )
+            }
+            .coordinateSpace(name: Self.choreScrollCoordinateSpace)
+            .background {
+                ZStack {
+                    GeometryReader { proxy in
+                        Color.clear.preference(
+                            key: ChoreScrollViewportPreferenceKey.self,
+                            value: proxy.size.height
+                        )
+                    }
+                }
             }
             .id(scrollResetID)
+            .scrollDisabled(isLayoutEditing)
         }
         .navigationBarBackButtonHidden(true)
         .onAppear {
+            resetBottomPickerTracking()
             resetTransientInteractionState()
             viewModel.prepareCommonChoreGrid()
         }
@@ -72,6 +108,20 @@ struct ChoreSelectionView: View {
         .onChange(of: viewModel.isLoading) { _, isLoading in
             if isLoading {
                 resetTransientInteractionState()
+            }
+        }
+        .onPreferenceChange(ChoreScrollViewportPreferenceKey.self) { height in
+            scrollViewportHeight = height
+            evaluateBottomSentinel()
+        }
+        .onPreferenceChange(ChoreBottomSentinelPreferenceKey.self) { minY in
+            bottomSentinelMinY = minY
+            evaluateBottomSentinel()
+        }
+        .onChange(of: dragCoordinator.isActive) { _, isActive in
+            if !isActive {
+                isLayoutEditing = false
+                dragState = .idle
             }
         }
         .sheet(item: $choreForDurationPicker, onDismiss: resetAfterModal) { chore in
@@ -192,7 +242,6 @@ struct ChoreSelectionView: View {
         .overlay(alignment: .topLeading) {
             floatingDragCard
         }
-        .animation(.spring(response: 0.26, dampingFraction: 0.82), value: isReordering)
     }
 
     @ViewBuilder
@@ -203,31 +252,79 @@ struct ChoreSelectionView: View {
         )
 
         gridCardContent(item)
-        .contentShape(.interaction, dragShape)
-        .scaleEffect(draggingGridItemID == item.id ? 1.035 : (isReordering ? 0.985 : 1))
-        .opacity(draggingGridItemID == item.id ? 0.16 : 1)
-        .animation(.spring(response: 0.24, dampingFraction: 0.78), value: draggingGridItemID)
-        .animation(.spring(response: 0.24, dampingFraction: 0.78), value: isReordering)
-        .background {
-            GeometryReader { proxy in
-                Color.clear.preference(
-                    key: CommonChoreFramePreferenceKey.self,
-                    value: [
-                        item.id: proxy.frame(in: .named(Self.commonChoreCoordinateSpace)),
-                    ]
-                )
+            .contentShape(.interaction, dragShape)
+            .scaleEffect(draggingGridItemID == item.id ? 1.035 : (isReordering ? 0.985 : 1))
+            .opacity(draggingGridItemID == item.id ? 0.16 : 1)
+            .animation(
+                draggingGridItemID == item.id ? nil : .easeOut(duration: 0.12),
+                value: isReordering
+            )
+            .background {
+                GeometryReader { proxy in
+                    Color.clear.preference(
+                        key: CommonChoreFramePreferenceKey.self,
+                        value: [
+                            item.id: proxy.frame(in: .named(Self.commonChoreCoordinateSpace)),
+                        ]
+                    )
+                }
             }
-        }
-        .onTapGesture {
-            guard !viewModel.isLoading else { return }
-            open(item)
-        }
-        .simultaneousGesture(reorderGesture(for: item))
-        .accessibilityAddTraits(.isButton)
-        .accessibilityAction {
-            guard !viewModel.isLoading else { return }
-            open(item)
-        }
+            .overlay {
+                GeometryReader { proxy in
+                    ChoreCardInteractionView(
+                        isEditing: isLayoutEditing,
+                        holdDuration: Self.reorderHoldDuration,
+                        holdMovementLimit: Self.reorderMaximumMovement,
+                        editingDragThreshold: 7,
+                        frameInGrid: proxy.frame(in: .named(Self.commonChoreCoordinateSpace)),
+                        onTap: {
+                            guard !viewModel.isLoading else { return }
+                            if isLayoutEditing {
+                                exitLayoutEditing()
+                            } else {
+                                open(item)
+                            }
+                        },
+                        onLayoutBegan: { location in
+                            guard enterLayoutEditing(for: item.id) else { return }
+                            beginDragging(
+                                item.id,
+                                location: location,
+                                allowDuringLayoutEntry: true
+                            )
+                        },
+                        onDragChanged: { location in
+                            guard !viewModel.isLoading, !isPresentingModal else { return }
+                            if draggingGridItemID == nil {
+                                beginDragging(item.id, location: location)
+                            }
+                            updateReordering(itemID: item.id, location: location)
+                        },
+                        onDragEnded: { location in
+                            guard draggingGridItemID == item.id else {
+                                exitLayoutEditing()
+                                return
+                            }
+                            updateReordering(itemID: item.id, location: location)
+                            completeReordering(itemID: item.id)
+                        },
+                        onDragCancelled: {
+                            exitLayoutEditing()
+                        }
+                    )
+                    .frame(width: proxy.size.width, height: proxy.size.height)
+                }
+            }
+            .accessibilityLabel(isLayoutEditing ? "布局编辑中的\(item.accessibilityName)" : item.accessibilityName)
+            .accessibilityAddTraits(.isButton)
+            .accessibilityAction {
+                guard !viewModel.isLoading else { return }
+                if isLayoutEditing {
+                    exitLayoutEditing()
+                } else {
+                    open(item)
+                }
+            }
     }
 
     @ViewBuilder
@@ -245,46 +342,12 @@ struct ChoreSelectionView: View {
                         style: .continuous
                     )
                 )
-                .shadow(color: DSColor.ink.opacity(0.16), radius: 14, x: 0, y: 8)
+                .shadow(color: DSColor.shadow.opacity(0.16), radius: 14, x: 0, y: 8)
                 .scaleEffect(1.03)
                 .position(location)
                 .allowsHitTesting(false)
                 .zIndex(20)
         }
-    }
-
-    private func reorderGesture(for item: CommonChoreGridItem) -> some Gesture {
-        LongPressGesture(minimumDuration: Self.reorderHoldDuration)
-            .sequenced(before: DragGesture(
-                minimumDistance: 0,
-                coordinateSpace: .named(Self.commonChoreCoordinateSpace)
-            ))
-            .onChanged { phase in
-                guard !viewModel.isLoading, !isPresentingModal else { return }
-
-                switch phase {
-                case .first(true):
-                    if draggingGridItemID == nil {
-                        beginReordering(item.id)
-                    }
-                case .second(true, let drag):
-                    guard let drag, draggingGridItemID == item.id else { return }
-                    updateReordering(itemID: item.id, location: drag.location)
-                default:
-                    break
-                }
-            }
-            .onEnded { phase in
-                guard case .second(true, let drag) = phase,
-                      let drag,
-                      draggingGridItemID == item.id
-                else {
-                    return
-                }
-
-                updateReordering(itemID: item.id, location: drag.location)
-                completeReordering(itemID: item.id)
-            }
     }
 
     @ViewBuilder
@@ -319,49 +382,59 @@ struct ChoreSelectionView: View {
     private var bottomSentinel: some View {
         Color.clear
             .frame(height: 72)
-            .contentShape(Rectangle())
-            .gesture(libraryRevealGesture)
-            .onAppear { isBottomSentinelVisible = true }
-            .onDisappear { isBottomSentinelVisible = false }
+            .background {
+                GeometryReader { proxy in
+                    Color.clear.preference(
+                        key: ChoreBottomSentinelPreferenceKey.self,
+                        value: proxy.frame(in: .named(Self.choreScrollCoordinateSpace)).minY
+                    )
+                }
+            }
             .accessibilityHidden(true)
     }
 
-    private var libraryRevealGesture: some Gesture {
-        DragGesture(minimumDistance: 16)
-            .onChanged { _ in
-                guard !isReordering,
-                      draggingGridItemID == nil,
-                      !isTrackingLibraryPull
-                else { return }
-                isTrackingLibraryPull = true
-                libraryPullStartedAtBottom = isBottomSentinelVisible
+    private func evaluateBottomSentinel(userDidScroll: Bool = false) {
+        guard bottomSentinelMinY.isFinite,
+              scrollViewportHeight > 0
+        else { return }
+
+        let distanceToViewportBottom = bottomSentinelMinY - scrollViewportHeight
+        if distanceToViewportBottom > Self.bottomRearmDistance {
+            bottomPickerArmed = true
+        }
+
+        guard ChoreLibraryRevealPolicy.shouldOpen(
+            distanceToBottom: distanceToViewportBottom,
+            threshold: Self.bottomTriggerThreshold,
+            userHasScrolled: userHasScrolled || userDidScroll,
+            isArmed: bottomPickerArmed
+        ),
+              !isLayoutEditing,
+              !isReordering,
+              draggingGridItemID == nil,
+              !isPresentingModal,
+              !viewModel.isLoading
+        else { return }
+
+        bottomPickerArmed = false
+        DispatchQueue.main.async {
+            guard !self.isLayoutEditing,
+                  !self.isReordering,
+                  !self.isPresentingModal,
+                  !self.viewModel.isLoading
+            else { return }
+
+            guard self.viewModel.canEditCommonChoreLayout else {
+                self.handleLayoutEditUnavailable()
+                return
             }
-            .onEnded { value in
-                defer {
-                    isTrackingLibraryPull = false
-                    libraryPullStartedAtBottom = false
-                }
-
-                guard !isReordering,
-                      draggingGridItemID == nil,
-                      libraryPullStartedAtBottom,
-                      value.translation.height < -64,
-                      !viewModel.isLoading
-                else {
-                    return
-                }
-
-                guard viewModel.canEditCommonChoreLayout else {
-                    handleLayoutEditUnavailable()
-                    return
-                }
-
-                openRoutineEditor()
-            }
+            self.openRoutineEditor()
+        }
     }
 
     private func open(_ item: CommonChoreGridItem) {
         resetTransientInteractionState()
+        UIImpactFeedbackGenerator(style: .light).impactOccurred()
 
         switch item {
         case let .chore(chore):
@@ -381,35 +454,80 @@ struct ChoreSelectionView: View {
         }
     }
 
-    private func beginReordering(_ itemID: String) {
-        guard !isPresentingModal, !viewModel.isLoading else { return }
+    @discardableResult
+    private func enterLayoutEditing(for itemID: String) -> Bool {
+        guard !isPresentingModal, !viewModel.isLoading else { return false }
         guard viewModel.canEditCommonChoreLayout else {
             handleLayoutEditUnavailable()
-            return
+            return false
         }
-        guard draggingGridItemID != itemID else { return }
-        let initialLocation = commonChoreFrames[itemID].map {
-            CGPoint(x: $0.midX, y: $0.midY)
-        }
-        dragState = CommonChoreDragState(
-            itemID: itemID,
-            location: initialLocation,
-            isTrashTargeted: false
-        )
+        guard !isLayoutEditing else { return true }
+        isLayoutEditing = true
+        dragState = .idle
         dragCoordinator.begin()
         UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+        return true
+    }
+
+    private func beginDragging(
+        _ itemID: String,
+        location: CGPoint,
+        allowDuringLayoutEntry: Bool = false
+    ) {
+        guard (isLayoutEditing || allowDuringLayoutEntry),
+              viewModel.canEditCommonChoreLayout,
+              !isPresentingModal,
+              !viewModel.isLoading
+        else { return }
+        guard draggingGridItemID == nil else { return }
+        dragStartSnapshot = viewModel.commonChoreGridItemIDs
+        lastReorderTargetID = nil
+        lastReorderLocation = nil
+        if let frame = commonChoreFrames[itemID] {
+            dragAnchorOffset = CGPoint(
+                x: location.x - frame.minX,
+                y: location.y - frame.minY
+            )
+            dragState = CommonChoreDragState(
+                itemID: itemID,
+                location: CGPoint(
+                    x: location.x - dragAnchorOffset.x + frame.width / 2,
+                    y: location.y - dragAnchorOffset.y + frame.height / 2
+                ),
+                isTrashTargeted: false
+            )
+            return
+        }
+
+        dragAnchorOffset = .zero
+        dragState = CommonChoreDragState(
+            itemID: itemID,
+            location: location,
+            isTrashTargeted: false
+        )
     }
 
     private func updateReordering(itemID: String, location: CGPoint) {
         guard draggingGridItemID == itemID else { return }
-        dragState.location = location
+        let centeredLocation: CGPoint
+        if let frame = commonChoreFrames[itemID] {
+            centeredLocation = CGPoint(
+                x: location.x - dragAnchorOffset.x + frame.width / 2,
+                y: location.y - dragAnchorOffset.y + frame.height / 2
+            )
+        } else {
+            centeredLocation = location
+        }
+        dragState.location = centeredLocation
 
+        let dragCenter = dragState.location ?? location
         let globalLocation = CGPoint(
-            x: commonChoreContainerGlobalFrame.minX + location.x,
-            y: commonChoreContainerGlobalFrame.minY + location.y
+            x: commonChoreContainerGlobalFrame.minX + dragCenter.x,
+            y: commonChoreContainerGlobalFrame.minY + dragCenter.y
         )
+        let trashDropFrame = dragCoordinator.trashFrame.insetBy(dx: -12, dy: -20)
         let targetsTrash = dragCoordinator.trashFrame != .zero
-            && dragCoordinator.trashFrame.contains(globalLocation)
+            && trashDropFrame.contains(globalLocation)
         if targetsTrash != isTrashTargeted {
             dragState.isTrashTargeted = targetsTrash
             dragCoordinator.isTrashTargeted = targetsTrash
@@ -417,34 +535,80 @@ struct ChoreSelectionView: View {
         }
         guard !targetsTrash else { return }
 
-        guard let targetID = commonChoreFrames.first(where: { id, frame in
-            id != itemID && frame.contains(location)
-        })?.key else {
+        guard Date().timeIntervalSince(lastReorderAt) >= Self.reorderCooldown,
+              let draggedCenter = dragState.location,
+              let targetID = reorderTargetID(
+                  excluding: itemID,
+                  draggedCenter: draggedCenter
+              )
+        else {
             return
         }
 
-        withAnimation(.spring(response: 0.22, dampingFraction: 0.84)) {
+        if let lastReorderLocation,
+           distanceSquared(lastReorderLocation, dragCenter)
+            < Self.reorderTravelThreshold * Self.reorderTravelThreshold
+        {
+            return
+        }
+
+        withAnimation(.spring(response: 0.20, dampingFraction: 0.88)) {
             if viewModel.moveCommonChoreGridItem(itemID, to: targetID, persist: false) {
+                lastReorderTargetID = targetID
+                lastReorderLocation = dragCenter
+                lastReorderAt = Date()
                 UISelectionFeedbackGenerator().selectionChanged()
             }
         }
     }
 
+    private func reorderTargetID(
+        excluding itemID: String,
+        draggedCenter: CGPoint
+    ) -> String? {
+        commonChoreFrames
+            .filter { id, frame in
+                guard id != itemID else { return false }
+                let activationArea = frame.insetBy(
+                    dx: frame.width * 0.22,
+                    dy: frame.height * 0.22
+                )
+                return activationArea.contains(draggedCenter)
+            }
+            .min { lhs, rhs in
+                let lhsCenter = CGPoint(x: lhs.value.midX, y: lhs.value.midY)
+                let rhsCenter = CGPoint(x: rhs.value.midX, y: rhs.value.midY)
+                return distanceSquared(lhsCenter, draggedCenter)
+                    < distanceSquared(rhsCenter, draggedCenter)
+            }?.key
+    }
+
+    private func distanceSquared(_ lhs: CGPoint, _ rhs: CGPoint) -> CGFloat {
+        let dx = lhs.x - rhs.x
+        let dy = lhs.y - rhs.y
+        return dx * dx + dy * dy
+    }
+
     private func completeReordering(itemID: String) {
         guard draggingGridItemID == itemID else {
-            finishReordering()
+            exitLayoutEditing()
             return
         }
 
         let shouldRemove = isTrashTargeted
-        finishReordering()
+        let snapshot = dragStartSnapshot
+        let didChangeOrder = snapshot != viewModel.commonChoreGridItemIDs
+        exitLayoutEditing()
 
         Task {
             if shouldRemove {
                 let removed = await viewModel.removeCommonChoreGridItem(itemID)
                 UINotificationFeedbackGenerator().notificationOccurred(removed ? .success : .error)
-            } else {
-                await viewModel.persistCommonChoreGridLayout()
+            } else if didChangeOrder {
+                let saved = await viewModel.persistCommonChoreGridLayout()
+                if !saved, !snapshot.isEmpty {
+                    viewModel.restoreCommonChoreGridOrder(snapshot)
+                }
             }
         }
 
@@ -452,13 +616,22 @@ struct ChoreSelectionView: View {
 
     private func finishReordering() {
         dragState = .idle
+        dragAnchorOffset = .zero
+        lastReorderTargetID = nil
+        lastReorderLocation = nil
+        lastReorderAt = .distantPast
+        dragStartSnapshot = []
+        dragCoordinator.isTrashTargeted = false
+    }
+
+    private func exitLayoutEditing() {
+        finishReordering()
+        isLayoutEditing = false
         dragCoordinator.end()
     }
 
     private func resetTransientInteractionState() {
-        finishReordering()
-        isTrackingLibraryPull = false
-        libraryPullStartedAtBottom = false
+        exitLayoutEditing()
     }
 
     private func resetAfterModal() {
@@ -472,9 +645,15 @@ struct ChoreSelectionView: View {
 
     private func resetAfterRoutineEditor() {
         resetTransientInteractionState()
-        isBottomSentinelVisible = false
         viewModel.prepareCommonChoreGrid()
+        resetBottomPickerTracking()
         scrollResetID = UUID()
+    }
+
+    private func resetBottomPickerTracking() {
+        userHasScrolled = false
+        bottomPickerArmed = true
+        bottomSentinelMinY = .greatestFiniteMagnitude
     }
 
     private func requestPremiumUpgrade(for trigger: PremiumUpgradeTrigger) {
@@ -493,7 +672,7 @@ struct ChoreSelectionView: View {
 
     private func openRoutineEditor() {
         UINotificationFeedbackGenerator().notificationOccurred(.success)
-        resetTransientInteractionState()
+        exitLayoutEditing()
         showsRoutineEditor = true
     }
 
@@ -571,6 +750,191 @@ struct ChoreSelectionView: View {
     }
 }
 
+private struct ChoreCardInteractionView: UIViewRepresentable {
+    let isEditing: Bool
+    let holdDuration: TimeInterval
+    let holdMovementLimit: CGFloat
+    let editingDragThreshold: CGFloat
+    let frameInGrid: CGRect
+    let onTap: () -> Void
+    let onLayoutBegan: (CGPoint) -> Void
+    let onDragChanged: (CGPoint) -> Void
+    let onDragEnded: (CGPoint) -> Void
+    let onDragCancelled: () -> Void
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator()
+    }
+
+    func makeUIView(context: Context) -> ChoreCardInteractionHostView {
+        let view = ChoreCardInteractionHostView()
+        context.coordinator.install(
+            on: view,
+            holdDuration: holdDuration,
+            holdMovementLimit: holdMovementLimit,
+            editingDragThreshold: editingDragThreshold
+        )
+        return view
+    }
+
+    func updateUIView(_ uiView: ChoreCardInteractionHostView, context: Context) {
+        context.coordinator.update(
+            isEditing: isEditing,
+            frameInGrid: frameInGrid,
+            onTap: onTap,
+            onLayoutBegan: onLayoutBegan,
+            onDragChanged: onDragChanged,
+            onDragEnded: onDragEnded,
+            onDragCancelled: onDragCancelled
+        )
+    }
+
+    final class Coordinator: NSObject, UIGestureRecognizerDelegate {
+        private weak var hostView: UIView?
+        private var isEditing = false
+        private var frameInGrid = CGRect.zero
+        private var longPressOwnsDrag = false
+        private var onTap: (() -> Void)?
+        private var onLayoutBegan: ((CGPoint) -> Void)?
+        private var onDragChanged: ((CGPoint) -> Void)?
+        private var onDragEnded: ((CGPoint) -> Void)?
+        private var onDragCancelled: (() -> Void)?
+
+        private lazy var tapRecognizer = UITapGestureRecognizer(
+            target: self,
+            action: #selector(handleTap(_:))
+        )
+        private lazy var longPressRecognizer = UILongPressGestureRecognizer(
+            target: self,
+            action: #selector(handleLongPress(_:))
+        )
+        private lazy var panRecognizer = UIPanGestureRecognizer(
+            target: self,
+            action: #selector(handlePan(_:))
+        )
+
+        func install(
+            on view: UIView,
+            holdDuration: TimeInterval,
+            holdMovementLimit: CGFloat,
+            editingDragThreshold: CGFloat
+        ) {
+            hostView = view
+
+            tapRecognizer.cancelsTouchesInView = false
+            longPressRecognizer.minimumPressDuration = holdDuration
+            longPressRecognizer.allowableMovement = holdMovementLimit
+            longPressRecognizer.cancelsTouchesInView = true
+            panRecognizer.minimumNumberOfTouches = 1
+            panRecognizer.maximumNumberOfTouches = 1
+            _ = editingDragThreshold
+
+            tapRecognizer.delegate = self
+            longPressRecognizer.delegate = self
+            panRecognizer.delegate = self
+            tapRecognizer.require(toFail: longPressRecognizer)
+            tapRecognizer.require(toFail: panRecognizer)
+
+            view.addGestureRecognizer(tapRecognizer)
+            view.addGestureRecognizer(longPressRecognizer)
+            view.addGestureRecognizer(panRecognizer)
+            panRecognizer.isEnabled = false
+        }
+
+        func update(
+            isEditing: Bool,
+            frameInGrid: CGRect,
+            onTap: @escaping () -> Void,
+            onLayoutBegan: @escaping (CGPoint) -> Void,
+            onDragChanged: @escaping (CGPoint) -> Void,
+            onDragEnded: @escaping (CGPoint) -> Void,
+            onDragCancelled: @escaping () -> Void
+        ) {
+            self.isEditing = isEditing
+            self.frameInGrid = frameInGrid
+            self.onTap = onTap
+            self.onLayoutBegan = onLayoutBegan
+            self.onDragChanged = onDragChanged
+            self.onDragEnded = onDragEnded
+            self.onDragCancelled = onDragCancelled
+
+            if panRecognizer.isEnabled != isEditing {
+                panRecognizer.isEnabled = isEditing
+            }
+        }
+
+        @objc private func handleTap(_ recognizer: UITapGestureRecognizer) {
+            guard recognizer.state == .ended else { return }
+            onTap?()
+        }
+
+        @objc private func handleLongPress(_ recognizer: UILongPressGestureRecognizer) {
+            let location = gridLocation(recognizer.location(in: hostView))
+            switch recognizer.state {
+            case .began:
+                guard !isEditing else { return }
+                longPressOwnsDrag = true
+                onLayoutBegan?(location)
+                onDragChanged?(location)
+            case .changed:
+                guard longPressOwnsDrag else { return }
+                onDragChanged?(location)
+            case .ended:
+                guard longPressOwnsDrag else { return }
+                longPressOwnsDrag = false
+                onDragEnded?(location)
+            case .cancelled, .failed:
+                guard longPressOwnsDrag else { return }
+                longPressOwnsDrag = false
+                onDragCancelled?()
+            default:
+                break
+            }
+        }
+
+        @objc private func handlePan(_ recognizer: UIPanGestureRecognizer) {
+            guard isEditing else { return }
+            let location = gridLocation(recognizer.location(in: hostView))
+            switch recognizer.state {
+            case .began, .changed:
+                onDragChanged?(location)
+            case .ended:
+                onDragEnded?(location)
+            case .cancelled, .failed:
+                onDragCancelled?()
+            default:
+                break
+            }
+        }
+
+        private func gridLocation(_ point: CGPoint) -> CGPoint {
+            CGPoint(
+                x: frameInGrid.minX + point.x,
+                y: frameInGrid.minY + point.y
+            )
+        }
+
+        func gestureRecognizer(
+            _ gestureRecognizer: UIGestureRecognizer,
+            shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer
+        ) -> Bool {
+            false
+        }
+    }
+}
+
+private final class ChoreCardInteractionHostView: UIView {
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        backgroundColor = .clear
+        isOpaque = false
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+}
+
 struct CommonChoreDragState: Equatable {
     static let idle = CommonChoreDragState()
 
@@ -617,7 +981,7 @@ struct CommonChoreRemovalTarget: View {
             RoundedRectangle(cornerRadius: 22, style: .continuous)
                 .fill(isTargeted ? DSColor.coral : DSColor.redSoft.opacity(0.98))
                 .shadow(
-                    color: DSColor.ink.opacity(isTargeted ? 0.18 : 0.10),
+                    color: DSColor.shadow.opacity(isTargeted ? 0.18 : 0.10),
                     radius: isTargeted ? 16 : 10,
                     x: 0,
                     y: 5
@@ -647,6 +1011,15 @@ private enum CommonChoreGridItem: Identifiable {
             chore.id
         case let .customSlot(slot, _):
             "custom-chore-slot-\(slot)"
+        }
+    }
+
+    var accessibilityName: String {
+        switch self {
+        case let .chore(chore):
+            return chore.name
+        case let .customSlot(slot, chore):
+            return chore?.name ?? "第 \(slot) 个自定义家务"
         }
     }
 }
@@ -721,6 +1094,103 @@ private struct CommonChoreContainerFramePreferenceKey: PreferenceKey {
         if next != .zero {
             value = next
         }
+    }
+}
+
+private struct ChoreScrollViewportPreferenceKey: PreferenceKey {
+    nonisolated static let defaultValue: CGFloat = 0
+
+    nonisolated static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        let next = nextValue()
+        if next > 0 {
+            value = next
+        }
+    }
+}
+
+private struct ChoreScrollActivityObserver: UIViewRepresentable {
+    let onScroll: () -> Void
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator()
+    }
+
+    func makeUIView(context: Context) -> UIView {
+        let view = UIView()
+        view.isUserInteractionEnabled = false
+        context.coordinator.onScroll = onScroll
+        DispatchQueue.main.async {
+            context.coordinator.attach(from: view)
+        }
+        return view
+    }
+
+    func updateUIView(_ uiView: UIView, context: Context) {
+        context.coordinator.onScroll = onScroll
+        DispatchQueue.main.async {
+            context.coordinator.attach(from: uiView)
+        }
+    }
+
+    static func dismantleUIView(_ uiView: UIView, coordinator: Coordinator) {
+        coordinator.detach()
+    }
+
+    @MainActor
+    final class Coordinator: NSObject {
+        weak var observedPanRecognizer: UIPanGestureRecognizer?
+        var onScroll: (() -> Void)?
+
+        func attach(from view: UIView) {
+            guard observedPanRecognizer == nil else { return }
+
+            var ancestor = view.superview
+            while let current = ancestor, !(current is UIScrollView) {
+                ancestor = current.superview
+            }
+            guard let scrollView = ancestor as? UIScrollView else { return }
+
+            observedPanRecognizer = scrollView.panGestureRecognizer
+            scrollView.panGestureRecognizer.addTarget(
+                self,
+                action: #selector(handleScrollPan(_:))
+            )
+        }
+
+        func detach() {
+            observedPanRecognizer?.removeTarget(
+                self,
+                action: #selector(handleScrollPan(_:))
+            )
+            observedPanRecognizer = nil
+        }
+
+        @objc private func handleScrollPan(_ recognizer: UIPanGestureRecognizer) {
+            guard recognizer.state == .began || recognizer.state == .changed else { return }
+            onScroll?()
+        }
+    }
+}
+
+private struct ChoreBottomSentinelPreferenceKey: PreferenceKey {
+    nonisolated static let defaultValue = CGFloat.greatestFiniteMagnitude
+
+    nonisolated static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        let next = nextValue()
+        if next.isFinite {
+            value = next
+        }
+    }
+}
+
+enum ChoreLibraryRevealPolicy {
+    static func shouldOpen(
+        distanceToBottom: CGFloat,
+        threshold: CGFloat,
+        userHasScrolled: Bool,
+        isArmed: Bool
+    ) -> Bool {
+        distanceToBottom <= threshold && userHasScrolled && isArmed
     }
 }
 
@@ -931,7 +1401,7 @@ struct ChoreRoutineEditorView: View {
                             }
                             .overlay {
                                 RoundedRectangle(cornerRadius: DSCornerRadius.smallCard, style: .continuous)
-                                    .stroke(isSelected ? DSColor.ink.opacity(0.76) : .clear, lineWidth: 2)
+                                    .stroke(isSelected ? DSColor.outline.opacity(0.9) : .clear, lineWidth: 2)
                             }
                             .scaleEffect(isSelected ? 0.98 : 1)
                     }
@@ -1662,9 +2132,7 @@ private struct CustomChoreEditorSheet: View {
 
     private var previewCard: some View {
         HStack(spacing: 14) {
-            Image(draft.iconKey)
-                .resizable()
-                .scaledToFit()
+            DSChoreAssetImage(assetName: draft.iconKey)
                 .frame(width: 76, height: 76)
                 .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
 
@@ -1689,7 +2157,7 @@ private struct CustomChoreEditorSheet: View {
         .padding(16)
         .background(selectedOption.color.opacity(0.14))
         .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 18).stroke(DSColor.ink.opacity(0.16), lineWidth: 1.5))
+        .overlay(RoundedRectangle(cornerRadius: 18).stroke(DSColor.subtleStroke, lineWidth: 1.5))
     }
 
     private var nameField: some View {
@@ -1755,11 +2223,8 @@ private struct CustomChoreEditorSheet: View {
                     Button {
                         draft.iconKey = option.id
                     } label: {
-                        Image(option.id)
-                            .resizable()
-                            .scaledToFit()
+                        DSChoreAssetImage(assetName: option.id)
                             .clipShape(RoundedRectangle(cornerRadius: 13, style: .continuous))
-                            .padding(3)
                             .background(DSColor.pureSurface)
                             .clipShape(RoundedRectangle(cornerRadius: 13, style: .continuous))
                             .overlay(
@@ -1867,4 +2332,14 @@ private struct CustomChoreEditorSheet: View {
             .environmentObject(AppViewModel.previewLoggedIn())
             .environmentObject(CommonChoreDragCoordinator())
     }
+}
+
+
+#Preview("记一下 · 深色") {
+    NavigationStack {
+        ChoreSelectionView()
+            .environmentObject(AppViewModel.previewLoggedIn())
+            .environmentObject(CommonChoreDragCoordinator())
+    }
+    .preferredColorScheme(.dark)
 }

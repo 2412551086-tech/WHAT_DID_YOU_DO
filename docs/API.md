@@ -178,7 +178,7 @@
 }
 ```
 
-`currentStatus` 表示当前用户与该家庭已有的成员状态，可为 `PENDING`、`ACTIVE`、`REJECTED` 或 `null`。
+`currentStatus` 表示当前用户与该家庭已有的有效成员状态，可为 `PENDING`、`ACTIVE`、`REJECTED` 或 `null`。已经退出的 `LEFT` 对前端按 `null` 返回，允许用户重新申请。
 
 ### GET `/families/join-requests/me`
 
@@ -200,7 +200,7 @@
 - inviteCode 会 trim 并转为大写后查询。
 - 新申请创建为 `MEMBER + PENDING`。
 - 同一用户对同一家庭重复提交时返回已有成员关系，不重复创建。
-- 已被拒绝的成员再次提交时复用原成员关系，更新身份和头像，并重新置为 `PENDING`。
+- 已被拒绝或已退出的成员再次提交时复用原成员关系，更新身份和头像，并重新置为 `PENDING`；不会因为昵称相同而新建或匹配成员。
 - 邀请码不存在返回 404，消息为 `Invite code not found`。
 
 ### POST `/families/:familyId/join-requests`
@@ -250,6 +250,7 @@
 - 当前 `ACTIVE + MEMBER` 退出家庭，成功返回 `{ "familyId": "...", "left": true }`。
 - OWNER 必须先把一家之主转让给另一位 ACTIVE 成员，否则返回 400。
 - 退出后该成员不再参与家庭高级权益共享，也不能继续读取家庭数据。
+- 后端保留原 FamilyMember 并标记 `status=LEFT`、写入 `leftAt`，不物理删除成员关系；重新申请时复用该关系并回到 `PENDING`。
 
 - 当前支持 `avatar_01` 至 `avatar_13`。
 - 同一序号映射一套资源：`family_avatar_action_XX` 为立绘，`avatar_XX` 为圆形头像。
@@ -384,6 +385,7 @@
 - 服务端忽略客户端自行计算的 points，使用服务端计算值。
 - 所有系统家务均可直接记录；开发兑换码用于验证“常用家务不限数量、10 项自定义家务、成员个人常用布局、记录时自定义积分倍率”四项高级权益。
 - 返回完整 activity 记录结构，包括 `actualMinutes`、`points`、`likeCount`、`likedByMe` 和 `canDelete`。
+- 创建时同时保存创建者昵称、家庭身份、自定义身份和头像 key 快照。后续改名、换形象、退出或重新加入不会改写历史动态的创建者展示。
 - 如果家庭开启 `requirePhotoProof`，`imageUrls` 至少需要一项。iOS MVP 固定创建家庭为 false，暂不开放上传。
 
 ### GET `/families/:familyId/activity?range=day|week|recent`

@@ -64,24 +64,11 @@ struct CreateFamilyView: View {
     private var nicknameSection: some View {
         VStack(alignment: .leading, spacing: 10) {
             FamilyFlowSectionLabel(title: "你的昵称")
-
-            HStack(spacing: 10) {
-                Image(systemName: "person")
-                    .foregroundStyle(DSColor.mutedInk)
-                Text(viewModel.currentUserName)
-                    .font(.system(size: 16))
-                    .foregroundStyle(DSColor.ink)
-                Spacer()
-            }
-            .padding(.horizontal, 14)
-            .frame(height: 48)
-            .background(DSColor.pureSurface)
-            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .stroke(DSColor.subtleStroke, lineWidth: 1)
+            FamilyFlowTextField(
+                placeholder: "输入你的昵称",
+                systemImage: "person",
+                text: $viewModel.displayName
             )
-            .shadow(color: DSColor.ink.opacity(0.05), radius: 8, y: 3)
         }
     }
 
@@ -154,7 +141,7 @@ struct CreateFamilySuccessView: View {
                 Circle()
                     .fill(DSColor.yellow)
                     .frame(width: 58, height: 58)
-                    .shadow(color: DSColor.ink.opacity(0.08), radius: 10, y: 4)
+                    .shadow(color: DSColor.shadow.opacity(0.10), radius: 10, y: 4)
                 Image(systemName: "checkmark")
                     .font(.system(size: 27, weight: .bold))
                     .foregroundStyle(.white)
@@ -254,10 +241,10 @@ struct CreateFamilySuccessView: View {
 
                 Label("一家之主", systemImage: "person.crop.circle.badge.checkmark")
                     .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(Color(red: 0.55, green: 0.27, blue: 0.18))
+                    .foregroundStyle(DSColor.ink)
                     .padding(.horizontal, 10)
                     .padding(.vertical, 7)
-                    .background(Color(red: 1.0, green: 0.89, blue: 0.91))
+                    .background(DSColor.redSoft)
                     .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
             }
         }

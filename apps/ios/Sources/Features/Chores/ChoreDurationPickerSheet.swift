@@ -268,7 +268,7 @@ private struct DifficultyMultiplierSlider: View {
                                 .foregroundStyle(DSColor.ink)
                         }
                     }
-                    .shadow(color: DSColor.ink.opacity(0.10), radius: 6, x: 0, y: 3)
+                    .shadow(color: DSColor.shadow.opacity(0.16), radius: 6, x: 0, y: 3)
                     .offset(x: travel * progress)
             }
             .contentShape(Capsule(style: .continuous))

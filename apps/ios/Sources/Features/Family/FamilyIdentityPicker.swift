@@ -8,11 +8,6 @@ enum FamilyIdentityOptions {
 
     static let avatarKeys = (1...13).map { String(format: "avatar_%02d", $0) }
 
-    static let avatarNames = [
-        "小葵", "小森", "小灶", "小紫", "阿窗", "阿架", "小桃",
-        "阿蓝", "小青", "小碗", "大力", "小乐", "小机",
-    ]
-
     static func index(for key: String) -> Int {
         avatarKeys.firstIndex(of: key) ?? 0
     }
@@ -21,9 +16,6 @@ enum FamilyIdentityOptions {
         String(format: "family_avatar_action_%02d", index(for: key) + 1)
     }
 
-    static func name(for key: String) -> String {
-        avatarNames[index(for: key)]
-    }
 }
 
 struct FamilyFlowTopBar: View {
@@ -101,7 +93,7 @@ struct FamilyFlowTextField: View {
             RoundedRectangle(cornerRadius: 8, style: .continuous)
                 .stroke(DSColor.subtleStroke, lineWidth: 1)
         )
-        .shadow(color: DSColor.ink.opacity(0.06), radius: 8, y: 3)
+        .shadow(color: DSColor.shadow.opacity(0.09), radius: 8, y: 3)
     }
 }
 
@@ -123,7 +115,7 @@ struct FamilyFlowPrimaryButton: View {
             .frame(maxWidth: .infinity)
             .frame(height: 50)
             .foregroundStyle(isEnabled ? DSColor.ink : DSColor.mutedInk.opacity(0.6))
-            .background(isEnabled ? DSColor.yellow : Color(red: 0.86, green: 0.84, blue: 0.79))
+            .background(isEnabled ? DSColor.yellow : DSColor.selectionSurface)
             .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
         }
         .buttonStyle(.plain)
@@ -167,14 +159,18 @@ struct FamilyAvatarCarousel: View {
     private var selectedIndex: Int { FamilyIdentityOptions.index(for: avatarKey) }
 
     var body: some View {
-        VStack(spacing: 6) {
-            HStack(spacing: 6) {
+        HStack(spacing: 2) {
                 arrowButton(systemName: "chevron.left") { move(by: -1) }
 
-                avatarImage(at: wrappedIndex(selectedIndex - 1), size: 66, opacity: 0.46)
+                avatarImage(
+                    at: wrappedIndex(selectedIndex - 1),
+                    width: 58,
+                    height: 122,
+                    opacity: 0.42
+                )
 
                 ZStack(alignment: .topTrailing) {
-                    avatarImage(at: selectedIndex, size: 138, opacity: 1)
+                    avatarImage(at: selectedIndex, width: 164, height: 194, opacity: 1)
 
                     Image(systemName: "checkmark.circle.fill")
                         .font(.system(size: 20, weight: .bold))
@@ -183,7 +179,12 @@ struct FamilyAvatarCarousel: View {
                         .padding(4)
                 }
 
-                avatarImage(at: wrappedIndex(selectedIndex + 1), size: 66, opacity: 0.46)
+                avatarImage(
+                    at: wrappedIndex(selectedIndex + 1),
+                    width: 58,
+                    height: 122,
+                    opacity: 0.42
+                )
 
                 arrowButton(systemName: "chevron.right") { move(by: 1) }
             }
@@ -192,20 +193,8 @@ struct FamilyAvatarCarousel: View {
             .offset(x: max(-18, min(18, dragTranslation)))
             .animation(.interactiveSpring(response: 0.22, dampingFraction: 0.82), value: dragTranslation)
             .highPriorityGesture(avatarSwipeGesture)
-
-            Text(FamilyIdentityOptions.name(for: avatarKey))
-                .font(.system(size: 14, weight: .semibold))
-                .foregroundStyle(DSColor.ink)
-
-            Text("\(selectedIndex + 1) / \(FamilyIdentityOptions.avatarKeys.count)")
-                .font(.system(size: 11))
-                .foregroundStyle(DSColor.mutedInk)
-
-            Text("左右滑动选择")
-                .font(.system(size: 10))
-                .foregroundStyle(DSColor.mutedInk.opacity(0.75))
-        }
         .accessibilityElement(children: .contain)
+        .accessibilityLabel("选择家庭形象，第 \(selectedIndex + 1) 个，共 \(FamilyIdentityOptions.avatarKeys.count) 个")
     }
 
     private var avatarSwipeGesture: some Gesture {
@@ -223,7 +212,12 @@ struct FamilyAvatarCarousel: View {
             }
     }
 
-    private func avatarImage(at index: Int, size: CGFloat, opacity: Double) -> some View {
+    private func avatarImage(
+        at index: Int,
+        width: CGFloat,
+        height: CGFloat,
+        opacity: Double
+    ) -> some View {
         let key = FamilyIdentityOptions.avatarKeys[index]
         return Button {
             avatarKey = key
@@ -231,18 +225,18 @@ struct FamilyAvatarCarousel: View {
             Image(FamilyIdentityOptions.actionAsset(for: key))
                 .resizable()
                 .scaledToFit()
-                .frame(width: size, height: 152)
+                .frame(width: width, height: height)
                 .opacity(opacity)
         }
         .buttonStyle(.plain)
-        .accessibilityLabel("选择形象 \(FamilyIdentityOptions.name(for: key))")
+        .accessibilityLabel("选择第 \(index + 1) 个家庭形象")
     }
 
     private func arrowButton(systemName: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Image(systemName: systemName)
                 .font(.system(size: 13, weight: .semibold))
-                .frame(width: 30, height: 30)
+                .frame(width: 28, height: 28)
                 .background(DSColor.pureSurface)
                 .clipShape(Circle())
                 .overlay(Circle().stroke(DSColor.subtleStroke, lineWidth: 1))
