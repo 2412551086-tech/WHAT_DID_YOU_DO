@@ -78,7 +78,7 @@
 | 自动化 iOS 测试 | 部分完成 | 当前 XCTest 已在 Simulator 完整通过；双账号 XCUITest 尚未开始 |
 | GitHub Actions CI | 已完成 | push/PR 自动执行后端 Prisma/build/test/e2e/smoke 与 iOS build-for-testing/XCTest |
 | TestFlight | 未开始 | 尚未配置签名、归档和分发流程 |
-| 成就系统 | 未开始 | 产品方案已写入 `ACHIEVEMENTS.md`；尚未新增数据库、接口或 iOS 页面 |
+| 成就系统 | 未开始 | 完整规则见 `家庭家务成就系统完整开发文档.md`，阶段计划见 `ACHIEVEMENT_DEVELOPMENT_PLAN.md`；尚未新增数据库、接口或 iOS 页面 |
 
 ## 下一阶段顺序
 
