@@ -36,6 +36,7 @@ export class ReportsService {
 
     const byMember = new Map<string, { userId: string; displayName: string; points: number; recordCount: number }>();
     const byCategory = new Map<string, { category: string; points: number; recordCount: number }>();
+    const byTheme = new Map<string, { themeKey: string; points: number; recordCount: number }>();
 
     for (const record of records) {
       const member = byMember.get(record.userId) ?? {
@@ -56,17 +57,29 @@ export class ReportsService {
       category.points += record.points;
       category.recordCount += 1;
       byCategory.set(record.chore.category, category);
+
+      const theme = byTheme.get(record.chore.themeKey) ?? {
+        themeKey: record.chore.themeKey,
+        points: 0,
+        recordCount: 0,
+      };
+      theme.points += record.points;
+      theme.recordCount += 1;
+      byTheme.set(record.chore.themeKey, theme);
     }
 
     const totalPoints = records.reduce((sum, record) => sum + record.points, 0);
+    const totalMinutes = records.reduce((sum, record) => sum + record.actualMinutes, 0);
 
     return {
       familyId,
       month,
       totalPoints,
       totalRecords: records.length,
+      totalMinutes,
       headline: records.length > 0 ? '本月家务宇宙稳定运转' : '本月还没有家务记录，沙发暂时领先',
       leaderboard: Array.from(byMember.values()).sort((left, right) => right.points - left.points),
+      themeStats: Array.from(byTheme.values()).sort((left, right) => right.points - left.points),
       categoryStats: Array.from(byCategory.values()).sort((left, right) => right.points - left.points),
       recentRecords: records.slice(0, 10).map((record) => ({
         id: record.id,

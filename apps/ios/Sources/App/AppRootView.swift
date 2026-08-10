@@ -32,9 +32,21 @@ struct AppRootView: View {
             NavigationStack {
                 CreateFamilyView()
             }
+        case .familyCreated:
+            NavigationStack {
+                CreateFamilySuccessView()
+            }
+        case .choreSetup:
+            NavigationStack {
+                ChoreRoutineEditorView(isInitialSetup: true)
+            }
         case .joinFamily:
             NavigationStack {
                 JoinFamilyView()
+            }
+        case .joinStatus:
+            NavigationStack {
+                JoinStatusView()
             }
         case .home:
             MainTabView()
@@ -44,19 +56,41 @@ struct AppRootView: View {
 
 private struct LaunchLoadingView: View {
     var body: some View {
-        VStack(spacing: 12) {
-            ProgressView()
-            Text("正在恢复家庭战况…")
-                .font(.body)
-                .foregroundStyle(.secondary)
+        ZStack {
+            DSColor.quietBackground.ignoresSafeArea()
+
+            VStack(spacing: 24) {
+                Image(systemName: "sun.max.fill")
+                    .font(.system(size: 30, weight: .medium))
+                    .symbolRenderingMode(.monochrome)
+                    .foregroundStyle(DSColor.ink)
+                    .frame(width: 58, height: 58)
+                    .background(DSColor.yellow)
+                    .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                    .shadow(color: DSColor.yellow.opacity(0.28), radius: 18, x: 0, y: 8)
+
+                ProgressView()
+                    .controlSize(.large)
+                    .tint(DSColor.mutedInk)
+
+                Text("正在恢复家庭战况…")
+                    .font(.system(size: 17, weight: .regular))
+                    .foregroundStyle(DSColor.mutedInk)
+            }
+            .offset(y: -18)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("正在恢复家庭战况")
+        .accessibilityIdentifier("launch-session-restoring")
     }
 }
 
 enum AppScreen: Hashable {
     case login
     case createFamily
+    case familyCreated
+    case choreSetup
     case joinFamily
+    case joinStatus
     case home
 }

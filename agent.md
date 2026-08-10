@@ -1,10 +1,10 @@
 # Agent Handoff Notes
 
-更新时间：2026-06-21
+更新时间：2026-08-10
 
 ## Project Summary
 
-`你今天干啥啦` 是一个 iOS 优先的家庭家务记录与积分 App。当前已完成本地可联调 MVP 主链路，下一阶段重点是测试、稳定性、Keychain、环境配置和 TestFlight，不应重复实现已经落地的业务功能。
+`你今天干啥啦` 是一个 iOS 优先的家庭家务记录与积分 App。当前已完成本地可联调 MVP、Keychain、环境配置和第一轮高保真重构；下一阶段重点是冻结基线、UI/双账号自动化、生产配置隔离和 TestFlight。
 
 ## Repository Layout
 
@@ -24,8 +24,18 @@
 5. OWNER approve/reject。
 6. ACTIVE 成员选择家务和实际耗时。
 7. 后端保存 `actualMinutes` 并按比例计算 `points`。
-8. 首页读取今日/最近动态，刷新排行榜和月报。
-9. 成员可以点赞/取消点赞；有权限者可以左滑软删除记录。
+8. 首页读取家庭时区内本周动态，家庭动态读取 recent；月报支持月份切换。
+9. 成员可以单击点赞、长按选择表情回应并取消回应；有权限者可以左滑软删除记录。
+10. OWNER 可转让一家之主；成员可切换一一对应的立绘和头像。
+11. 系统家务按日常家庭、恋爱陪伴、育儿、宠物四主题展示；免费版最多 6 项常用家务且由 OWNER 同步全家，高级版不限数量且每位成员可保存个人布局。
+12. 每个家庭免费可创建 2 个共享自定义家务，开发兑换后扩展为 10 个；常用页只展示已有项和接下来的 2 个空位。
+13. 月报按所选月份返回四主题与家务大类统计；iOS 使用主题圆环和大类分段比例条，并只保留领跑者卡为一级视觉锚点。
+14. OWNER 可编辑家庭名称；ACTIVE 成员可查看其他成员滚动近 30 天未删除动态，家主转让从目标成员详情发起。
+15. MEMBER 可退出当前家庭；OWNER 必须先转让家主，转让和退出后 iOS 立即刷新会话内角色状态。
+16. 家庭高级版可在每次记录时调整 `0.5x...2.0x` 积分倍率，免费版使用系统固定倍率。
+17. App 支持跟随系统、浅色和深色三种外观；核心 DesignSystem token 已自适应。
+18. 常用家务页已收口轻触记录、页面滚动、长按布局、拖动排序/删除和底部进入家务库的手势边界。
+19. MEMBER 退出家庭只标记 `LEFT` 并保留 FamilyMember；重新申请复用原关系。历史 activity 使用创建时昵称、身份和头像快照，不按当前昵称重新匹配。
 
 手机号登录只是 MVP 开发登录，不发送短信验证码，也不是生产认证。Apple/微信登录尚未接入。
 
@@ -43,7 +53,7 @@
 当前能力：
 
 - `APIConfig.useMockData` 切换 Mock/API。
-- 四 Tab：今日战况、记一下、家庭战况、我的。
+- 四 Tab：本周战况、记一下、月度战报、我的。
 - 登录、创建家庭、邀请码加入、OWNER 审核。
 - 身份选择、自定义身份、avatarKey 本地占位头像。
 - `ChoreDurationPickerSheet` 使用 1...180 分钟 wheel picker。
@@ -51,6 +61,16 @@
 - activity 展示头像、身份、实际耗时、积分、点赞计数和点赞头像。
 - `canDelete=true` 时提供左滑删除。
 - API 请求具有 loading、error；DebugPanel 仅 Debug 显示。
+- Keychain 保存 token，启动恢复期间不会闪现 LoginView。
+- 月报人物立绘跟随所选月份积分第一名。
+- 月报消费 `themeStats`/`categoryStats`，使用主题圆环、家务大类分段条和分层卡片结构。
+- 13 组 `family_avatar_action_XX`/`avatar_XX` 通过 avatarKey 一一映射。
+- 自定义家务支持 10 项图标、默认时长和 0.5x...2.0x 倍率。
+- 耗时弹窗显示系统倍率和预计积分；家庭高级版可以调整本次记录倍率，API 通过 `pointsMultiplier` 入账。
+- Profile 顶部依次显示家庭名称、身份、昵称；OWNER 可编辑家庭名称，所有 ACTIVE 成员可进入其他成员近 30 天详情。
+- Profile 支持修改本人昵称和退出家庭；OWNER 退出前必须先完成家主转让。
+- Profile 提供跟随系统、浅色和深色三种外观选择。
+- 成就系统仅完成产品规划，尚未实现；规范见 `docs/ACHIEVEMENTS.md`，不得当作当前能力。
 
 实际耗时积分规则：
 
@@ -58,7 +78,7 @@
 points = round(defaultPoints * actualMinutes / standardMinutes)
 ```
 
-标准时长小于等于 0 时回退到默认积分。
+标准时长小于等于 0 时回退到默认积分。家庭高级版传入本次倍率时使用 `points = round(actualMinutes * pointsMultiplier)`，范围为 0.5x...2.0x。
 
 当前本机 API 配置：
 
@@ -85,16 +105,27 @@ APIConfig.useMockData = false
 真实路由：
 
 - `POST /auth/mock-login`
+- `GET /auth/me`
+- `POST /auth/redeem-premium`（仅开发测试，production 禁用）
 - `POST /families`
 - `GET /families/me`
+- `PATCH /families/:familyId`（仅 OWNER 修改家庭名称）
+- `GET /families/invitations/:inviteCode`
+- `GET /families/join-requests/me`
 - `POST /families/join-requests`
 - `POST /families/:familyId/join-requests`（兼容旧调用）
 - `GET /families/:familyId/join-requests`
 - `PATCH /families/:familyId/join-requests/:memberId`
+- `PATCH /families/:familyId/owner`
+- `PATCH /families/:familyId/members/me/appearance`
+- `GET /families/:familyId/members/:memberId/activity`（ACTIVE，滚动近 30 天）
 - `GET /chores`
+- `GET|PATCH /families/:familyId/chore-layout`
+- `GET|POST /families/:familyId/custom-chores`
+- `PATCH|DELETE /families/:familyId/custom-chores/:choreId`
 - `POST /chore-records`
-- `GET /families/:familyId/activity?range=day|recent`
-- `GET /families/:familyId/leaderboard?range=day|month`
+- `GET /families/:familyId/activity?range=day|week|recent`
+- `GET /families/:familyId/leaderboard?range=day|week|month`
 - `GET /families/:familyId/monthly-report?month=YYYY-MM`
 - `DELETE /chore-records/:recordId`
 - `POST /chore-records/:recordId/like`
@@ -107,7 +138,10 @@ APIConfig.useMockData = false
 - activity 的 day 按家庭 `timezone` 计算本地今天。
 - activity 默认 recent，最多 30 条。
 - leaderboard、monthly-report 和 activity 都排除软删除记录。
-- 点赞和取消点赞均幂等。
+- monthly-report 同时返回按 `themeKey` 聚合的 `themeStats` 和按家务大类聚合的 `categoryStats`。
+- 点赞/表情回应和取消均幂等；支持 `like`、`high_five`、`moon_face`、`laugh_cry`、`tease`，同一用户只保留一种回应。
+- 首页周统计使用家庭时区内周一至下周一的范围。
+- 系统家务全部免费；开通账号保存 `User.plan=premium`，但权益按家庭共享：任一 ACTIVE 成员开通后，全家扩展常用系统家务数量、自定义家务额度并允许每位成员使用个人布局。测试码默认 `241255`，生产禁用。
 
 图片凭证：后端字段和开启后的校验保留；iOS MVP 隐藏/禁用入口并创建家庭时固定发送 false。不要删除后端字段，也不要在未实现上传前开放 iOS 开关。
 
@@ -146,12 +180,10 @@ xcodebuild -project apps/ios/WhatDidYouDo.xcodeproj \
 ## Current Gaps
 
 - 正式短信验证码、Apple、微信认证。
-- Keychain 会话存储和恢复。
-- Debug/Staging/Release 环境隔离。
 - 真实头像和图片凭证上传。
-- StoreKit 与服务端权益校验。
+- StoreKit、收据校验和正式订阅权益。
 - iOS 自动化主链路测试。
-- CI、签名、归档、隐私材料和 TestFlight。
+- 完整 XCUITest、签名、归档、隐私材料和 TestFlight。
 
 ## Engineering Constraints
 
@@ -164,8 +196,9 @@ xcodebuild -project apps/ios/WhatDidYouDo.xcodeproj \
 
 ## Next Recommended Order
 
-1. 补后端边界测试与 iOS ViewModel/UI 回归。
-2. 完成弱网、超时、token 失效和跨天边界处理。
-3. 使用 Keychain 管理 token 和退出登录清理。
-4. 拆分 Debug/Staging/Release 配置并接 CI。
-5. 完成签名、归档、隐私信息和 TestFlight 内测。
+1. 冻结当前功能与高保真 UI 基线，清理并提交当前大批工作区改动。
+2. 增加双账号 XCUITest、关键截图回归和周边界/DST 测试。
+3. 隔离开发兑换码和 Release 配置，正式付费改用 StoreKit + 服务端收据校验。
+4. 完成签名、归档、隐私信息和 TestFlight 内测。
+
+详细的 2026-08-01 上午改动见 `docs/CHANGELOG_2026-08-01_AM.md`。

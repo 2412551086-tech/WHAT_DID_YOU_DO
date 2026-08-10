@@ -58,10 +58,10 @@ struct DSButton: View {
                 .clipShape(RoundedRectangle(cornerRadius: DSCornerRadius.button, style: .continuous))
                 .overlay(
                     RoundedRectangle(cornerRadius: DSCornerRadius.button, style: .continuous)
-                        .stroke(DSColor.ink, lineWidth: DSStroke.secondary)
+                        .stroke(DSColor.outline, lineWidth: DSStroke.secondary)
                 )
                 .shadow(
-                    color: DSColor.ink.opacity(shadowOpacity),
+                    color: DSColor.shadow.opacity(shadowOpacity),
                     radius: 0,
                     x: currentShadowOffset.width,
                     y: currentShadowOffset.height
@@ -147,9 +147,9 @@ struct DSIconButton: View {
             .clipShape(RoundedRectangle(cornerRadius: min(DSCornerRadius.smallCard, size * 0.32), style: .continuous))
             .overlay(
                 RoundedRectangle(cornerRadius: min(DSCornerRadius.smallCard, size * 0.32), style: .continuous)
-                    .stroke(DSColor.ink, lineWidth: DSStroke.hairline)
+                    .stroke(DSColor.outline, lineWidth: DSStroke.hairline)
             )
-            .shadow(color: DSColor.ink.opacity(isLoading ? 0 : DSShadow.weakOpacity), radius: 0, x: 3, y: 3)
+            .shadow(color: DSColor.shadow.opacity(isLoading ? 0 : DSShadow.weakOpacity), radius: 0, x: 3, y: 3)
             .opacity(isLoading ? 0.64 : 1)
         }
         .buttonStyle(.plain)

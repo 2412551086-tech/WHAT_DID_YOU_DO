@@ -1,0 +1,3 @@
+ALTER TABLE "User"
+ADD COLUMN "plan" TEXT NOT NULL DEFAULT 'free',
+ADD COLUMN "premiumRedeemedAt" TIMESTAMP(3);

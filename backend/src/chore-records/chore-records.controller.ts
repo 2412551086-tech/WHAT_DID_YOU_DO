@@ -6,6 +6,7 @@ import { ChoreRecordsService } from './chore-records.service';
 import { ActivityQueryDto } from './dto/activity-query.dto';
 import { CreateChoreRecordDto } from './dto/create-chore-record.dto';
 import { LeaderboardQueryDto } from './dto/leaderboard-query.dto';
+import { ReactToChoreRecordDto } from './dto/react-to-chore-record.dto';
 
 @UseGuards(DevAuthGuard)
 @Controller()
@@ -23,7 +24,21 @@ export class ChoreRecordsController {
     @Param('familyId') familyId: string,
     @Query() query: ActivityQueryDto,
   ) {
-    return this.choreRecordsService.getActivity(user, familyId, query.range ?? 'recent');
+    return this.choreRecordsService.getActivity(
+      user,
+      familyId,
+      query.range ?? 'recent',
+      query.weekOffset ?? 0,
+    );
+  }
+
+  @Get('families/:familyId/members/:memberId/activity')
+  getMemberActivity(
+    @CurrentUser() user: AuthUser,
+    @Param('familyId') familyId: string,
+    @Param('memberId') memberId: string,
+  ) {
+    return this.choreRecordsService.getMemberActivity(user, familyId, memberId);
   }
 
   @Get('families/:familyId/leaderboard')
@@ -32,7 +47,12 @@ export class ChoreRecordsController {
     @Param('familyId') familyId: string,
     @Query() query: LeaderboardQueryDto,
   ) {
-    return this.choreRecordsService.getLeaderboard(user, familyId, query.range ?? 'month');
+    return this.choreRecordsService.getLeaderboard(
+      user,
+      familyId,
+      query.range ?? 'month',
+      query.weekOffset ?? 0,
+    );
   }
 
   @Delete('chore-records/:recordId')
@@ -41,8 +61,12 @@ export class ChoreRecordsController {
   }
 
   @Post('chore-records/:recordId/like')
-  likeRecord(@CurrentUser() user: AuthUser, @Param('recordId') recordId: string) {
-    return this.choreRecordsService.likeRecord(user, recordId);
+  likeRecord(
+    @CurrentUser() user: AuthUser,
+    @Param('recordId') recordId: string,
+    @Body() dto: ReactToChoreRecordDto,
+  ) {
+    return this.choreRecordsService.likeRecord(user, recordId, dto.reactionKey ?? 'like');
   }
 
   @Delete('chore-records/:recordId/like')

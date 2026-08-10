@@ -22,6 +22,21 @@ enum APIError: LocalizedError {
         }
         return false
     }
+
+    static func isConnectivityError(_ error: Error) -> Bool {
+        guard let urlError = error as? URLError else {
+            return false
+        }
+
+        return [
+            .notConnectedToInternet,
+            .networkConnectionLost,
+            .cannotConnectToHost,
+            .cannotFindHost,
+            .dnsLookupFailed,
+            .timedOut,
+        ].contains(urlError.code)
+    }
 }
 
 struct APIDebugSnapshot: Sendable {
@@ -153,7 +168,11 @@ actor APIClient: APIClientProtocol {
                 throw APIError.requestFailed(statusCode: httpResponse.statusCode, message: message)
             }
 
-            let decoded = try Self.decoder.decode(Response.self, from: data)
+            // Nest/Express serializes a successful `null` result as an empty body.
+            // Normalizing it keeps optional response contracts decodable while
+            // non-optional response types still fail loudly.
+            let responseData = data.isEmpty ? Data("null".utf8) : data
+            let decoded = try Self.decoder.decode(Response.self, from: responseData)
             debugSnapshot.lastErrorMessage = nil
             return decoded
         } catch {
