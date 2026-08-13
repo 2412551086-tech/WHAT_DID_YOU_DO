@@ -9,6 +9,7 @@ struct ActivityRow: View {
     var body: some View {
         DSActivityRow(
             record: record,
+            timeZoneIdentifier: viewModel.currentFamily?.timezone,
             onQuickReaction: { viewModel.toggleLike(record) },
             onReaction: { viewModel.react(to: record, with: $0) },
             onEdit: { recordBeingEdited = record },

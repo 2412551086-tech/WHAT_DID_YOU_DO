@@ -489,10 +489,24 @@ export class FamiliesService {
   async updateMyAppearance(user: AuthUser, familyId: string, avatarKey: string) {
     const membership = await this.assertActiveMember(familyId, user.id);
 
-    const updatedMembership = await this.prisma.familyMember.update({
-      where: { id: membership.id },
-      data: { avatarKey },
-      include: { user: true },
+    const updatedMembership = await this.prisma.$transaction(async (transaction) => {
+      const updated = await transaction.familyMember.update({
+        where: { id: membership.id },
+        data: { avatarKey },
+        include: { user: true },
+      });
+
+      await transaction.choreRecord.updateMany({
+        where: {
+          familyId,
+          userId: user.id,
+        },
+        data: {
+          creatorAvatarKeySnapshot: avatarKey,
+        },
+      });
+
+      return updated;
     });
 
     return this.formatMembership(updatedMembership);

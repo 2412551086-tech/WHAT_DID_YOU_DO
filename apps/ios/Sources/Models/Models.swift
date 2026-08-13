@@ -363,7 +363,7 @@ struct ChoreRecord: Identifiable, Hashable {
     let creatorId: String?
     let identityLabel: String
     let customIdentity: String?
-    let avatarKey: String?
+    var avatarKey: String?
     var likeCount: Int = 0
     var likedBy: [ActivityLiker] = []
     var likedByMe: Bool = false
@@ -384,6 +384,23 @@ struct ChoreRecord: Identifiable, Hashable {
         copy.actualMinutes = actualMinutes
         copy.points = points
         copy.pointsMultiplier = pointsMultiplier
+        return copy
+    }
+
+    func updatingAvatar(for userId: String, avatarKey: String) -> ChoreRecord {
+        var copy = self
+        if creatorId == userId {
+            copy.avatarKey = avatarKey
+        }
+        copy.likedBy = likedBy.map { liker in
+            guard liker.id == userId else { return liker }
+            return ActivityLiker(
+                id: liker.id,
+                displayName: liker.displayName,
+                avatarKey: avatarKey,
+                reaction: liker.reaction
+            )
+        }
         return copy
     }
 }

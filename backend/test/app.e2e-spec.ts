@@ -1858,7 +1858,7 @@ describe("MVP API (e2e)", () => {
     expect(memberFamilies.body[0].name).toBe("E2E new profile family");
   });
 
-  it("updates the active member appearance without rewriting historical activity", async () => {
+  it("updates the active member appearance across historical activity", async () => {
     const user = await login("E2E appearance member");
     const familyResponse = await request(app.getHttpServer())
       .post("/families")
@@ -1896,6 +1896,11 @@ describe("MVP API (e2e)", () => {
       .expect(200);
     expect(familiesResponse.body[0].myMembership.avatarKey).toBe("avatar_13");
 
+    await prisma.choreRecord.update({
+      where: { id: recordResponse.body.recordId },
+      data: { creatorAvatarKeySnapshot: "avatar_01" },
+    });
+
     const activityResponse = await request(app.getHttpServer())
       .get(`/families/${familyId}/activity?range=recent`)
       .set("Authorization", `Bearer ${user.token}`)
@@ -1904,7 +1909,7 @@ describe("MVP API (e2e)", () => {
       expect.arrayContaining([
         expect.objectContaining({
           recordId: recordResponse.body.recordId,
-          createdBy: expect.objectContaining({ avatarKey: "avatar_01" }),
+          createdBy: expect.objectContaining({ avatarKey: "avatar_13" }),
         }),
       ]),
     );

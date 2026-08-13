@@ -634,6 +634,7 @@ enum DSActivityRowPresentation {
 
 struct DSActivityRow: View {
     let record: ChoreRecord
+    var timeZoneIdentifier: String?
     var onQuickReaction: (() -> Void)?
     var onReaction: ((ChoreReaction) -> Void)?
     var onEdit: (() -> Void)?
@@ -702,7 +703,7 @@ struct DSActivityRow: View {
                     .font(.system(size: 15, weight: .semibold, design: .default))
                     .lineLimit(1)
 
-                Text("\(record.actualMinutes) 分钟 · \(relativeCreatedAt)")
+                Text("\(record.actualMinutes) 分钟 · \(activityTimestamp)")
                     .font(.system(size: 12, weight: .regular, design: .default))
                     .foregroundStyle(DSColor.floatingSecondaryText)
                     .lineLimit(1)
@@ -786,12 +787,12 @@ struct DSActivityRow: View {
         return names.min(by: { $0.count < $1.count }) ?? record.choreName
     }
 
-    private var relativeCreatedAt: String {
-        let formatter = RelativeDateTimeFormatter()
+    private var activityTimestamp: String {
+        let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "zh_CN")
-        formatter.dateTimeStyle = .numeric
-        formatter.unitsStyle = .full
-        return formatter.localizedString(for: record.createdAt, relativeTo: Date())
+        formatter.timeZone = timeZoneIdentifier.flatMap(TimeZone.init(identifier:)) ?? .autoupdatingCurrent
+        formatter.dateFormat = "EEEE HH:mm"
+        return formatter.string(from: record.createdAt).replacingOccurrences(of: "星期", with: "周")
     }
 
     private var remainingLikeCount: Int {

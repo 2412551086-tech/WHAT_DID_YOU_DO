@@ -36,6 +36,7 @@
 		1A0000010000000000000027 /* ActivityRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A0000010000000000001027 /* ActivityRow.swift */; };
 		1A0000010000000000000028 /* SecureTokenStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A0000010000000000001028 /* SecureTokenStore.swift */; };
 		1A0000010000000000000029 /* AchievementsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A0000010000000000001029 /* AchievementsView.swift */; };
+		1A0000010000000000000030 /* WeeklyInsightsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A0000010000000000001030 /* WeeklyInsightsView.swift */; };
 		1B0000010000000000000001 /* WhatDidYouDoTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1B0000010000000000001001 /* WhatDidYouDoTests.swift */; };
 /* End PBXBuildFile section */
 
@@ -80,6 +81,7 @@
 		1A0000010000000000001027 /* ActivityRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActivityRow.swift; sourceTree = "<group>"; };
 		1A0000010000000000001028 /* SecureTokenStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SecureTokenStore.swift; sourceTree = "<group>"; };
 		1A0000010000000000001029 /* AchievementsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AchievementsView.swift; sourceTree = "<group>"; };
+		1A0000010000000000001030 /* WeeklyInsightsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WeeklyInsightsView.swift; sourceTree = "<group>"; };
 		1B0000010000000000001000 /* WhatDidYouDoTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = WhatDidYouDoTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		1B0000010000000000001001 /* WhatDidYouDoTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WhatDidYouDoTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
@@ -228,6 +230,7 @@
 				1A0000010000000000001016 /* FamilyDashboardView.swift */,
 				1A0000010000000000001017 /* ProfileView.swift */,
 				1A0000010000000000001029 /* AchievementsView.swift */,
+				1A0000010000000000001030 /* WeeklyInsightsView.swift */,
 			);
 			path = Home;
 			sourceTree = "<group>";
@@ -405,6 +408,7 @@
 				1A0000010000000000000027 /* ActivityRow.swift in Sources */,
 				1A0000010000000000000028 /* SecureTokenStore.swift in Sources */,
 				1A0000010000000000000029 /* AchievementsView.swift in Sources */,
+				1A0000010000000000000030 /* WeeklyInsightsView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

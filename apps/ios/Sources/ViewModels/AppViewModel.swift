@@ -2175,6 +2175,15 @@ final class AppViewModel: ObservableObject {
                 joinedAt: profile.joinedAt
             )
         }
+        weekRecords = weekRecords.map {
+            $0.updatingAvatar(for: membership.userId, avatarKey: avatarKey)
+        }
+        recentRecords = recentRecords.map {
+            $0.updatingAvatar(for: membership.userId, avatarKey: avatarKey)
+        }
+        memberActivityByMemberID = memberActivityByMemberID.mapValues { records in
+            records.map { $0.updatingAvatar(for: membership.userId, avatarKey: avatarKey) }
+        }
     }
 
     private func loginWithAPI() async {

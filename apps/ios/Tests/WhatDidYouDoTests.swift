@@ -1021,11 +1021,11 @@ final class WhatDidYouDoTests: XCTestCase {
         XCTAssertTrue(records.allSatisfy { $0.createdAt >= Date().addingTimeInterval(-30 * 24 * 60 * 60) })
     }
 
-    func testMockAppearanceUpdatesCurrentProfileWithoutRewritingExistingActivity() async {
+    func testMockAppearanceUpdatesCurrentProfileAndHistoricalActivity() async {
         let viewModel = AppViewModel.previewLoggedIn()
-        let originalActivityAvatars = viewModel.weekRecords
-            .filter { $0.creatorId == viewModel.currentUser?.id }
-            .map(\.avatarKey)
+        let currentUserID = viewModel.currentUser?.id
+
+        XCTAssertFalse(viewModel.weekRecords.filter { $0.creatorId == currentUserID }.isEmpty)
 
         XCTAssertEqual(viewModel.monthlyLeaderIllustrationAsset, "family_avatar_action_01")
 
@@ -1039,9 +1039,14 @@ final class WhatDidYouDoTests: XCTestCase {
         )
         XCTAssertEqual(
             viewModel.weekRecords
-                .filter { $0.creatorId == viewModel.currentUser?.id }
+                .filter { $0.creatorId == currentUserID }
                 .map(\.avatarKey),
-            originalActivityAvatars
+            Array(repeating: "avatar_13", count: viewModel.weekRecords.filter { $0.creatorId == currentUserID }.count)
+        )
+        XCTAssertTrue(
+            viewModel.recentRecords
+                .filter { $0.creatorId == currentUserID }
+                .allSatisfy { $0.avatarKey == "avatar_13" }
         )
         XCTAssertEqual(FamilyIdentityOptions.actionAsset(for: "avatar_13"), "family_avatar_action_13")
         XCTAssertEqual(viewModel.monthlyLeaderIllustrationAsset, "family_avatar_action_13")

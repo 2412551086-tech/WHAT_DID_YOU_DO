@@ -776,12 +776,13 @@ export class ChoreRecordsService {
   }
 
   private formatRecord(record: RecordWithDetails, currentUserId: string, currentMemberRole: MemberRole) {
+    const creatorMembership = record.user.memberships[0];
     const createdBy = {
       id: record.user.id,
       displayName: record.creatorDisplayNameSnapshot,
       identityLabel: record.creatorIdentityLabelSnapshot,
       customIdentity: record.creatorCustomIdentitySnapshot,
-      avatarKey: record.creatorAvatarKeySnapshot,
+      avatarKey: creatorMembership?.avatarKey ?? record.creatorAvatarKeySnapshot,
     };
     const likedBy = record.likes.map((like) => {
       const likerMembership = like.user.memberships[0];

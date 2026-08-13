@@ -4,6 +4,7 @@ import UIKit
 struct ProfileView: View {
     @EnvironmentObject private var viewModel: AppViewModel
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @Environment(\.colorScheme) private var colorScheme
     @AppStorage(AppAppearance.storageKey) private var appearanceRawValue = AppAppearance.system.rawValue
     @State private var didCopyInviteCode = false
     @State private var isDebugExpanded = false
@@ -126,10 +127,11 @@ struct ProfileView: View {
     }
 
     private var identityCardBackground: some View {
-        RoundedRectangle(cornerRadius: 24, style: .continuous)
-            .fill(ProfilePalette.identitySurface)
+        let accent = FamilyIdentityOptions.accentColor(for: viewModel.currentMembership?.avatarKey)
+        return RoundedRectangle(cornerRadius: 24, style: .continuous)
+            .fill(accent.opacity(colorScheme == .dark ? 0.34 : 0.52))
             .overlay(alignment: .bottomTrailing) {
-                ProfilePetalDecoration()
+                ProfilePetalDecoration(color: accent)
                     .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
             }
             .shadow(color: DSColor.shadow.opacity(0.10), radius: 13, x: 0, y: 7)
@@ -314,16 +316,12 @@ struct ProfileView: View {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(alignment: .top, spacing: 20) {
                     ForEach(displayedMembers) { member in
-                        if member.userId == viewModel.currentUser?.id {
+                        NavigationLink {
+                            MemberActivityDetailView(member: member)
+                        } label: {
                             memberItem(member)
-                        } else {
-                            NavigationLink {
-                                MemberActivityDetailView(member: member)
-                            } label: {
-                                memberItem(member)
-                            }
-                            .buttonStyle(.plain)
                         }
+                        .buttonStyle(.plain)
                     }
                 }
                 .padding(.vertical, 4)
@@ -369,9 +367,7 @@ struct ProfileView: View {
                 ProfileNavigationRow(
                     title: "我的成就",
                     systemImage: "medal.fill",
-                    badge: viewModel.achievementSummary.map {
-                        "\($0.unlockedCount)/\($0.totalCount)"
-                    }
+                    badge: nil
                 )
             }
             .buttonStyle(.plain)
@@ -906,26 +902,23 @@ private struct ProfileAppearanceRow: View {
     }
 }
 
-private enum ProfilePalette {
-    static let identitySurface = DSColor.choreBlueSurface
-    static let petal = DSColor.sky
-}
-
 private struct ProfilePetalDecoration: View {
+    let color: Color
+
     var body: some View {
         ZStack(alignment: .bottomTrailing) {
             Circle()
-                .fill(ProfilePalette.petal.opacity(0.32))
+                .fill(color.opacity(0.32))
                 .frame(width: 78, height: 78)
                 .offset(x: 18, y: 22)
 
             Circle()
-                .fill(ProfilePalette.petal.opacity(0.26))
+                .fill(color.opacity(0.26))
                 .frame(width: 58, height: 58)
                 .offset(x: -36, y: 27)
 
             Circle()
-                .fill(ProfilePalette.petal.opacity(0.22))
+                .fill(color.opacity(0.22))
                 .frame(width: 45, height: 45)
                 .offset(x: -74, y: 34)
         }
