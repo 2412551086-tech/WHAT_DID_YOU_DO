@@ -91,6 +91,11 @@ export class FamiliesController {
     return this.familiesService.leaveFamily(user, familyId);
   }
 
+  @Delete(':familyId')
+  dissolveFamily(@CurrentUser() user: AuthUser, @Param('familyId') familyId: string) {
+    return this.familiesService.dissolveFamily(user, familyId);
+  }
+
   @Patch(':familyId/members/me/appearance')
   updateMyAppearance(
     @CurrentUser() user: AuthUser,

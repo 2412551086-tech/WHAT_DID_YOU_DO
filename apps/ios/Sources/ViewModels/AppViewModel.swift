@@ -46,6 +46,8 @@ final class AppViewModel: ObservableObject {
     @Published private(set) var choreLayoutScope = "family"
     @Published private(set) var choreLayoutIsPersonalized = false
     @Published private(set) var followsFamilyChoreLayout = true
+    @Published private(set) var serverCommonChoreSelectionLimit: Int? = 6
+    @Published private(set) var serverCustomChoreLimit = 2
     @Published private(set) var weekRecords = MockData.todayRecords
     @Published private(set) var recentRecords = MockData.todayRecords
     @Published private(set) var weekRanking = MockData.members
@@ -65,6 +67,13 @@ final class AppViewModel: ObservableObject {
     @Published private(set) var lastSecureStorageErrorMessage: String?
     @Published private(set) var hasPremiumAccess = false
     @Published var selectedChore: ChoreItem?
+    @Published private(set) var achievementSummary: AchievementSummary?
+    @Published private(set) var achievementItems: [AchievementItem] = []
+    @Published private(set) var showAchievementsToFamily = true
+    @Published private(set) var achievementDataState: AchievementDataState = .idle
+    @Published private(set) var achievementSyncState: AchievementSyncState = .idle
+    @Published private(set) var achievementLastUpdatedAt: Date?
+    @Published var pendingAchievementCelebration: AchievementCelebration?
 
     private let apiClient: any APIClientProtocol
     private let tokenStore: any SecureTokenStore
@@ -74,6 +83,7 @@ final class AppViewModel: ObservableObject {
     private var commonChoreGridScope: String?
     private var hiddenCommonCustomSlotIDs: Set<String> = []
     private var accountHasPremiumAccess = false
+    private var achievementSyncTask: Task<Void, Never>?
 
     init(
         apiClient: any APIClientProtocol = APIClient(),
@@ -186,6 +196,49 @@ final class AppViewModel: ObservableObject {
         !(accessToken?.isEmpty ?? true)
     }
 
+    var nextAchievement: AchievementItem? {
+        upcomingAchievements.first
+    }
+
+    var upcomingAchievements: [AchievementItem] {
+        Array(
+            achievementItems
+                .filter { !$0.isUnlocked }
+                .sorted { left, right in
+                    if left.clampedProgress != right.clampedProgress {
+                        return left.clampedProgress > right.clampedProgress
+                    }
+                    if (left.reward != nil) != (right.reward != nil) {
+                        return left.reward != nil
+                    }
+                    return left.name.localizedStandardCompare(right.name) == .orderedAscending
+                }
+                .prefix(3)
+        )
+    }
+
+    var unlockedAchievements: [AchievementItem] {
+        achievementItems
+            .filter(\.isUnlocked)
+            .sorted { ($0.unlockedAt ?? .distantPast) > ($1.unlockedAt ?? .distantPast) }
+    }
+
+    var orderedAchievements: [AchievementItem] {
+        unlockedAchievements + achievementItems
+            .filter { !$0.isUnlocked }
+            .sorted(by: achievementPriority)
+    }
+
+    private func achievementPriority(_ left: AchievementItem, _ right: AchievementItem) -> Bool {
+        if (left.reward != nil) != (right.reward != nil) {
+            return left.reward != nil
+        }
+        if left.clampedProgress != right.clampedProgress {
+            return left.clampedProgress > right.clampedProgress
+        }
+        return left.name.localizedStandardCompare(right.name) == .orderedAscending
+    }
+
     var isCurrentUserOwner: Bool {
         currentMembership?.memberRole == .owner && currentMembership?.status == .active
     }
@@ -284,11 +337,11 @@ final class AppViewModel: ObservableObject {
     }
 
     var customChoreLimit: Int {
-        hasPremiumAccess ? 10 : 2
+        usesMockData ? (hasPremiumAccess ? 100 : 2) : serverCustomChoreLimit
     }
 
     var commonChoreSelectionLimit: Int? {
-        hasPremiumAccess ? nil : 6
+        usesMockData ? (hasPremiumAccess ? nil : 6) : serverCommonChoreSelectionLimit
     }
 
     var canEditCommonChoreLayout: Bool {
@@ -547,6 +600,8 @@ final class AppViewModel: ObservableObject {
     func showCreateFamily() {
         joinRequestSubmitted = false
         currentJoinApplication = nil
+        serverCommonChoreSelectionLimit = 6
+        serverCustomChoreLimit = 2
         inviteValidationState = .idle
         clearError()
         rootScreen = .createFamily
@@ -993,9 +1048,91 @@ final class AppViewModel: ObservableObject {
         }
 
         Task {
+            var evaluation: AchievementEvaluationDTO?
             await performLoading("正在删除家务记录") {
-                let _: DeleteRecordResponseDTO = try await apiClient.delete("chore-records/\(record.id)")
+                let response: DeleteRecordResponseDTO = try await apiClient.delete("chore-records/\(record.id)")
+                evaluation = response.achievementEvaluation
                 try await refreshHomeDataFromAPI()
+            }
+            if let evaluation {
+                beginAchievementSync(evaluation)
+            }
+        }
+    }
+
+    func choreItem(for record: ChoreRecord) -> ChoreItem {
+        if let choreId = record.choreId,
+           let chore = chores.first(where: { $0.id == choreId }) {
+            return chore
+        }
+        if let chore = chores.first(where: { $0.name == record.choreName }) {
+            return chore
+        }
+
+        let standardMinutes = max(1, record.standardMinutes)
+        let inferredDefaultPoints = record.defaultPoints ?? max(
+            1,
+            Int((Double(record.points) * Double(standardMinutes) / Double(max(1, record.actualMinutes))).rounded())
+        )
+        return ChoreItem(
+            id: record.choreId ?? record.id,
+            name: record.choreName,
+            category: record.category,
+            minutes: standardMinutes,
+            points: inferredDefaultPoints,
+            icon: record.icon,
+            color: record.color
+        )
+    }
+
+    func updateRecord(
+        _ record: ChoreRecord,
+        actualMinutes: Int,
+        pointsMultiplier: Double?
+    ) {
+        clearError()
+        guard record.canEdit else {
+            errorMessage = "只能编辑自己创建的家务记录。"
+            return
+        }
+
+        let minutes = max(1, min(180, actualMinutes))
+        guard !usesMockData else {
+            let chore = choreItem(for: record)
+            let points = pointsMultiplier.map {
+                Self.estimatedPoints(for: chore, selectedMinutes: minutes, pointsMultiplier: $0)
+            } ?? Self.estimatedPoints(for: chore, selectedMinutes: minutes)
+            let updated = record.updating(
+                actualMinutes: minutes,
+                points: points,
+                pointsMultiplier: pointsMultiplier
+            )
+            weekRecords = weekRecords.map { $0.id == record.id ? updated : $0 }
+            recentRecords = recentRecords.map { $0.id == record.id ? updated : $0 }
+            let delta = points - record.points
+            addWeekPoints(delta, to: record.memberName)
+            addMonthlyPoints(delta, to: record.memberName)
+            updateMockMonthlyReport()
+            return
+        }
+
+        Task {
+            var evaluation: AchievementEvaluationDTO?
+            await performLoading("正在保存家务记录") {
+                let response: ChoreRecordDTO = try await apiClient.patch(
+                    "chore-records/\(record.id)",
+                    body: UpdateChoreRecordRequest(
+                        actualMinutes: minutes,
+                        pointsMultiplier: pointsMultiplier
+                    )
+                )
+                evaluation = response.achievementEvaluation
+                try await refreshHomeDataFromAPI()
+            }
+            if let evaluation {
+                beginAchievementSync(evaluation)
+            } else {
+                Task { await refreshAchievements() }
             }
         }
     }
@@ -1018,6 +1155,77 @@ final class AppViewModel: ObservableObject {
         await performLoading("正在同步家庭战况") {
             try await refreshHomeDataFromAPI()
         }
+    }
+
+    func refreshAchievementSummaryIfNeeded() {
+        guard achievementDataState == .idle || achievementDataState == .cached else { return }
+        Task { await refreshAchievements() }
+    }
+
+    func refreshAchievements() async {
+        guard achievementDataState != .loading else { return }
+
+        if usesMockData {
+            achievementSummary = MockData.achievementSummary
+            achievementItems = MockData.achievementCollection.achievements
+            showAchievementsToFamily = MockData.achievementCollection.showAchievementsToFamily
+            achievementLastUpdatedAt = MockData.achievementCollection.updatedAt
+            achievementDataState = .loaded
+            return
+        }
+
+        guard accessToken != nil, currentFamily != nil else {
+            achievementDataState = .idle
+            return
+        }
+
+        achievementDataState = .loading
+        do {
+            try await loadAchievementsFromAPI()
+            achievementDataState = .loaded
+            isOffline = false
+        } catch {
+            if let apiError = error as? APIError, apiError.isUnauthorized {
+                await clearInvalidSession()
+                errorMessage = "登录已失效，请重新登录。"
+                achievementDataState = .failed("登录已失效，请重新登录。")
+            } else if APIError.isConnectivityError(error), loadAchievementCache() {
+                isOffline = true
+                achievementDataState = .cached
+            } else {
+                achievementDataState = .failed(error.localizedDescription)
+            }
+        }
+        await syncAPIDebugSnapshot()
+    }
+
+    func updateAchievementSharing(showToFamily: Bool) async {
+        if usesMockData {
+            applyAchievementSharing(showToFamily)
+            return
+        }
+
+        guard let familyId = currentFamily?.id else { return }
+        do {
+            let response: AchievementSharingResponseDTO = try await apiClient.patch(
+                "families/\(familyId)/achievements/visibility",
+                body: UpdateAchievementSharingRequest(showToFamily: showToFamily)
+            )
+            applyAchievementSharing(response.showToFamily)
+            saveAchievementCache()
+        } catch {
+            if let apiError = error as? APIError, apiError.isUnauthorized {
+                await clearInvalidSession()
+                errorMessage = "登录已失效，请重新登录。"
+            } else {
+                achievementDataState = .failed(error.localizedDescription)
+            }
+        }
+        await syncAPIDebugSnapshot()
+    }
+
+    func dismissAchievementCelebration() {
+        pendingAchievementCelebration = nil
     }
 
     func selectPreviousWeek() {
@@ -1486,6 +1694,8 @@ final class AppViewModel: ObservableObject {
     }
 
     private func resetSessionState() {
+        achievementSyncTask?.cancel()
+        achievementSyncTask = nil
         accessToken = nil
         currentUser = nil
         accountHasPremiumAccess = false
@@ -1525,6 +1735,13 @@ final class AppViewModel: ObservableObject {
         monthlyRanking = usesMockData ? MockData.members : []
         weekRanking = usesMockData ? MockData.members : []
         monthlyReport = usesMockData ? MockData.monthlyReport : nil
+        achievementSummary = nil
+        achievementItems = []
+        showAchievementsToFamily = true
+        achievementDataState = .idle
+        achievementSyncState = .idle
+        achievementLastUpdatedAt = nil
+        pendingAchievementCelebration = nil
         selectedReportMonth = currentMonth
         isOffline = false
         lastSuccessfulSyncAt = nil
@@ -1534,6 +1751,8 @@ final class AppViewModel: ObservableObject {
     }
 
     private func resetFamilyContextAfterLeaving() {
+        achievementSyncTask?.cancel()
+        achievementSyncTask = nil
         currentFamily = nil
         currentMembership = nil
         familyMembers = []
@@ -1559,6 +1778,13 @@ final class AppViewModel: ObservableObject {
         weekRanking = []
         monthlyRanking = []
         monthlyReport = nil
+        achievementSummary = nil
+        achievementItems = []
+        showAchievementsToFamily = true
+        achievementDataState = .idle
+        achievementSyncState = .idle
+        achievementLastUpdatedAt = nil
+        pendingAchievementCelebration = nil
     }
 
     private var usesMockData: Bool {
@@ -1730,7 +1956,11 @@ final class AppViewModel: ObservableObject {
             avatarKey: currentMembership?.avatarKey ?? selectedAvatarKey,
             likeCount: 0,
             likedByMe: false,
-            canDelete: true
+            canDelete: true,
+            canEdit: true,
+            choreId: chore.id,
+            defaultPoints: chore.points,
+            pointsMultiplier: pointsMultiplier
         )
 
         weekRecords.insert(record, at: 0)
@@ -2099,6 +2329,7 @@ final class AppViewModel: ObservableObject {
         actualMinutes: Int?,
         pointsMultiplier: Double?
     ) async {
+        var evaluation: AchievementEvaluationDTO?
         await performLoading("正在记录实际耗时") {
             guard let familyId = currentFamily?.id else {
                 throw AppStateError.missingFamily
@@ -2119,8 +2350,86 @@ final class AppViewModel: ObservableObject {
 
             weekRecords.insert(mapRecord(record), at: 0)
             recentRecords.insert(mapRecord(record), at: 0)
+            evaluation = record.achievementEvaluation
             selectedTab = .today
             try await refreshHomeDataFromAPI()
+        }
+
+        if let evaluation {
+            beginAchievementSync(evaluation)
+        } else {
+            Task { await refreshAchievements() }
+        }
+    }
+
+    private func beginAchievementSync(_ evaluation: AchievementEvaluationDTO) {
+        guard let familyId = currentFamily?.id else { return }
+        achievementSyncTask?.cancel()
+        achievementSyncState = .pending
+
+        achievementSyncTask = Task { [weak self] in
+            guard let self else { return }
+            var retryDelay = max(250, min(1_500, evaluation.retryAfterMs ?? 500))
+
+            for _ in 0..<12 {
+                do {
+                    try await Task.sleep(for: .milliseconds(retryDelay))
+                } catch {
+                    return
+                }
+                guard !Task.isCancelled else { return }
+
+                do {
+                    let sync: AchievementSyncDTO = try await apiClient.get(
+                        "families/\(familyId)/achievement-sync/\(evaluation.eventId)"
+                    )
+                    switch sync.state {
+                    case "SUCCEEDED":
+                        try await loadAchievementsFromAPI()
+                        achievementDataState = .loaded
+                        achievementSyncState = .idle
+
+                        let unlocks = sync.unlockBatch?.unlocks ?? []
+                        let unlocked = unlocks.compactMap { unlock in
+                            achievementItems.first {
+                                $0.key == unlock.achievementKey && $0.tier == unlock.tier
+                            }
+                        }
+                        let rewards = sync.unlockBatch?.rewards.map {
+                            AchievementReward(type: $0.rewardType, value: $0.rewardValue)
+                        } ?? []
+                        if !unlocked.isEmpty || !rewards.isEmpty {
+                            pendingAchievementCelebration = AchievementCelebration(
+                                id: sync.unlockBatch?.id ?? evaluation.eventId,
+                                achievements: unlocked,
+                                rewards: rewards
+                            )
+                        }
+                        await syncAPIDebugSnapshot()
+                        return
+                    case "FAILED":
+                        achievementSyncState = .failed
+                        await syncAPIDebugSnapshot()
+                        return
+                    default:
+                        retryDelay = max(250, min(1_500, sync.retryAfterMs ?? 500))
+                    }
+                } catch {
+                    if let apiError = error as? APIError, apiError.isUnauthorized {
+                        await clearInvalidSession()
+                        errorMessage = "登录已失效，请重新登录。"
+                        return
+                    }
+                    if !APIError.isConnectivityError(error) {
+                        achievementSyncState = .failed
+                        await syncAPIDebugSnapshot()
+                        return
+                    }
+                }
+            }
+
+            achievementSyncState = .failed
+            await syncAPIDebugSnapshot()
         }
     }
 
@@ -2158,6 +2467,8 @@ final class AppViewModel: ObservableObject {
         choreLayoutScope = response.scope ?? (hasPremiumAccess ? "member" : "family")
         choreLayoutIsPersonalized = response.isPersonalized ?? false
         followsFamilyChoreLayout = response.followFamilyLayout ?? !choreLayoutIsPersonalized
+        serverCommonChoreSelectionLimit = response.selectionLimit
+        serverCustomChoreLimit = response.customChoreLimit ?? (hasPremiumAccess ? 100 : 2)
         synchronizeChoreLayout()
     }
 
@@ -2333,6 +2644,7 @@ final class AppViewModel: ObservableObject {
     }
 
     private func applyCurrentFamily(_ family: FamilyDTO) {
+        let shouldChangeAchievementScope = achievementSummary?.familyId != family.id
         currentFamily = mapFamily(family)
         currentMembership = membership(from: family)
         hasPremiumAccess = family.hasPremiumAccess ?? accountHasPremiumAccess
@@ -2342,6 +2654,14 @@ final class AppViewModel: ObservableObject {
         familyMembers = (family.members ?? []).compactMap(mapFamilyMemberProfile)
         familyName = family.name
         requiresPhotoProof = family.requirePhotoProof
+
+        if shouldChangeAchievementScope {
+            achievementSummary = nil
+            achievementItems = []
+            showAchievementsToFamily = true
+            achievementLastUpdatedAt = nil
+            achievementDataState = loadAchievementCache() ? .cached : .idle
+        }
     }
 
     private func replaceCurrentFamilyName(_ name: String) {
@@ -2393,6 +2713,101 @@ final class AppViewModel: ObservableObject {
         recentRecords = recentItems.map(mapActivity)
         weekRanking = mapRanking(weekLeaderboardItems)
         applyMonthlyReport(monthlyReportDTO)
+    }
+
+    private func loadAchievementsFromAPI() async throws {
+        guard let familyId = currentFamily?.id else {
+            throw AppStateError.missingFamily
+        }
+
+        async let summaryResponse: AchievementSummaryDTO = apiClient.get(
+            "families/\(familyId)/achievements/summary"
+        )
+        async let collectionResponse: AchievementCollectionDTO = apiClient.get(
+            "families/\(familyId)/achievements/me"
+        )
+        let (summaryDTO, collectionDTO) = try await (summaryResponse, collectionResponse)
+
+        achievementSummary = mapAchievementSummary(summaryDTO)
+        achievementItems = collectionDTO.achievements.map(mapAchievement)
+        showAchievementsToFamily = collectionDTO.showAchievementsToFamily
+        achievementLastUpdatedAt = collectionDTO.updatedAt
+        saveAchievementCache()
+    }
+
+    private func loadAchievementCache() -> Bool {
+        guard let key = achievementCacheKey,
+              let data = userDefaults.data(forKey: key),
+              let envelope = try? JSONDecoder().decode(AchievementCacheEnvelope.self, from: data)
+        else {
+            return false
+        }
+
+        achievementSummary = envelope.summary
+        achievementItems = envelope.collection.achievements
+        showAchievementsToFamily = envelope.collection.showAchievementsToFamily
+        achievementLastUpdatedAt = envelope.cachedAt
+        return true
+    }
+
+    private func saveAchievementCache() {
+        guard let key = achievementCacheKey,
+              let summary = achievementSummary,
+              let familyId = currentFamily?.id,
+              let userId = currentUser?.id
+        else {
+            return
+        }
+
+        let cachedAt = Date()
+        let envelope = AchievementCacheEnvelope(
+            summary: summary,
+            collection: AchievementCollection(
+                familyId: familyId,
+                userId: userId,
+                showAchievementsToFamily: showAchievementsToFamily,
+                achievements: achievementItems,
+                capacity: summary.capacity,
+                updatedAt: achievementLastUpdatedAt ?? cachedAt
+            ),
+            cachedAt: cachedAt
+        )
+        if let data = try? JSONEncoder().encode(envelope) {
+            userDefaults.set(data, forKey: key)
+        }
+    }
+
+    private var achievementCacheKey: String? {
+        guard let familyId = currentFamily?.id, let userId = currentUser?.id else { return nil }
+        return "\(Self.achievementCacheKeyPrefix)-\(userId)-\(familyId)"
+    }
+
+    private func applyAchievementSharing(_ showToFamily: Bool) {
+        self.showAchievementsToFamily = showToFamily
+        let visibility: AchievementVisibility = showToFamily ? .family : .privateOnly
+        achievementItems = achievementItems.map { item in
+            guard item.memberAchievementId != nil else { return item }
+            var updated = item
+            updated.visibility = visibility
+            return updated
+        }
+
+        guard let summary = achievementSummary else { return }
+        achievementSummary = AchievementSummary(
+            familyId: summary.familyId,
+            userId: summary.userId,
+            showAchievementsToFamily: showToFamily,
+            unlockedCount: summary.unlockedCount,
+            totalCount: summary.totalCount,
+            nextAchievement: summary.nextAchievement,
+            recentUnlocks: summary.recentUnlocks.map { item in
+                guard item.memberAchievementId != nil else { return item }
+                var updated = item
+                updated.visibility = visibility
+                return updated
+            },
+            capacity: summary.capacity
+        )
     }
 
     private func refreshSelectedWeekFromAPI() async throws {
@@ -2820,7 +3235,11 @@ final class AppViewModel: ObservableObject {
             likedByMe: dto.likedByMe ?? false,
             reactionCounts: mapReactionCounts(dto.reactionCounts),
             myReaction: dto.myReaction.flatMap(ChoreReaction.init(rawValue:)),
-            canDelete: dto.canDelete ?? true
+            canDelete: dto.canDelete ?? true,
+            canEdit: dto.canEdit ?? true,
+            choreId: dto.chore.id,
+            defaultPoints: dto.chore.defaultPoints,
+            pointsMultiplier: dto.pointsMultiplier
         )
     }
 
@@ -2848,7 +3267,57 @@ final class AppViewModel: ObservableObject {
             likedByMe: dto.likedByMe ?? false,
             reactionCounts: mapReactionCounts(dto.reactionCounts),
             myReaction: dto.myReaction.flatMap(ChoreReaction.init(rawValue:)),
-            canDelete: dto.canDelete ?? false
+            canDelete: dto.canDelete ?? false,
+            canEdit: dto.canEdit ?? false,
+            choreId: dto.chore.id,
+            defaultPoints: dto.chore.defaultPoints,
+            pointsMultiplier: dto.pointsMultiplier
+        )
+    }
+
+    private func mapAchievementSummary(_ dto: AchievementSummaryDTO) -> AchievementSummary {
+        AchievementSummary(
+            familyId: dto.familyId,
+            userId: dto.userId,
+            showAchievementsToFamily: dto.showAchievementsToFamily,
+            unlockedCount: dto.unlockedCount,
+            totalCount: dto.totalCount,
+            nextAchievement: dto.nextAchievement.map(mapAchievement),
+            recentUnlocks: dto.recentUnlocks.map(mapAchievement),
+            capacity: mapAchievementCapacity(dto.capacity)
+        )
+    }
+
+    private func mapAchievement(_ dto: AchievementItemDTO) -> AchievementItem {
+        AchievementItem(
+            definitionId: dto.definitionId,
+            key: dto.key,
+            track: dto.track,
+            tier: dto.tier,
+            targetValue: dto.targetValue,
+            currentValue: dto.currentValue,
+            rawCurrentValue: dto.rawCurrentValue,
+            progressStatus: dto.progressStatus,
+            isUnlocked: dto.isUnlocked,
+            memberAchievementId: dto.memberAchievementId,
+            unlockedAt: dto.unlockedAt,
+            visibility: AchievementVisibility(rawValue: dto.visibility) ?? .family,
+            reward: dto.reward.map { AchievementReward(type: $0.type, value: $0.value) }
+        )
+    }
+
+    private func mapAchievementCapacity(_ dto: AchievementCapacityDTO) -> AchievementCapacity {
+        AchievementCapacity(
+            common: AchievementCapacityBucket(
+                base: dto.common.base,
+                earned: dto.common.earned,
+                limit: dto.common.limit
+            ),
+            custom: AchievementCapacityBucket(
+                base: dto.custom.base,
+                earned: dto.custom.earned,
+                limit: dto.custom.limit
+            )
         )
     }
 
@@ -2972,6 +3441,7 @@ final class AppViewModel: ObservableObject {
     private static let choreOrderDefaultsKey = "chore-card-order-v1"
     private static let pinnedChoresDefaultsKey = "chore-card-pinned-v1"
     private static let commonChoreGridDefaultsKeyPrefix = "common-chore-grid-order-v1"
+    private static let achievementCacheKeyPrefix = "achievement-cache-v1"
     private static let customChoreSlotPrefix = "custom-chore-slot-"
     private static let mockPremiumRedemptionCode = "241255"
 

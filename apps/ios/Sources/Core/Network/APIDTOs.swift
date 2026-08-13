@@ -50,6 +50,11 @@ struct CreateChoreRecordRequest: Encodable {
     let imageUrls: [String]?
 }
 
+struct UpdateChoreRecordRequest: Encodable {
+    let actualMinutes: Int
+    let pointsMultiplier: Double?
+}
+
 struct SaveCustomChoreRequest: Encodable {
     let name: String
     let iconKey: String
@@ -233,6 +238,7 @@ struct ChoreRecordDTO: Decodable {
     let minutes: Int
     let actualMinutes: Int?
     let points: Int
+    let pointsMultiplier: Double?
     let note: String?
     let imageUrls: [String]
     let likeCount: Int?
@@ -241,7 +247,9 @@ struct ChoreRecordDTO: Decodable {
     let reactionCounts: [String: Int]?
     let myReaction: String?
     let canDelete: Bool?
+    let canEdit: Bool?
     let createdAt: Date
+    let achievementEvaluation: AchievementEvaluationDTO?
 }
 
 struct ActivityItemDTO: Decodable {
@@ -255,6 +263,7 @@ struct ActivityItemDTO: Decodable {
     let minutes: Int
     let actualMinutes: Int?
     let points: Int
+    let pointsMultiplier: Double?
     let note: String?
     let imageUrls: [String]
     let likeCount: Int?
@@ -263,6 +272,7 @@ struct ActivityItemDTO: Decodable {
     let reactionCounts: [String: Int]?
     let myReaction: String?
     let canDelete: Bool?
+    let canEdit: Bool?
     let createdAt: Date
 }
 
@@ -280,6 +290,9 @@ struct RecordChoreDTO: Decodable {
     let name: String
     let category: String
     let icon: String?
+    let standardMinutes: Int?
+    let defaultPoints: Int?
+    let difficultyMultiplier: Double?
 }
 
 struct LikeResponseDTO: Decodable {
@@ -299,6 +312,7 @@ struct DeleteRecordResponseDTO: Decodable {
     let id: String
     let deletedAt: Date?
     let deletedById: String?
+    let achievementEvaluation: AchievementEvaluationDTO?
 }
 
 struct LeaderboardItemDTO: Decodable {
@@ -350,4 +364,119 @@ struct MonthlyReportRecordDTO: Decodable {
     let minutes: Int
     let actualMinutes: Int?
     let createdAt: Date
+}
+
+struct AchievementEvaluationDTO: Decodable, Sendable {
+    let eventId: String
+    let state: String
+    let retryAfterMs: Int?
+}
+
+struct AchievementRewardDTO: Decodable, Sendable {
+    let type: String
+    let value: Int
+}
+
+struct AchievementCapacityBucketDTO: Decodable, Sendable {
+    let base: Int
+    let earned: Int
+    let limit: Int?
+}
+
+struct AchievementCapacityDTO: Decodable, Sendable {
+    let common: AchievementCapacityBucketDTO
+    let custom: AchievementCapacityBucketDTO
+}
+
+struct AchievementItemDTO: Decodable, Sendable {
+    let definitionId: String
+    let key: String
+    let nameKey: String
+    let descriptionKey: String
+    let unlockCopyKey: String
+    let track: String
+    let tier: String
+    let targetValue: Int
+    let currentValue: Int
+    let rawCurrentValue: Int
+    let progressStatus: String
+    let isUnlocked: Bool
+    let memberAchievementId: String?
+    let unlockedAt: Date?
+    let visibility: String
+    let reward: AchievementRewardDTO?
+}
+
+struct AchievementSummaryDTO: Decodable, Sendable {
+    let familyId: String
+    let userId: String
+    let showAchievementsToFamily: Bool
+    let unlockedCount: Int
+    let totalCount: Int
+    let nextAchievement: AchievementItemDTO?
+    let recentUnlocks: [AchievementItemDTO]
+    let capacity: AchievementCapacityDTO
+}
+
+struct AchievementCollectionDTO: Decodable, Sendable {
+    let familyId: String
+    let userId: String
+    let showAchievementsToFamily: Bool
+    let achievements: [AchievementItemDTO]
+    let capacity: AchievementCapacityDTO
+    let updatedAt: Date
+}
+
+struct UpdateAchievementVisibilityRequest: Encodable, Sendable {
+    let visibility: String
+}
+
+struct UpdateAchievementSharingRequest: Encodable, Sendable {
+    let showToFamily: Bool
+}
+
+struct AchievementSharingResponseDTO: Decodable, Sendable {
+    let familyId: String
+    let userId: String
+    let showToFamily: Bool
+}
+
+struct AchievementVisibilityResponseDTO: Decodable, Sendable {
+    let id: String
+    let achievementKey: String
+    let visibility: String
+    let unlockedAt: Date
+}
+
+struct AchievementUnlockDTO: Decodable, Sendable {
+    let id: String
+    let achievementKey: String
+    let tier: String
+    let unlockedAt: Date
+    let visibility: String
+}
+
+struct AchievementRewardGrantDTO: Decodable, Sendable {
+    let achievementKey: String
+    let rewardType: String
+    let rewardValue: Int
+    let grantedAt: Date
+}
+
+struct AchievementUnlockBatchDTO: Decodable, Sendable {
+    let id: String
+    let primaryUnlockId: String?
+    let unlockCount: Int
+    let unlocks: [AchievementUnlockDTO]
+    let rewards: [AchievementRewardGrantDTO]
+}
+
+struct AchievementSyncDTO: Decodable, Sendable {
+    let eventId: String
+    let state: String
+    let retryCount: Int
+    let retryAfterMs: Int?
+    let processedAt: Date?
+    let lastErrorCode: String?
+    let unlockBatch: AchievementUnlockBatchDTO?
 }

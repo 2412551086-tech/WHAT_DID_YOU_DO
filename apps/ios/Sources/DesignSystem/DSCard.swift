@@ -636,6 +636,7 @@ struct DSActivityRow: View {
     let record: ChoreRecord
     var onQuickReaction: (() -> Void)?
     var onReaction: ((ChoreReaction) -> Void)?
+    var onEdit: (() -> Void)?
     var onDelete: (() -> Void)?
     var isLoading = false
     var presentation: DSActivityRowPresentation = .standalone
@@ -651,6 +652,12 @@ struct DSActivityRow: View {
                     Button(role: .destructive, action: onDelete) {
                         Label("删除", systemImage: "trash.fill")
                     }
+                }
+                if record.canEdit, let onEdit {
+                    Button(action: onEdit) {
+                        Label("编辑", systemImage: "slider.horizontal.3")
+                    }
+                    .tint(DSColor.infoBlue)
                 }
             }
             .accessibilityElement(children: .contain)

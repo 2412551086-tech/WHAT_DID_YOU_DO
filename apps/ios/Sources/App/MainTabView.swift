@@ -10,6 +10,7 @@ enum MainTab: Hashable {
 struct MainTabView: View {
     @EnvironmentObject private var viewModel: AppViewModel
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @StateObject private var commonChoreDragCoordinator = CommonChoreDragCoordinator()
 
     var body: some View {
@@ -72,9 +73,33 @@ struct MainTabView: View {
                 .transition(.move(edge: .bottom).combined(with: .opacity))
                 .zIndex(10)
             }
+
+            if let celebration = viewModel.pendingAchievementCelebration {
+                ZStack {
+                    Color.black.opacity(0.24)
+                        .ignoresSafeArea()
+                        .onTapGesture(perform: viewModel.dismissAchievementCelebration)
+
+                    AchievementCelebrationOverlay(
+                        celebration: celebration,
+                        dismiss: viewModel.dismissAchievementCelebration
+                    )
+                    .padding(.horizontal, 24)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+                .transition(.scale(scale: 0.92).combined(with: .opacity))
+                .zIndex(20)
+            }
         }
         .environmentObject(commonChoreDragCoordinator)
-        .animation(.spring(response: 0.26, dampingFraction: 0.86), value: commonChoreDragCoordinator.isActive)
+        .animation(
+            reduceMotion ? nil : .spring(response: 0.26, dampingFraction: 0.86),
+            value: commonChoreDragCoordinator.isActive
+        )
+        .animation(
+            reduceMotion ? nil : .spring(response: 0.32, dampingFraction: 0.88),
+            value: viewModel.pendingAchievementCelebration?.id
+        )
         .onPreferenceChange(CommonChoreRemovalFramePreferenceKey.self) { frame in
             commonChoreDragCoordinator.trashFrame = frame
         }

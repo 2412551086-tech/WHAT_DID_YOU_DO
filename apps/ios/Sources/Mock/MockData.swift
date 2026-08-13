@@ -166,10 +166,60 @@ enum MockData {
     static let chores = coreChores + premiumChores + themedChores
 
     static let todayRecords: [ChoreRecord] = [
-        ChoreRecord(id: "mock-record-dishes", memberName: "我", choreName: "洗碗收桌", category: "清洁", standardMinutes: 15, actualMinutes: 15, points: 21, note: "水槽终于重见天日", createdAt: Date().addingTimeInterval(-4_200), icon: "fork.knife", color: DSColor.yellow, creatorId: currentUser.id, identityLabel: "老妈", customIdentity: nil, avatarKey: "avatar_01", likeCount: 2, likedBy: [ActivityLiker(id: currentUser.id, displayName: "我", avatarKey: "avatar_01"), ActivityLiker(id: "mock-user-xia", displayName: "小夏", avatarKey: "avatar_02")], likedByMe: true, canDelete: true),
+        ChoreRecord(id: "mock-record-dishes", memberName: "我", choreName: "洗碗收桌", category: "清洁", standardMinutes: 15, actualMinutes: 15, points: 21, note: "水槽终于重见天日", createdAt: Date().addingTimeInterval(-4_200), icon: "fork.knife", color: DSColor.yellow, creatorId: currentUser.id, identityLabel: "老妈", customIdentity: nil, avatarKey: "avatar_01", likeCount: 2, likedBy: [ActivityLiker(id: currentUser.id, displayName: "我", avatarKey: "avatar_01"), ActivityLiker(id: "mock-user-xia", displayName: "小夏", avatarKey: "avatar_02")], likedByMe: true, canDelete: true, canEdit: true),
         ChoreRecord(id: "mock-record-mop", memberName: "小夏", choreName: "拖地清洁", category: "清洁", standardMinutes: 25, actualMinutes: 30, points: 48, note: "地板亮到能照出理想", createdAt: Date().addingTimeInterval(-2_700), icon: "drop.fill", color: DSColor.lavender, creatorId: "mock-user-xia", identityLabel: "室友", customIdentity: nil, avatarKey: "avatar_02", likeCount: 1, likedBy: [ActivityLiker(id: "mock-user-doudou", displayName: "豆豆", avatarKey: "avatar_03")], likedByMe: false, canDelete: true),
         ChoreRecord(id: "mock-record-trash", memberName: "豆豆", choreName: "倒垃圾 / 垃圾分类", category: "清洁", standardMinutes: 10, actualMinutes: 10, points: 10, note: "垃圾桶暂时恢复平静", createdAt: Date().addingTimeInterval(-1_100), icon: "trash.fill", color: DSColor.sky, creatorId: "mock-user-doudou", identityLabel: "妹妹", customIdentity: nil, avatarKey: "avatar_03", likeCount: 0, likedByMe: false, canDelete: true),
     ]
+
+    static let achievements: [AchievementItem] = [
+        achievement("FIRST_RECORD", target: 1, current: 1, unlocked: true),
+        achievement(
+            "ACTIVE_DAYS_3",
+            target: 3,
+            current: 2,
+            reward: AchievementReward(type: "COMMON_CHORE_SLOT", value: 1)
+        ),
+        achievement(
+            "ACTIVE_DAYS_5",
+            target: 5,
+            current: 2,
+            reward: AchievementReward(type: "COMMON_CHORE_SLOT", value: 1)
+        ),
+        achievement(
+            "ACTIVE_DAYS_7",
+            target: 7,
+            current: 2,
+            reward: AchievementReward(type: "CUSTOM_CHORE_SLOT", value: 1)
+        ),
+        achievement("STREAK_7", target: 7, current: 2),
+        achievement("STREAK_14", target: 14, current: 2),
+        achievement("HABIT_30", target: 25, current: 2),
+    ]
+
+    static let achievementCapacity = AchievementCapacity(
+        common: AchievementCapacityBucket(base: 6, earned: 0, limit: 6),
+        custom: AchievementCapacityBucket(base: 2, earned: 0, limit: 2)
+    )
+
+    static let achievementSummary = AchievementSummary(
+        familyId: family.id,
+        userId: currentUser.id,
+        showAchievementsToFamily: true,
+        unlockedCount: achievements.filter(\.isUnlocked).count,
+        totalCount: achievements.count,
+        nextAchievement: achievements.first { !$0.isUnlocked },
+        recentUnlocks: Array(achievements.filter(\.isUnlocked).prefix(3)),
+        capacity: achievementCapacity
+    )
+
+    static let achievementCollection = AchievementCollection(
+        familyId: family.id,
+        userId: currentUser.id,
+        showAchievementsToFamily: true,
+        achievements: achievements,
+        capacity: achievementCapacity,
+        updatedAt: Date()
+    )
 
     static let monthlyReport = MonthlyReport(
         month: "2026-06",
@@ -189,4 +239,28 @@ enum MockData {
             MonthlyReportCategory(category: "洗护", points: 36, recordCount: 2),
         ]
     )
+
+    private static func achievement(
+        _ key: String,
+        target: Int,
+        current: Int,
+        unlocked: Bool = false,
+        reward: AchievementReward? = nil
+    ) -> AchievementItem {
+        AchievementItem(
+            definitionId: "mock-achievement-\(key.lowercased())",
+            key: key,
+            track: "JOURNEY",
+            tier: "NONE",
+            targetValue: target,
+            currentValue: current,
+            rawCurrentValue: current,
+            progressStatus: unlocked ? "COMPLETED" : "ACTIVE",
+            isUnlocked: unlocked,
+            memberAchievementId: unlocked ? "mock-member-achievement-\(key.lowercased())" : nil,
+            unlockedAt: unlocked ? Date().addingTimeInterval(-86_400) : nil,
+            visibility: .family,
+            reward: reward
+        )
+    }
 }

@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Patch, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Patch, Post, UseGuards } from '@nestjs/common';
 import { CurrentUser } from './decorators/current-user.decorator';
 import { DevAuthGuard } from './guards/dev-auth.guard';
 import { AuthUser } from './auth-user';
@@ -35,5 +35,11 @@ export class AuthController {
   @Post('redeem-premium')
   redeemPremium(@CurrentUser() user: AuthUser, @Body() dto: RedeemPremiumDto) {
     return this.authService.redeemPremium(user, dto);
+  }
+
+  @UseGuards(DevAuthGuard)
+  @Delete('me')
+  deleteCurrentUser(@CurrentUser() user: AuthUser) {
+    return this.authService.anonymizeCurrentUser(user);
   }
 }

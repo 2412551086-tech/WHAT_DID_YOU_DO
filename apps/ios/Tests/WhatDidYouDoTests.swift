@@ -5,6 +5,31 @@ import XCTest
 
 @MainActor
 final class WhatDidYouDoTests: XCTestCase {
+    func testAchievementArtworkMapsAllCurrentAchievementThemes() {
+        let expectedMappings = [
+            "FIRST_RECORD": "achievement_first_record",
+            "ACTIVE_DAYS_3": "achievement_active_days_3",
+            "HABIT_30": "achievement_habit_25_30",
+            "MASTERY_DISHES": "achievement_mastery_dishes",
+            "REACTION_FIRST": "achievement_reaction_first",
+            "FAMILY_FORMED": "achievement_family_formed",
+            "PAIR_COOK_AND_CLEAN": "achievement_pair_cook_and_clean",
+            "FAMILY_ACTIVE_DAYS": "achievement_family_visible_4w",
+            "FAMILY_RECORD_COUNT": "achievement_family_all_in",
+            "FAMILY_ANNIVERSARY": "achievement_family_formed",
+            "HIDDEN_DISHES_3": "achievement_mastery_dishes",
+            "HIDDEN_SHINY_FLOOR": "achievement_mastery_floor",
+            "HIDDEN_GUESTS": "achievement_mastery_all_rounder",
+            "HIDDEN_NIGHT_SHIFT": "achievement_streak_14",
+            "HIDDEN_ENDURANCE": "achievement_mastery_organize",
+        ]
+
+        for (key, assetName) in expectedMappings {
+            XCTAssertEqual(AchievementCopy.artworkAssetName(for: key), assetName)
+        }
+        XCTAssertNil(AchievementCopy.artworkAssetName(for: "UNKNOWN_ACHIEVEMENT"))
+    }
+
     func testAppAppearanceProvidesThreeStableOptions() {
         XCTAssertEqual(AppAppearance.allCases, [.system, .light, .dark])
         XCTAssertEqual(AppAppearance.system.title, "跟随系统")
@@ -623,14 +648,14 @@ final class WhatDidYouDoTests: XCTestCase {
         let correctCodeSucceeded = await viewModel.redeemPremium(code: "241255")
         XCTAssertTrue(correctCodeSucceeded)
         XCTAssertTrue(viewModel.hasPremiumAccess)
-        XCTAssertEqual(viewModel.customChoreLimit, 10)
-        XCTAssertEqual(viewModel.availableCustomChoreSlots, 10)
+        XCTAssertEqual(viewModel.customChoreLimit, 100)
+        XCTAssertEqual(viewModel.availableCustomChoreSlots, 100)
 
         let restoredViewModel = makeViewModel(defaults: fixture.defaults)
         restoredViewModel.phoneNumber = "123456"
         restoredViewModel.mockLogin()
         XCTAssertTrue(restoredViewModel.hasPremiumAccess)
-        XCTAssertEqual(restoredViewModel.customChoreLimit, 10)
+        XCTAssertEqual(restoredViewModel.customChoreLimit, 100)
     }
 
     func testAPIPremiumRedemptionUsesBackendAndUnlocksAccount() async throws {
@@ -681,12 +706,16 @@ final class WhatDidYouDoTests: XCTestCase {
                 "id": "chore-1",
                 "name": "洗碗",
                 "category": "厨房类",
-                "icon": "fork.knife"
+                "icon": "fork.knife",
+                "standardMinutes": 15,
+                "defaultPoints": 20,
+                "difficultyMultiplier": 1.3
               },
               "choreName": "洗碗",
               "minutes": 15,
               "actualMinutes": 20,
               "points": 28,
+              "pointsMultiplier": 1.4,
               "note": null,
               "imageUrls": [],
               "likeCount": 1,
@@ -709,6 +738,7 @@ final class WhatDidYouDoTests: XCTestCase {
                 "tease": 0
               },
               "canDelete": true,
+              "canEdit": true,
               "createdAt": "2026-06-22T08:00:00.000Z"
             }
             """#.utf8
@@ -719,6 +749,9 @@ final class WhatDidYouDoTests: XCTestCase {
         XCTAssertEqual(dto.likeCount, 1)
         XCTAssertEqual(dto.likedByMe, true)
         XCTAssertEqual(dto.canDelete, true)
+        XCTAssertEqual(dto.canEdit, true)
+        XCTAssertEqual(dto.pointsMultiplier, 1.4)
+        XCTAssertEqual(dto.chore.defaultPoints, 20)
         XCTAssertEqual(dto.createdBy?.identityLabel, "老妈")
         XCTAssertEqual(dto.createdBy?.avatarKey, "avatar_01")
         XCTAssertEqual(dto.likedBy?.first?.identityLabel, "室友")
@@ -727,6 +760,23 @@ final class WhatDidYouDoTests: XCTestCase {
         XCTAssertEqual(dto.myReaction, "laugh_cry")
         XCTAssertEqual(dto.reactionCounts?["high_five"], 1)
         XCTAssertEqual(dto.reactionCounts?["laugh_cry"], 1)
+    }
+
+    func testMockRecordEditUpdatesOnlyOwnedRecord() throws {
+        let viewModel = AppViewModel.previewLoggedIn()
+        let ownedRecord = try XCTUnwrap(viewModel.recentRecords.first { $0.canEdit })
+        let untouchedIDs = viewModel.recentRecords.filter { $0.id != ownedRecord.id }.map(\.id)
+
+        viewModel.updateRecord(ownedRecord, actualMinutes: 30, pointsMultiplier: nil)
+
+        let updated = try XCTUnwrap(viewModel.recentRecords.first { $0.id == ownedRecord.id })
+        XCTAssertEqual(updated.actualMinutes, 30)
+        XCTAssertEqual(updated.points, 42)
+        XCTAssertNil(updated.pointsMultiplier)
+        XCTAssertEqual(
+            viewModel.recentRecords.filter { $0.id != ownedRecord.id }.map(\.id),
+            untouchedIDs
+        )
     }
 
     func testMockReactionCanBeSelectedChangedAndRemovedWithoutDoubleCounting() throws {
@@ -809,6 +859,74 @@ final class WhatDidYouDoTests: XCTestCase {
         XCTAssertEqual(report.themeStats?.first?.points, 41)
         XCTAssertEqual(report.categoryStats.first?.category, "厨房类")
         XCTAssertEqual(report.categoryStats.first?.recordCount, 2)
+    }
+
+    func testAchievementSummaryDTOIncludesProgressRewardAndCapacity() throws {
+        let summary = try APIClient.decoder.decode(
+            AchievementSummaryDTO.self,
+            from: Self.achievementSummaryData
+        )
+
+        XCTAssertEqual(summary.unlockedCount, 1)
+        XCTAssertEqual(summary.totalCount, 7)
+        XCTAssertEqual(summary.nextAchievement?.key, "ACTIVE_DAYS_3")
+        XCTAssertEqual(summary.nextAchievement?.currentValue, 2)
+        XCTAssertEqual(summary.nextAchievement?.reward?.type, "COMMON_CHORE_SLOT")
+        XCTAssertEqual(summary.capacity.common.limit, 6)
+        XCTAssertEqual(summary.capacity.custom.limit, 2)
+    }
+
+    func testMockAchievementsLoadAndUpdateSharingWithoutNetwork() async throws {
+        let viewModel = AppViewModel.previewLoggedIn()
+
+        await viewModel.refreshAchievements()
+
+        XCTAssertEqual(viewModel.achievementDataState, .loaded)
+        XCTAssertEqual(viewModel.achievementItems.count, 7)
+        XCTAssertEqual(viewModel.nextAchievement?.key, "ACTIVE_DAYS_3")
+        XCTAssertEqual(viewModel.upcomingAchievements.count, 3)
+        XCTAssertEqual(viewModel.upcomingAchievements.map(\.key), [
+            "ACTIVE_DAYS_3",
+            "ACTIVE_DAYS_5",
+            "ACTIVE_DAYS_7",
+        ])
+        XCTAssertEqual(viewModel.orderedAchievements.first?.key, "FIRST_RECORD")
+        XCTAssertTrue(
+            viewModel.orderedAchievements
+                .drop(while: \.isUnlocked)
+                .prefix(3)
+                .allSatisfy { $0.reward != nil }
+        )
+        await viewModel.updateAchievementSharing(showToFamily: false)
+
+        XCTAssertFalse(viewModel.showAchievementsToFamily)
+        XCTAssertTrue(viewModel.unlockedAchievements.allSatisfy { $0.visibility == .privateOnly })
+    }
+
+    func testAPIModeLoadsAchievementSummaryAndCollection() async throws {
+        let fixture = makeDefaultsFixture()
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.suiteName) }
+        var responses = Self.restoreResponses
+        responses["GET /families/family-1/achievements/summary"] = Self.achievementSummaryData
+        responses["GET /families/family-1/achievements/me"] = Self.achievementCollectionData
+        let client = StubAPIClient(responses: responses)
+        let viewModel = AppViewModel(
+            apiClient: client,
+            tokenStore: MockSecureTokenStore(token: "stored-token"),
+            dataMode: .api,
+            userDefaults: fixture.defaults
+        )
+        try await waitUntil { viewModel.sessionState == .authenticated }
+
+        await viewModel.refreshAchievements()
+
+        XCTAssertEqual(viewModel.achievementDataState, .loaded)
+        XCTAssertEqual(viewModel.achievementSummary?.unlockedCount, 1)
+        XCTAssertEqual(viewModel.achievementItems.count, 2)
+        XCTAssertEqual(viewModel.nextAchievement?.key, "ACTIVE_DAYS_3")
+        let paths = await client.requestPaths
+        XCTAssertTrue(paths.contains("GET /families/family-1/achievements/summary"))
+        XCTAssertTrue(paths.contains("GET /families/family-1/achievements/me"))
     }
 
     func testMonthlyReportCanMoveToPreviousMonthAndBack() {
@@ -1375,6 +1493,14 @@ final class WhatDidYouDoTests: XCTestCase {
             #"{"id":"member-2","userId":"user-2","familyId":"family-1","identityLabel":"室友","customIdentity":null,"avatarKey":"avatar_08","memberRole":"MEMBER","status":"PENDING","approvedAt":null,"approvedById":null,"createdAt":"2026-08-01T02:00:00.000Z","user":{"id":"user-2","displayName":"用户 654321"},"family":{"id":"family-1","name":"今日劳动观察站","inviteCode":"A5F637F7","memberCount":4,"owner":{"id":"owner-1","displayName":"用户 123456","identityLabel":"女主人","avatarKey":"avatar_01"},"currentStatus":"PENDING"}}"#.utf8
         ),
     ]
+
+    private static let achievementSummaryData = Data(
+        #"{"familyId":"family-1","userId":"user-1","showAchievementsToFamily":true,"unlockedCount":1,"totalCount":7,"nextAchievement":{"definitionId":"definition-active-3","key":"ACTIVE_DAYS_3","nameKey":"achievement.active_days_3.none.name","descriptionKey":"achievement.active_days_3.none.description","unlockCopyKey":"achievement.active_days_3.none.unlock","track":"JOURNEY","tier":"NONE","targetValue":3,"currentValue":2,"rawCurrentValue":2,"progressStatus":"ACTIVE","isUnlocked":false,"memberAchievementId":null,"unlockedAt":null,"visibility":"FAMILY","reward":{"type":"COMMON_CHORE_SLOT","value":1}},"recentUnlocks":[],"capacity":{"common":{"base":6,"earned":0,"limit":6},"custom":{"base":2,"earned":0,"limit":2}}}"#.utf8
+    )
+
+    private static let achievementCollectionData = Data(
+        #"{"familyId":"family-1","userId":"user-1","showAchievementsToFamily":true,"achievements":[{"definitionId":"definition-first","key":"FIRST_RECORD","nameKey":"achievement.first_record.none.name","descriptionKey":"achievement.first_record.none.description","unlockCopyKey":"achievement.first_record.none.unlock","track":"JOURNEY","tier":"NONE","targetValue":1,"currentValue":1,"rawCurrentValue":1,"progressStatus":"COMPLETED","isUnlocked":true,"memberAchievementId":"member-achievement-first","unlockedAt":"2026-08-11T01:00:00.000Z","visibility":"FAMILY","reward":null},{"definitionId":"definition-active-3","key":"ACTIVE_DAYS_3","nameKey":"achievement.active_days_3.none.name","descriptionKey":"achievement.active_days_3.none.description","unlockCopyKey":"achievement.active_days_3.none.unlock","track":"JOURNEY","tier":"NONE","targetValue":3,"currentValue":2,"rawCurrentValue":2,"progressStatus":"ACTIVE","isUnlocked":false,"memberAchievementId":null,"unlockedAt":null,"visibility":"FAMILY","reward":{"type":"COMMON_CHORE_SLOT","value":1}}],"capacity":{"common":{"base":6,"earned":0,"limit":6},"custom":{"base":2,"earned":0,"limit":2}},"updatedAt":"2026-08-11T01:00:00.000Z"}"#.utf8
+    )
 }
 
 private actor SpyAPIClient: APIClientProtocol {

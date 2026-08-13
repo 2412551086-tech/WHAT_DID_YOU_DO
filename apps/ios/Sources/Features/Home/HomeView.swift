@@ -5,6 +5,7 @@ struct HomeView: View {
     @EnvironmentObject private var viewModel: AppViewModel
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @State private var copySeed = Int.random(in: 0..<10_000)
+    @State private var showsAchievements = false
 
     private let activityPreviewLimit = 5
 
@@ -16,6 +17,7 @@ struct HomeView: View {
                 header.homeListRow(top: 10, bottom: 10)
                 familyScoreCard.homeListRow(top: 4, bottom: 14)
                 personalStatsCard.homeListRow(top: 2, bottom: 16)
+                achievementEntry.homeListRow(top: 0, bottom: 12)
 
                 Section {
                     if viewModel.isLoading {
@@ -59,8 +61,12 @@ struct HomeView: View {
             }
         }
         .navigationBarBackButtonHidden(true)
+        .navigationDestination(isPresented: $showsAchievements) {
+            AchievementsView()
+        }
         .task {
             viewModel.refreshHomeDataIfNeeded()
+            viewModel.refreshAchievementSummaryIfNeeded()
         }
         .onAppear {
             copySeed = Int.random(in: 0..<10_000)
@@ -323,6 +329,15 @@ struct HomeView: View {
                 )
             }
         }
+    }
+
+    private var achievementEntry: some View {
+        AchievementNextEntry(
+            achievements: viewModel.upcomingAchievements,
+            syncState: viewModel.achievementSyncState,
+            onSelect: { _ in showsAchievements = true }
+        )
+        .accessibilityHint("打开我的成就和进度")
     }
 
     private func personalMetric(

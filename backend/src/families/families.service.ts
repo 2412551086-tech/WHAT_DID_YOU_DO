@@ -5,8 +5,9 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { MemberRole, MemberStatus } from '@prisma/client';
+import { AchievementEventSourceType, MemberRole, MemberStatus } from '@prisma/client';
 import { randomBytes } from 'node:crypto';
+import { AchievementOutboxService } from '../achievements/achievement-outbox.service';
 import { AuthUser } from '../auth/auth-user';
 import { DEFAULT_FAMILY_TIMEZONE, isValidTimeZone, normalizeTimeZone } from '../common/timezone-ranges';
 import { PrismaService } from '../prisma/prisma.service';
@@ -17,37 +18,64 @@ import { ReviewJoinRequestDto } from './dto/review-join-request.dto';
 
 @Injectable()
 export class FamiliesService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly achievementOutbox: AchievementOutboxService,
+  ) {}
 
   async createFamily(user: AuthUser, dto: CreateFamilyDto) {
     const identity = this.normalizeIdentityInput(dto.identityLabel, dto.customIdentity);
-    const family = await this.prisma.family.create({
-      data: {
-        name: dto.name.trim(),
-        requirePhotoProof: dto.requirePhotoProof ?? false,
-        timezone: this.normalizeTimezoneInput(dto.timezone),
-        inviteCode: this.createInviteCode(),
-        members: {
-          create: {
-            userId: user.id,
-            identityLabel: identity.identityLabel,
-            customIdentity: identity.customIdentity,
-            avatarKey: this.normalizeOptional(dto.avatarKey),
-            memberRole: MemberRole.OWNER,
-            status: MemberStatus.ACTIVE,
-            approvedAt: new Date(),
-            approvedById: user.id,
+    const timezone = this.normalizeTimezoneInput(dto.timezone);
+    const created = await this.prisma.$transaction(async (transaction) => {
+      const family = await transaction.family.create({
+        data: {
+          name: dto.name.trim(),
+          requirePhotoProof: dto.requirePhotoProof ?? false,
+          timezone,
+          inviteCode: this.createInviteCode(),
+          members: {
+            create: {
+              userId: user.id,
+              identityLabel: identity.identityLabel,
+              customIdentity: identity.customIdentity,
+              avatarKey: this.normalizeOptional(dto.avatarKey),
+              memberRole: MemberRole.OWNER,
+              status: MemberStatus.ACTIVE,
+              approvedAt: new Date(),
+              approvedById: user.id,
+            },
           },
         },
-      },
-      include: {
-        members: {
-          include: {
-            user: true,
+        include: {
+          members: {
+            include: {
+              user: true,
+            },
           },
         },
-      },
+      });
+      const ownerMembership = family.members[0];
+      const event = ownerMembership
+        ? await this.achievementOutbox.enqueue(transaction, {
+            familyId: family.id,
+            actorUserId: user.id,
+            eventType: 'MEMBER_JOINED',
+            sourceType: AchievementEventSourceType.MEMBERSHIP,
+            sourceId: ownerMembership.id,
+            sourceVersion: 1,
+            occurredAt: ownerMembership.approvedAt ?? family.createdAt,
+            familyTimezone: family.timezone,
+            payload: {
+              membershipId: ownerMembership.id,
+              userId: user.id,
+              memberRole: ownerMembership.memberRole,
+              isFamilyCreator: true,
+            },
+          })
+        : null;
+      return { family, event };
     });
+    const family = created.family;
 
     const ownerMembership = family.members[0];
 
@@ -59,6 +87,9 @@ export class FamiliesService {
       ),
       myRole: 'owner',
       myMembership: ownerMembership ? this.formatMembership(ownerMembership) : null,
+      ...(created.event
+        ? { achievementEvaluation: this.achievementOutbox.evaluation(created.event) }
+        : {}),
     };
   }
 
@@ -80,10 +111,10 @@ export class FamiliesService {
     const identity = this.normalizeIdentityInput(dto.identityLabel, dto.customIdentity);
     const family = await this.prisma.family.findUnique({
       where: { id: familyId },
-      select: { id: true },
+      select: { id: true, archivedAt: true },
     });
 
-    if (!family) {
+    if (!family || family.archivedAt) {
       throw new NotFoundException('Family not found');
     }
 
@@ -150,10 +181,10 @@ export class FamiliesService {
     const inviteCode = dto.inviteCode.trim().toUpperCase();
     const family = await this.prisma.family.findUnique({
       where: { inviteCode },
-      select: { id: true },
+      select: { id: true, archivedAt: true },
     });
 
-    if (!family) {
+    if (!family || family.archivedAt) {
       throw new NotFoundException('Invite code not found');
     }
 
@@ -173,7 +204,7 @@ export class FamiliesService {
       },
     });
 
-    if (!family) {
+    if (!family || family.archivedAt) {
       throw new NotFoundException('Invite code not found');
     }
 
@@ -267,19 +298,46 @@ export class FamiliesService {
     }
 
     const approved = dto.action === 'approve';
-    const updatedMembership = await this.prisma.familyMember.update({
-      where: { id: membership.id },
-      data: {
-        status: approved ? MemberStatus.ACTIVE : MemberStatus.REJECTED,
-        approvedAt: approved ? new Date() : null,
-        approvedById: user.id,
-      },
-      include: {
-        user: true,
-      },
+    const reviewed = await this.prisma.$transaction(async (transaction) => {
+      const updatedMembership = await transaction.familyMember.update({
+        where: { id: membership.id },
+        data: {
+          status: approved ? MemberStatus.ACTIVE : MemberStatus.REJECTED,
+          approvedAt: approved ? new Date() : null,
+          approvedById: user.id,
+        },
+        include: {
+          user: true,
+          family: { select: { timezone: true } },
+        },
+      });
+      const event = approved
+        ? await this.achievementOutbox.enqueueNextVersion(transaction, {
+            familyId,
+            actorUserId: updatedMembership.userId,
+            eventType: 'MEMBER_JOINED',
+            sourceType: AchievementEventSourceType.MEMBERSHIP,
+            sourceId: updatedMembership.id,
+            occurredAt: updatedMembership.approvedAt ?? new Date(),
+            familyTimezone: updatedMembership.family.timezone,
+            payload: {
+              membershipId: updatedMembership.id,
+              userId: updatedMembership.userId,
+              memberRole: updatedMembership.memberRole,
+              approvedById: user.id,
+              isFamilyCreator: false,
+            },
+          })
+        : null;
+      return { updatedMembership, event };
     });
 
-    return this.formatMembership(updatedMembership);
+    return {
+      ...this.formatMembership(reviewed.updatedMembership),
+      ...(reviewed.event
+        ? { achievementEvaluation: this.achievementOutbox.evaluation(reviewed.event) }
+        : {}),
+    };
   }
 
   async transferOwnership(user: AuthUser, familyId: string, targetMemberId: string) {
@@ -346,19 +404,86 @@ export class FamiliesService {
     }
 
     const leftAt = new Date();
-    await this.prisma.familyMember.update({
-      where: { id: membership.id },
-      data: {
-        memberRole: MemberRole.MEMBER,
-        status: MemberStatus.LEFT,
-        leftAt,
-      },
+    const left = await this.prisma.$transaction(async (transaction) => {
+      await transaction.familyMember.update({
+        where: { id: membership.id },
+        data: {
+          memberRole: MemberRole.MEMBER,
+          status: MemberStatus.LEFT,
+          leftAt,
+        },
+      });
+      const family = await transaction.family.findUniqueOrThrow({
+        where: { id: familyId },
+        select: { timezone: true },
+      });
+      const event = await this.achievementOutbox.enqueueNextVersion(transaction, {
+        familyId,
+        actorUserId: user.id,
+        eventType: 'MEMBER_LEFT',
+        sourceType: AchievementEventSourceType.MEMBERSHIP,
+        sourceId: membership.id,
+        occurredAt: leftAt,
+        familyTimezone: family.timezone,
+        payload: {
+          membershipId: membership.id,
+          userId: user.id,
+        },
+      });
+      return { event };
     });
 
     return {
       familyId,
       left: true,
+      ...(left.event ? { achievementEvaluation: this.achievementOutbox.evaluation(left.event) } : {}),
     };
+  }
+
+  async dissolveFamily(user: AuthUser, familyId: string) {
+    await this.assertOwner(familyId, user.id);
+    const archivedAt = new Date();
+    return this.prisma.$transaction(async (transaction) => {
+      const family = await transaction.family.findUniqueOrThrow({
+        where: { id: familyId },
+        include: {
+          members: { where: { status: MemberStatus.ACTIVE } },
+          _count: { select: { memberAchievements: true, familyAchievements: true, pairAchievements: true } },
+        },
+      });
+      for (const membership of family.members) {
+        await transaction.familyMember.update({
+          where: { id: membership.id },
+          data: { status: MemberStatus.LEFT, leftAt: archivedAt, memberRole: MemberRole.MEMBER },
+        });
+        await this.achievementOutbox.enqueueNextVersion(transaction, {
+          familyId,
+          actorUserId: membership.userId,
+          eventType: 'MEMBER_LEFT',
+          sourceType: AchievementEventSourceType.MEMBERSHIP,
+          sourceId: membership.id,
+          occurredAt: archivedAt,
+          familyTimezone: family.timezone,
+          payload: { membershipId: membership.id, userId: membership.userId, familyDissolved: true },
+        });
+      }
+      await transaction.family.update({ where: { id: familyId }, data: { archivedAt } });
+      await transaction.achievementAuditLog.create({
+        data: {
+          familyId,
+          actorUserId: user.id,
+          actionType: 'FAMILY_ACHIEVEMENTS_ARCHIVED',
+          entityType: 'Family',
+          entityId: familyId,
+          afterJson: { archivedAt, ...family._count },
+        },
+      });
+      return {
+        familyId,
+        archivedAt,
+        achievementArchive: family._count,
+      };
+    });
   }
 
   async updateMyAppearance(user: AuthUser, familyId: string, avatarKey: string) {
@@ -378,6 +503,7 @@ export class FamiliesService {
       where: {
         userId: user.id,
         status: MemberStatus.ACTIVE,
+        family: { archivedAt: null },
       },
       include: {
         family: {

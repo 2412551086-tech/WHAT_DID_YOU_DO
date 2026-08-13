@@ -1983,7 +1983,7 @@ struct PremiumUpgradeSheet: View {
         VStack(spacing: 0) {
             comparisonHeader
             comparisonRow(label: "常用家务", free: "最多 6 项", premium: "不限数量")
-            comparisonRow(label: "自定义家务", free: "最多 2 项", premium: "最多 10 项")
+            comparisonRow(label: "自定义家务", free: "最多 2 项", premium: "不限（保护上限 100）")
             comparisonRow(label: "成员常用区", free: "全家共享", premium: "每人定制")
             comparisonRow(label: "积分倍率", free: "系统固定", premium: "0.5–2.0x")
             comparisonRow(label: "家庭共享", free: "不共享", premium: "全家可用")

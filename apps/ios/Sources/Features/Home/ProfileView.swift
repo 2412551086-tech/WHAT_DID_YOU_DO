@@ -363,6 +363,21 @@ struct ProfileView: View {
 
     private var accountSection: some View {
         ProfileGroupCard {
+            NavigationLink {
+                AchievementsView()
+            } label: {
+                ProfileNavigationRow(
+                    title: "我的成就",
+                    systemImage: "medal.fill",
+                    badge: viewModel.achievementSummary.map {
+                        "\($0.unlockedCount)/\($0.totalCount)"
+                    }
+                )
+            }
+            .buttonStyle(.plain)
+
+            Divider().padding(.leading, 48)
+
             ProfileInfoRow(
                 title: "家庭套餐",
                 value: viewModel.hasPremiumAccess ? "家庭高级版" : "免费版",

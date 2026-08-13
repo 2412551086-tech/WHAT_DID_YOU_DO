@@ -1,5 +1,7 @@
 import { BadRequestException, ForbiddenException, Injectable, UnauthorizedException } from '@nestjs/common';
+import { AchievementEventSourceType, MemberRole, MemberStatus } from '@prisma/client';
 import { createHmac, timingSafeEqual } from 'node:crypto';
+import { AchievementOutboxService } from '../achievements/achievement-outbox.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuthUser } from './auth-user';
 import { MockLoginDto } from './dto/mock-login.dto';
@@ -13,7 +15,10 @@ interface TokenPayload {
 
 @Injectable()
 export class AuthService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly achievementOutbox: AchievementOutboxService,
+  ) {}
 
   async mockLogin(dto: MockLoginDto) {
     const phoneNumber = dto.phoneNumber?.trim();
@@ -51,6 +56,9 @@ export class AuthService {
 
     if (!user) {
       throw new UnauthorizedException('User not found');
+    }
+    if (user.anonymizedAt) {
+      throw new UnauthorizedException('Account has been deleted');
     }
 
     return {
@@ -93,18 +101,140 @@ export class AuthService {
     }
 
     const redeemedAt = new Date();
-    const updatedUser = await this.prisma.user.update({
-      where: { id: user.id },
-      data: {
-        plan: 'premium',
-        premiumRedeemedAt: redeemedAt,
-      },
+    const result = await this.prisma.$transaction(async (transaction) => {
+      const previousUser = await transaction.user.findUniqueOrThrow({ where: { id: user.id } });
+      const updatedUser = await transaction.user.update({
+        where: { id: user.id },
+        data: {
+          plan: 'premium',
+          premiumRedeemedAt: redeemedAt,
+        },
+      });
+      const memberships = await transaction.familyMember.findMany({
+        where: { userId: user.id, status: MemberStatus.ACTIVE },
+        include: { family: { select: { id: true, timezone: true } } },
+      });
+      const events = [];
+      if (previousUser.plan !== updatedUser.plan) {
+        for (const membership of memberships) {
+          const event = await this.achievementOutbox.enqueueNextVersion(transaction, {
+            familyId: membership.familyId,
+            actorUserId: user.id,
+            eventType: 'PLAN_CHANGED',
+            sourceType: AchievementEventSourceType.PLAN,
+            sourceId: membership.familyId,
+            occurredAt: redeemedAt,
+            familyTimezone: membership.family.timezone,
+            payload: {
+              userId: user.id,
+              previousPlan: previousUser.plan,
+              plan: updatedUser.plan,
+            },
+          });
+          if (event) {
+            events.push(event);
+          }
+        }
+      }
+      return { updatedUser, events };
     });
 
     return {
-      plan: updatedUser.plan,
-      premiumRedeemedAt: updatedUser.premiumRedeemedAt,
+      plan: result.updatedUser.plan,
+      premiumRedeemedAt: result.updatedUser.premiumRedeemedAt,
+      ...(result.events.length
+        ? {
+            achievementEvaluations: result.events.map((event) =>
+              this.achievementOutbox.evaluation(event),
+            ),
+          }
+        : {}),
     };
+  }
+
+  async anonymizeCurrentUser(user: AuthUser) {
+    const anonymizedAt = new Date();
+    const anonymousName = '匿名成员';
+    await this.prisma.$transaction(async (transaction) => {
+      const memberships = await transaction.familyMember.findMany({
+        where: { userId: user.id, status: MemberStatus.ACTIVE },
+        include: { family: { select: { timezone: true } } },
+      });
+      await transaction.choreRecord.updateMany({
+        where: { userId: user.id },
+        data: {
+          creatorDisplayNameSnapshot: anonymousName,
+          creatorIdentityLabelSnapshot: anonymousName,
+          creatorCustomIdentitySnapshot: null,
+          creatorAvatarKeySnapshot: null,
+        },
+      });
+      await transaction.familyAchievementParticipant.updateMany({
+        where: { userId: user.id },
+        data: { displayRole: 'ANONYMIZED' },
+      });
+      await transaction.pairAchievement.updateMany({
+        where: { OR: [{ memberAId: user.id }, { memberBId: user.id }] },
+        data: { archiveStatus: 'HISTORICAL' },
+      });
+      for (const membership of memberships) {
+        if (membership.memberRole === MemberRole.OWNER) {
+          const successor = await transaction.familyMember.findFirst({
+            where: {
+              familyId: membership.familyId,
+              userId: { not: user.id },
+              status: MemberStatus.ACTIVE,
+            },
+            orderBy: [{ approvedAt: 'asc' }, { createdAt: 'asc' }],
+          });
+          if (successor) {
+            await transaction.familyMember.update({
+              where: { id: successor.id },
+              data: { memberRole: MemberRole.OWNER },
+            });
+          } else {
+            await transaction.family.update({
+              where: { id: membership.familyId },
+              data: { archivedAt: anonymizedAt },
+            });
+          }
+        }
+        await transaction.familyMember.update({
+          where: { id: membership.id },
+          data: { status: MemberStatus.LEFT, memberRole: MemberRole.MEMBER, leftAt: anonymizedAt },
+        });
+        await this.achievementOutbox.enqueueNextVersion(transaction, {
+          familyId: membership.familyId,
+          actorUserId: user.id,
+          eventType: 'MEMBER_LEFT',
+          sourceType: AchievementEventSourceType.MEMBERSHIP,
+          sourceId: membership.id,
+          occurredAt: anonymizedAt,
+          familyTimezone: membership.family.timezone,
+          payload: { membershipId: membership.id, userId: user.id, accountAnonymized: true },
+        });
+      }
+      await transaction.user.update({
+        where: { id: user.id },
+        data: {
+          phoneNumber: null,
+          displayName: anonymousName,
+          plan: 'free',
+          premiumRedeemedAt: null,
+          anonymizedAt,
+        },
+      });
+      await transaction.achievementAuditLog.create({
+        data: {
+          actorUserId: user.id,
+          actionType: 'ACCOUNT_ACHIEVEMENTS_ANONYMIZED',
+          entityType: 'User',
+          entityId: user.id,
+          afterJson: { anonymizedAt, familyCount: memberships.length },
+        },
+      });
+    });
+    return { deleted: true, anonymizedAt };
   }
 
   private signToken(payload: TokenPayload): string {
