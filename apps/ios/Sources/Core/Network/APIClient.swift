@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 
 enum APIError: LocalizedError {
@@ -43,18 +44,24 @@ struct APIDebugSnapshot: Sendable {
     var lastRequestPath: String?
     var lastStatusCode: Int?
     var lastErrorMessage: String?
+    var usedCachedResponse = false
+    var cachedResponseDate: Date?
 }
 
 protocol APIClientProtocol: Sendable {
     func setAccessToken(_ token: String?) async
+    func setPreferCachedResponses(_ enabled: Bool) async
+    func clearCachedResponses() async
     func currentDebugSnapshot() async -> APIDebugSnapshot
+    func consumeOfflineFallbackFlag() async -> Bool
     func get<Response: Decodable & Sendable>(
         _ path: String,
         queryItems: [URLQueryItem]
     ) async throws -> Response
     func post<RequestBody: Encodable & Sendable, Response: Decodable & Sendable>(
         _ path: String,
-        body: RequestBody
+        body: RequestBody,
+        headers: [String: String]
     ) async throws -> Response
     func post<Response: Decodable & Sendable>(_ path: String) async throws -> Response
     func patch<RequestBody: Encodable & Sendable, Response: Decodable & Sendable>(
@@ -65,26 +72,54 @@ protocol APIClientProtocol: Sendable {
 }
 
 extension APIClientProtocol {
+    func setPreferCachedResponses(_ enabled: Bool) async {}
+    func clearCachedResponses() async {}
+    func consumeOfflineFallbackFlag() async -> Bool { false }
+
     func get<Response: Decodable & Sendable>(_ path: String) async throws -> Response {
         try await get(path, queryItems: [])
+    }
+
+    func post<RequestBody: Encodable & Sendable, Response: Decodable & Sendable>(
+        _ path: String,
+        body: RequestBody
+    ) async throws -> Response {
+        try await post(path, body: body, headers: [:])
     }
 }
 
 actor APIClient: APIClientProtocol {
     private let baseURL: URL
+    private let responseCache: APIResponseCache
     private var accessToken: String?
     private var debugSnapshot = APIDebugSnapshot()
+    private var usedOfflineFallback = false
+    private var preferCachedResponses = false
 
-    init(baseURL: URL = APIConfig.baseURL) {
+    init(baseURL: URL = APIConfig.baseURL, responseCache: APIResponseCache = APIResponseCache()) {
         self.baseURL = baseURL
+        self.responseCache = responseCache
     }
 
     func setAccessToken(_ token: String?) {
         accessToken = token
     }
 
+    func setPreferCachedResponses(_ enabled: Bool) {
+        preferCachedResponses = enabled
+    }
+
+    func clearCachedResponses() async {
+        await responseCache.removeAll()
+    }
+
     func currentDebugSnapshot() -> APIDebugSnapshot {
         debugSnapshot
+    }
+
+    func consumeOfflineFallbackFlag() -> Bool {
+        defer { usedOfflineFallback = false }
+        return usedOfflineFallback
     }
 
     func get<Response: Decodable & Sendable>(
@@ -96,10 +131,11 @@ actor APIClient: APIClientProtocol {
 
     func post<RequestBody: Encodable & Sendable, Response: Decodable & Sendable>(
         _ path: String,
-        body: RequestBody
+        body: RequestBody,
+        headers: [String: String]
     ) async throws -> Response {
         let data = try Self.encoder.encode(body)
-        return try await request(path, method: "POST", body: data)
+        return try await request(path, method: "POST", body: data, headers: headers)
     }
 
     func post<Response: Decodable & Sendable>(_ path: String) async throws -> Response {
@@ -122,9 +158,27 @@ actor APIClient: APIClientProtocol {
         _ path: String,
         method: String,
         queryItems: [URLQueryItem] = [],
-        body: Data?
+        body: Data?,
+        headers: [String: String] = [:]
     ) async throws -> Response {
-        debugSnapshot = APIDebugSnapshot(lastRequestPath: Self.displayPath(path, queryItems: queryItems))
+        let displayPath = Self.displayPath(path, queryItems: queryItems)
+        let cacheKey = Self.cacheKey(
+            baseURL: baseURL,
+            accessToken: accessToken,
+            displayPath: displayPath
+        )
+        debugSnapshot = APIDebugSnapshot(lastRequestPath: displayPath)
+
+        if method == "GET",
+           preferCachedResponses,
+           let cached = await responseCache.load(for: cacheKey),
+           let decoded = try? Self.decoder.decode(Response.self, from: cached.data) {
+            usedOfflineFallback = true
+            debugSnapshot.lastErrorMessage = "启动时已载入本地数据"
+            debugSnapshot.usedCachedResponse = true
+            debugSnapshot.cachedResponseDate = cached.savedAt
+            return decoded
+        }
 
         do {
             guard var components = URLComponents(
@@ -144,7 +198,12 @@ actor APIClient: APIClientProtocol {
 
             var request = URLRequest(url: url)
             request.httpMethod = method
+            request.timeoutInterval = 8
             request.setValue("application/json", forHTTPHeaderField: "Accept")
+
+            for (name, value) in headers {
+                request.setValue(value, forHTTPHeaderField: name)
+            }
 
             if let body {
                 request.httpBody = body
@@ -174,8 +233,22 @@ actor APIClient: APIClientProtocol {
             let responseData = data.isEmpty ? Data("null".utf8) : data
             let decoded = try Self.decoder.decode(Response.self, from: responseData)
             debugSnapshot.lastErrorMessage = nil
+            if method == "GET" {
+                await responseCache.save(responseData, for: cacheKey)
+            }
             return decoded
         } catch {
+            if method == "GET",
+               APIError.isConnectivityError(error),
+               let cached = await responseCache.load(for: cacheKey),
+               let decoded = try? Self.decoder.decode(Response.self, from: cached.data) {
+                usedOfflineFallback = true
+                debugSnapshot.lastStatusCode = nil
+                debugSnapshot.lastErrorMessage = "网络不可用，正在使用本地数据"
+                debugSnapshot.usedCachedResponse = true
+                debugSnapshot.cachedResponseDate = cached.savedAt
+                return decoded
+            }
             debugSnapshot.lastErrorMessage = error.localizedDescription
             throw error
         }
@@ -191,6 +264,15 @@ actor APIClient: APIClientProtocol {
         var components = URLComponents()
         components.queryItems = queryItems
         return normalizedPath + (components.percentEncodedQuery.map { "?\($0)" } ?? "")
+    }
+
+    private static func cacheKey(baseURL: URL, accessToken: String?, displayPath: String) -> String {
+        let tokenScope = accessToken.map(stableHash) ?? "public"
+        return "\(baseURL.absoluteString)|\(tokenScope)|\(displayPath)"
+    }
+
+    private static func stableHash(_ value: String) -> String {
+        SHA256.hash(data: Data(value.utf8)).map { String(format: "%02x", $0) }.joined()
     }
 
     private static let encoder: JSONEncoder = {
@@ -237,6 +319,56 @@ actor APIClient: APIClientProtocol {
         }
 
         return String(data: data, encoding: .utf8) ?? "未知错误"
+    }
+}
+
+struct CachedAPIResponse: Codable, Sendable {
+    let data: Data
+    let savedAt: Date
+}
+
+actor APIResponseCache {
+    private let directoryURL: URL
+
+    init(directoryURL: URL? = nil) {
+        if let directoryURL {
+            self.directoryURL = directoryURL
+        } else {
+            let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+                ?? FileManager.default.temporaryDirectory
+            self.directoryURL = base.appendingPathComponent("WhatDidYouDo/APIResponseCache", isDirectory: true)
+        }
+    }
+
+    func save(_ data: Data, for key: String) {
+        do {
+            try FileManager.default.createDirectory(
+                at: directoryURL,
+                withIntermediateDirectories: true,
+                attributes: [.protectionKey: FileProtectionType.completeUntilFirstUserAuthentication]
+            )
+            let envelope = CachedAPIResponse(data: data, savedAt: Date())
+            let encoded = try JSONEncoder().encode(envelope)
+            try encoded.write(to: fileURL(for: key), options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
+        } catch {
+            // A cache write must never block a successful API response.
+        }
+    }
+
+    func load(for key: String) -> CachedAPIResponse? {
+        guard let data = try? Data(contentsOf: fileURL(for: key)) else { return nil }
+        return try? JSONDecoder().decode(CachedAPIResponse.self, from: data)
+    }
+
+    func removeAll() {
+        try? FileManager.default.removeItem(at: directoryURL)
+    }
+
+    private func fileURL(for key: String) -> URL {
+        let filename = SHA256.hash(data: Data(key.utf8))
+            .map { String(format: "%02x", $0) }
+            .joined()
+        return directoryURL.appendingPathComponent(filename).appendingPathExtension("json")
     }
 }
 

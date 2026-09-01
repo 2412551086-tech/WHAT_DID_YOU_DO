@@ -703,10 +703,20 @@ struct DSActivityRow: View {
                     .font(.system(size: 15, weight: .semibold, design: .default))
                     .lineLimit(1)
 
-                Text("\(record.actualMinutes) 分钟 · \(activityTimestamp)")
-                    .font(.system(size: 12, weight: .regular, design: .default))
-                    .foregroundStyle(DSColor.floatingSecondaryText)
-                    .lineLimit(1)
+                HStack(spacing: 5) {
+                    Text("\(record.actualMinutes) 分钟 · \(activityTimestamp)")
+                        .lineLimit(1)
+
+                    if record.syncState == .pending {
+                        Label("待同步", systemImage: "arrow.triangle.2.circlepath")
+                            .font(.system(size: 10, weight: .semibold, design: .default))
+                            .foregroundStyle(DSColor.infoBlue)
+                            .labelStyle(.titleAndIcon)
+                            .lineLimit(1)
+                    }
+                }
+                .font(.system(size: 12, weight: .regular, design: .default))
+                .foregroundStyle(DSColor.floatingSecondaryText)
 
                 if !record.likedBy.isEmpty {
                     HStack(spacing: 1) {
@@ -1300,6 +1310,7 @@ struct DSRequestFailureView: View {
 
 struct DSOfflineStatusView: View {
     let lastUpdatedAt: Date?
+    var pendingUploadCount = 0
 
     var body: some View {
         HStack(spacing: 14) {
@@ -1308,7 +1319,7 @@ struct DSOfflineStatusView: View {
                 .foregroundStyle(DSColor.infoBlue)
                 .accessibilityHidden(true)
 
-            Text("当前离线，正在展示上次更新的数据")
+            Text(statusMessage)
                 .font(.system(size: 14, weight: .regular))
                 .foregroundStyle(DSColor.ink)
                 .fixedSize(horizontal: false, vertical: true)
@@ -1334,6 +1345,13 @@ struct DSOfflineStatusView: View {
     private var updateLabel: String {
         guard let lastUpdatedAt else { return "尚未同步" }
         return lastUpdatedAt.formatted(date: .omitted, time: .shortened) + " 更新"
+    }
+
+    private var statusMessage: String {
+        guard pendingUploadCount > 0 else {
+            return "当前离线，正在展示上次更新的数据"
+        }
+        return "当前离线，\(pendingUploadCount) 条记录将在联网后同步"
     }
 }
 

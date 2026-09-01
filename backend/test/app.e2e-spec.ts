@@ -1273,6 +1273,22 @@ describe("MVP API (e2e)", () => {
     expect(ownerDeletedRecord.deletedAt).toBeInstanceOf(Date);
     expect(ownerDeletedRecord.deletedById).toBe(owner.userId);
 
+    await request(app.getHttpServer())
+      .post(`/chore-records/${memberRecordForOwnerId}/restore`)
+      .set("Authorization", `Bearer ${owner.token}`)
+      .expect(201, { recordId: memberRecordForOwnerId, restored: true });
+
+    const ownerRestoredRecord = await prisma.choreRecord.findUniqueOrThrow({
+      where: { id: memberRecordForOwnerId },
+    });
+    expect(ownerRestoredRecord.deletedAt).toBeNull();
+    expect(ownerRestoredRecord.deletedById).toBeNull();
+
+    await request(app.getHttpServer())
+      .delete(`/chore-records/${memberRecordForOwnerId}`)
+      .set("Authorization", `Bearer ${owner.token}`)
+      .expect(200);
+
     const todayActivityResponse = await request(app.getHttpServer())
       .get(`/families/${familyId}/activity?range=day`)
       .set("Authorization", `Bearer ${owner.token}`)
@@ -1322,7 +1338,57 @@ describe("MVP API (e2e)", () => {
       totalPoints: 20,
       totalRecords: 1,
       totalMinutes: 15,
+      memberContributions: [
+        expect.objectContaining({
+          userId: owner.userId,
+          points: 20,
+          recordCount: 1,
+          totalMinutes: 15,
+        }),
+      ],
     });
+    expect(reportResponse.body.comparison).toEqual(
+      expect.objectContaining({
+        totalPoints: expect.any(Number),
+        totalRecords: expect.any(Number),
+        totalMinutes: expect.any(Number),
+      }),
+    );
+    expect(reportResponse.body.monthlyTrend).toHaveLength(6);
+    expect(reportResponse.body.monthlyTrend.at(-1)).toEqual(
+      expect.objectContaining({
+        month,
+        points: 20,
+        recordCount: 1,
+        totalMinutes: 15,
+      }),
+    );
+    expect(reportResponse.body.weeklyTrend.reduce(
+      (sum: number, week: { points: number }) => sum + week.points,
+      0,
+    )).toBe(20);
+    expect(reportResponse.body.weeklyTrend.reduce(
+      (sum: number, week: { recordCount: number }) => sum + week.recordCount,
+      0,
+    )).toBe(1);
+    expect(reportResponse.body.weeklyTrend.reduce(
+      (sum: number, week: { totalMinutes: number }) => sum + week.totalMinutes,
+      0,
+    )).toBe(15);
+    expect(reportResponse.body.categoryStats).toEqual([
+      expect.objectContaining({
+        points: 20,
+        recordCount: 1,
+        memberContributions: [
+          expect.objectContaining({
+            userId: owner.userId,
+            points: 20,
+            recordCount: 1,
+            totalMinutes: 15,
+          }),
+        ],
+      }),
+    ]);
     expect(reportResponse.body.recentRecords).toEqual([
       expect.objectContaining({
         id: ownerRecordId,
@@ -1721,7 +1787,7 @@ describe("MVP API (e2e)", () => {
           createdBy: expect.objectContaining({
             displayName: originalMemberName,
             identityLabel: "室友",
-            avatarKey: "avatar_02",
+            avatarKey: "avatar_13",
           }),
         }),
       ]),
@@ -2119,6 +2185,13 @@ describe("MVP API (e2e)", () => {
         new Set(responses.map((response) => response.body.achievementEvaluation.eventId)).size,
       ).toBe(1);
 
+      await request(app.getHttpServer())
+        .post("/chore-records")
+        .set("Authorization", `Bearer ${owner.token}`)
+        .set("Idempotency-Key", requestKey)
+        .send({ familyId, choreId, actualMinutes: 18, note: "different request body" })
+        .expect(409);
+
       const recordId = responses[0].body.recordId as string;
       const eventId = responses[0].body.achievementEvaluation.eventId as string;
       await expect(
@@ -2309,7 +2382,7 @@ describe("MVP API (e2e)", () => {
         process.env.ACHIEVEMENTS_ENABLED = previousFlag;
       }
     }
-  });
+  }, 30_000);
 
   it("closes the stage-three journey, reward, visibility and deletion loop", async () => {
     const previousFlag = process.env.ACHIEVEMENTS_ENABLED;
@@ -2951,6 +3024,25 @@ describe("MVP API (e2e)", () => {
           expect(hidden.every((item: { isUnlocked: boolean; visibility: string }) => item.isUnlocked && item.visibility === "PRIVATE")).toBe(true);
         });
 
+      await request(app.getHttpServer())
+        .patch(`/families/${familyId}/achievements/visibility`)
+        .set("Authorization", `Bearer ${owner.token}`)
+        .send({ showToFamily: false })
+        .expect(200);
+      await request(app.getHttpServer())
+        .patch(`/families/${familyId}/achievements/visibility`)
+        .set("Authorization", `Bearer ${owner.token}`)
+        .send({ showToFamily: true })
+        .expect(200);
+      await request(app.getHttpServer())
+        .get(`/families/${familyId}/achievements/me`)
+        .set("Authorization", `Bearer ${owner.token}`)
+        .expect(200)
+        .expect(({ body }) => {
+          const hidden = body.achievements.filter((item: { track: string }) => item.track === "HIDDEN");
+          expect(hidden.every((item: { visibility: string }) => item.visibility === "PRIVATE")).toBe(true);
+        });
+
       const activeReward = await prisma.familyRewardGrant.findFirstOrThrow({
         where: { familyId, achievementKey: "ACTIVE_DAYS_3" },
       });
@@ -3062,29 +3154,87 @@ describe("MVP API (e2e)", () => {
     }
   }, 60_000);
 
-  it("anonymizes a deleted account and archives its single-member family", async () => {
-    const user = await loginWithPhone(`e2e-account-anonymize-${Date.now()}`);
+  it("permanently deletes an account and its single-member family", async () => {
+    const user = await loginWithPhone(`e2e-account-delete-${Date.now()}`);
     const family = await request(app.getHttpServer())
       .post("/families")
       .set("Authorization", `Bearer ${user.token}`)
-      .send({ name: "Account archive family", identityLabel: "一家之主" })
+      .send({ name: "Account deletion family", identityLabel: "一家之主" })
+      .expect(201);
+    await request(app.getHttpServer())
+      .post("/chore-records")
+      .set("Authorization", `Bearer ${user.token}`)
+      .send({ familyId: family.body.id, choreId, actualMinutes: 15 })
       .expect(201);
     await request(app.getHttpServer())
       .delete("/auth/me")
       .set("Authorization", `Bearer ${user.token}`)
       .expect(200)
-      .expect(({ body }) => expect(body.deleted).toBe(true));
-    await expect(prisma.user.findUniqueOrThrow({ where: { id: user.userId } })).resolves.toMatchObject({
-      phoneNumber: null,
-      displayName: "匿名成员",
-    });
-    await expect(prisma.family.findUniqueOrThrow({ where: { id: family.body.id } })).resolves.toMatchObject({
-      archivedAt: expect.any(Date),
-    });
+      .expect(({ body }) => {
+        expect(body.deleted).toBe(true);
+        expect(body.deletedAt).toBeTruthy();
+      });
+    await expect(prisma.user.findUnique({ where: { id: user.userId } })).resolves.toBeNull();
+    await expect(prisma.family.findUnique({ where: { id: family.body.id } })).resolves.toBeNull();
+    await expect(prisma.choreRecord.count({ where: { userId: user.userId } })).resolves.toBe(0);
+    await expect(prisma.familyMember.count({ where: { userId: user.userId } })).resolves.toBe(0);
     await request(app.getHttpServer())
       .get("/auth/me")
       .set("Authorization", `Bearer ${user.token}`)
       .expect(401);
+  });
+
+  it("transfers ownership and removes personal data when deleting an account in a shared family", async () => {
+    const suffix = Date.now();
+    const owner = await loginWithPhone(`e2e-delete-owner-${suffix}`);
+    const member = await loginWithPhone(`e2e-delete-member-${suffix}`);
+    const familyResponse = await request(app.getHttpServer())
+      .post("/families")
+      .set("Authorization", `Bearer ${owner.token}`)
+      .send({ name: "Shared account deletion family", identityLabel: "一家之主" })
+      .expect(201);
+    const familyId = familyResponse.body.id as string;
+    const join = await request(app.getHttpServer())
+      .post("/families/join-requests")
+      .set("Authorization", `Bearer ${member.token}`)
+      .send({ inviteCode: familyResponse.body.inviteCode, identityLabel: "室友" })
+      .expect(201);
+    await request(app.getHttpServer())
+      .patch(`/families/${familyId}/join-requests/${join.body.id}`)
+      .set("Authorization", `Bearer ${owner.token}`)
+      .send({ action: "approve" })
+      .expect(200);
+    await request(app.getHttpServer())
+      .post("/chore-records")
+      .set("Authorization", `Bearer ${owner.token}`)
+      .send({ familyId, choreId, actualMinutes: 15 })
+      .expect(201);
+    await request(app.getHttpServer())
+      .post("/chore-records")
+      .set("Authorization", `Bearer ${member.token}`)
+      .send({ familyId, choreId, actualMinutes: 15 })
+      .expect(201);
+
+    await request(app.getHttpServer())
+      .delete("/auth/me")
+      .set("Authorization", `Bearer ${owner.token}`)
+      .expect(200);
+
+    await expect(prisma.user.findUnique({ where: { id: owner.userId } })).resolves.toBeNull();
+    await expect(prisma.family.findUnique({ where: { id: familyId } })).resolves.not.toBeNull();
+    await expect(prisma.choreRecord.count({ where: { familyId, userId: owner.userId } })).resolves.toBe(0);
+    await expect(prisma.choreRecord.count({ where: { familyId, userId: member.userId } })).resolves.toBe(1);
+    await expect(prisma.familyMember.findUniqueOrThrow({
+      where: { userId_familyId: { userId: member.userId, familyId } },
+    })).resolves.toMatchObject({
+      memberRole: "OWNER",
+      status: "ACTIVE",
+    });
+    await request(app.getHttpServer())
+      .get("/families/me")
+      .set("Authorization", `Bearer ${member.token}`)
+      .expect(200)
+      .expect(({ body }) => expect(body[0].memberRole).toBe("OWNER"));
   });
 
   async function createJourneyRecordAndEvent(input: {

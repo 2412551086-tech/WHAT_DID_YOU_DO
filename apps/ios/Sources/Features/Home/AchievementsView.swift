@@ -225,7 +225,7 @@ struct AchievementNextEntry: View {
                 }
                 .tabViewStyle(.page(indexDisplayMode: achievements.count > 1 ? .always : .never))
                 .indexViewStyle(.page(backgroundDisplayMode: .interactive))
-                .frame(height: 96)
+                .frame(height: 116)
             }
         }
         .contentShape(Rectangle())
@@ -239,9 +239,13 @@ struct AchievementNextEntry: View {
 
     private func upcomingPage(_ achievement: AchievementItem) -> some View {
         HStack(spacing: 13) {
-            AchievementArtwork(achievement: achievement, size: 52)
+            AchievementArtwork(
+                achievement: achievement,
+                size: 76,
+                desaturatesLocked: false
+            )
 
-            VStack(alignment: .leading, spacing: 5) {
+            VStack(alignment: .leading, spacing: 6) {
                 HStack(spacing: 6) {
                     Text(syncState == .pending ? "正在同步" : "即将完成")
                         .font(.system(size: 12, weight: .medium))
@@ -270,6 +274,7 @@ struct AchievementNextEntry: View {
                 .font(.system(size: 12, weight: .semibold))
                 .foregroundStyle(DSColor.floatingSecondaryText)
         }
+        .padding(.horizontal, 2)
         .padding(.bottom, achievements.count > 1 ? 12 : 0)
     }
 }
@@ -308,10 +313,14 @@ struct AchievementCelebrationOverlay: View {
                             .tag(index)
                     }
                 }
-                .tabViewStyle(.page(indexDisplayMode: celebration.achievements.count > 1 ? .always : .never))
-                .indexViewStyle(.page(backgroundDisplayMode: .always))
-                .frame(height: 270)
+                .tabViewStyle(.page(indexDisplayMode: .never))
+                .frame(height: 250)
                 .accessibilityHint(celebration.achievements.count > 1 ? "左右滑动查看其他新成就" : "")
+
+                if celebration.achievements.count > 1 {
+                    celebrationPageIndicator
+                        .padding(.top, 5)
+                }
             }
 
             if !celebration.rewards.isEmpty {
@@ -363,6 +372,18 @@ struct AchievementCelebrationOverlay: View {
         }
         .frame(maxWidth: .infinity)
         .accessibilityElement(children: .combine)
+    }
+
+    private var celebrationPageIndicator: some View {
+        HStack(spacing: 8) {
+            ForEach(celebration.achievements.indices, id: \.self) { index in
+                Circle()
+                    .fill(index == selectedPage ? DSColor.floatingSecondaryText : DSColor.floatingDivider)
+                    .frame(width: 7, height: 7)
+            }
+        }
+        .frame(height: 12)
+        .accessibilityHidden(true)
     }
 }
 
@@ -431,15 +452,10 @@ private struct AchievementDetailSheet: View {
                         Text(achievement.name)
                             .font(.system(size: 28, weight: .bold, design: .rounded))
 
-                        VStack(spacing: 5) {
-                            Text("获取条件")
-                                .font(.system(size: 13, weight: .semibold))
-                                .foregroundStyle(DSColor.infoBlue)
-                            Text(achievement.description)
-                                .font(.system(size: 16, weight: .regular))
-                                .foregroundStyle(DSColor.mutedInk)
-                                .multilineTextAlignment(.center)
-                        }
+                        Text(achievement.description)
+                            .font(.system(size: 16, weight: .regular))
+                            .foregroundStyle(DSColor.mutedInk)
+                            .multilineTextAlignment(.center)
                     }
 
                     if achievement.isUnlocked {
@@ -505,6 +521,7 @@ private struct AchievementDetailSheet: View {
 private struct AchievementArtwork: View {
     let achievement: AchievementItem?
     let size: CGFloat
+    var desaturatesLocked = true
 
     var body: some View {
         Group {
@@ -512,8 +529,8 @@ private struct AchievementArtwork: View {
                 Image(assetName)
                     .resizable()
                     .scaledToFit()
-                    .saturation(achievement?.isUnlocked == false ? 0 : 1)
-                    .opacity(achievement?.isUnlocked == false ? 0.48 : 1)
+                    .saturation(achievement?.isUnlocked == false && desaturatesLocked ? 0 : 1)
+                    .opacity(achievement?.isUnlocked == false && desaturatesLocked ? 0.48 : 1)
             } else {
                 Image(systemName: achievement?.systemImage ?? "medal.fill")
                     .resizable()

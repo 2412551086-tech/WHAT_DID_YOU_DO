@@ -12,7 +12,7 @@ struct KeychainStore: SecureTokenStore {
     private let account: String
 
     init(
-        service: String = Bundle.main.bundleIdentifier ?? "com.whatdidyoudo.ios",
+        service: String = Bundle.main.bundleIdentifier ?? "com.douxiaolang.familyguard",
         account: String = "api-access-token"
     ) {
         self.service = service

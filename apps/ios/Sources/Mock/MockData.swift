@@ -227,6 +227,36 @@ enum MockData {
         totalRecords: todayRecords.count,
         totalMinutes: todayRecords.reduce(0) { $0 + $1.actualMinutes },
         headline: "Mock 家庭劳动广播稳定播出",
+        comparison: MonthlyReportComparison(
+            previousMonth: "2026-05",
+            totalPoints: 182,
+            totalRecords: 9,
+            totalMinutes: 164
+        ),
+        monthlyTrend: [
+            MonthlyReportMonth(month: "2026-01", points: 112, recordCount: 6, totalMinutes: 96),
+            MonthlyReportMonth(month: "2026-02", points: 146, recordCount: 8, totalMinutes: 128),
+            MonthlyReportMonth(month: "2026-03", points: 138, recordCount: 7, totalMinutes: 119),
+            MonthlyReportMonth(month: "2026-04", points: 176, recordCount: 9, totalMinutes: 152),
+            MonthlyReportMonth(month: "2026-05", points: 182, recordCount: 9, totalMinutes: 164),
+            MonthlyReportMonth(month: "2026-06", points: members.reduce(0) { $0 + $1.monthlyPoints }, recordCount: todayRecords.count, totalMinutes: todayRecords.reduce(0) { $0 + $1.actualMinutes }),
+        ],
+        weeklyTrend: [
+            MonthlyReportWeek(weekStart: "2026-06-01", weekEnd: "2026-06-07", label: "6/1–6/7", points: 42, recordCount: 2, totalMinutes: 36),
+            MonthlyReportWeek(weekStart: "2026-06-08", weekEnd: "2026-06-14", label: "6/8–6/14", points: 76, recordCount: 4, totalMinutes: 65),
+            MonthlyReportWeek(weekStart: "2026-06-15", weekEnd: "2026-06-21", label: "6/15–6/21", points: 98, recordCount: 5, totalMinutes: 88),
+            MonthlyReportWeek(weekStart: "2026-06-22", weekEnd: "2026-06-28", label: "6/22–6/28", points: 54, recordCount: 3, totalMinutes: 48),
+            MonthlyReportWeek(weekStart: "2026-06-29", weekEnd: "2026-06-30", label: "6/29–6/30", points: 18, recordCount: 1, totalMinutes: 15),
+        ],
+        memberContributions: members.map { member in
+            MonthlyMemberContribution(
+                userId: member.id,
+                displayName: member.name,
+                points: member.monthlyPoints,
+                recordCount: max(1, member.monthlyPoints / 18),
+                totalMinutes: max(15, member.monthlyPoints)
+            )
+        },
         themeStats: [
             MonthlyReportTheme(themeKey: ChoreTheme.daily.rawValue, points: 156, recordCount: 6),
             MonthlyReportTheme(themeKey: ChoreTheme.love.rawValue, points: 50, recordCount: 2),
@@ -234,9 +264,32 @@ enum MockData {
             MonthlyReportTheme(themeKey: ChoreTheme.pet.rawValue, points: 20, recordCount: 1),
         ],
         categoryStats: [
-            MonthlyReportCategory(category: "烹饪", points: 88, recordCount: 4),
-            MonthlyReportCategory(category: "清洁", points: 62, recordCount: 3),
-            MonthlyReportCategory(category: "洗护", points: 36, recordCount: 2),
+            MonthlyReportCategory(
+                category: "烹饪",
+                points: 88,
+                recordCount: 4,
+                memberContributions: [
+                    MonthlyMemberContribution(userId: members[0].id, displayName: members[0].name, points: 58, recordCount: 3, totalMinutes: 70),
+                    MonthlyMemberContribution(userId: members[1].id, displayName: members[1].name, points: 30, recordCount: 1, totalMinutes: 30),
+                ]
+            ),
+            MonthlyReportCategory(
+                category: "清洁",
+                points: 62,
+                recordCount: 3,
+                memberContributions: [
+                    MonthlyMemberContribution(userId: members[1].id, displayName: members[1].name, points: 42, recordCount: 2, totalMinutes: 45),
+                    MonthlyMemberContribution(userId: members[0].id, displayName: members[0].name, points: 20, recordCount: 1, totalMinutes: 20),
+                ]
+            ),
+            MonthlyReportCategory(
+                category: "洗护",
+                points: 36,
+                recordCount: 2,
+                memberContributions: [
+                    MonthlyMemberContribution(userId: members[0].id, displayName: members[0].name, points: 36, recordCount: 2, totalMinutes: 36),
+                ]
+            ),
         ]
     )
 

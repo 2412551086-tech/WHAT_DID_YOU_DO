@@ -1,5 +1,12 @@
 import { BadRequestException, ForbiddenException, Injectable, UnauthorizedException } from '@nestjs/common';
-import { AchievementEventSourceType, MemberRole, MemberStatus } from '@prisma/client';
+import {
+  AchievementEventSourceType,
+  AchievementOwnerType,
+  AchievementParticipantDisplayRole,
+  MemberRole,
+  MemberStatus,
+  Prisma,
+} from '@prisma/client';
 import { createHmac, timingSafeEqual } from 'node:crypto';
 import { AchievementOutboxService } from '../achievements/achievement-outbox.service';
 import { PrismaService } from '../prisma/prisma.service';
@@ -152,89 +159,128 @@ export class AuthService {
     };
   }
 
-  async anonymizeCurrentUser(user: AuthUser) {
-    const anonymizedAt = new Date();
-    const anonymousName = '匿名成员';
+  async deleteCurrentUser(user: AuthUser) {
+    const deletedAt = new Date();
     await this.prisma.$transaction(async (transaction) => {
       const memberships = await transaction.familyMember.findMany({
-        where: { userId: user.id, status: MemberStatus.ACTIVE },
-        include: { family: { select: { timezone: true } } },
-      });
-      await transaction.choreRecord.updateMany({
         where: { userId: user.id },
+      });
+
+      const familyIdsToDelete: string[] = [];
+      for (const membership of memberships) {
+        if (membership.status !== MemberStatus.ACTIVE || membership.memberRole !== MemberRole.OWNER) {
+          continue;
+        }
+
+        const successor = await transaction.familyMember.findFirst({
+          where: {
+            familyId: membership.familyId,
+            userId: { not: user.id },
+            status: MemberStatus.ACTIVE,
+          },
+          orderBy: [{ approvedAt: 'asc' }, { createdAt: 'asc' }],
+        });
+
+        if (successor) {
+          await transaction.familyMember.update({
+            where: { id: successor.id },
+            data: { memberRole: MemberRole.OWNER },
+          });
+        } else {
+          familyIdsToDelete.push(membership.familyId);
+        }
+      }
+
+      const retainedFamilyIds = memberships
+        .map((membership) => membership.familyId)
+        .filter((familyId) => !familyIdsToDelete.includes(familyId));
+
+      await transaction.chore.updateMany({
+        where: { createdById: user.id, isCustom: true },
         data: {
-          creatorDisplayNameSnapshot: anonymousName,
-          creatorIdentityLabelSnapshot: anonymousName,
-          creatorCustomIdentitySnapshot: null,
-          creatorAvatarKeySnapshot: null,
+          createdById: null,
+          name: '已删除的自定义家务',
+          icon: 'chore_custom_generic_01',
+          archivedAt: deletedAt,
         },
       });
+
       await transaction.familyAchievementParticipant.updateMany({
         where: { userId: user.id },
-        data: { displayRole: 'ANONYMIZED' },
+        data: {
+          userId: null,
+          displayRole: AchievementParticipantDisplayRole.ANONYMIZED,
+          contributionSummaryJson: Prisma.JsonNull,
+        },
       });
-      await transaction.pairAchievement.updateMany({
-        where: { OR: [{ memberAId: user.id }, { memberBId: user.id }] },
-        data: { archiveStatus: 'HISTORICAL' },
+
+      await transaction.achievementEvent.updateMany({
+        where: { actorUserId: user.id },
+        data: {
+          actorUserId: null,
+          payloadJson: { accountDeleted: true },
+        },
       });
-      for (const membership of memberships) {
-        if (membership.memberRole === MemberRole.OWNER) {
-          const successor = await transaction.familyMember.findFirst({
-            where: {
-              familyId: membership.familyId,
-              userId: { not: user.id },
-              status: MemberStatus.ACTIVE,
-            },
-            orderBy: [{ approvedAt: 'asc' }, { createdAt: 'asc' }],
+
+      if (retainedFamilyIds.length > 0) {
+        const eligibilitySnapshots = await transaction.achievementEligibilitySnapshot.findMany({
+          where: { familyId: { in: retainedFamilyIds } },
+          select: { id: true, eligibleMemberIdsJson: true },
+        });
+        for (const snapshot of eligibilitySnapshots) {
+          const eligibleMemberIds = Array.isArray(snapshot.eligibleMemberIdsJson)
+            ? snapshot.eligibleMemberIdsJson.filter(
+                (memberId): memberId is string => typeof memberId === 'string' && memberId !== user.id,
+              )
+            : [];
+          await transaction.achievementEligibilitySnapshot.update({
+            where: { id: snapshot.id },
+            data: { eligibleMemberIdsJson: eligibleMemberIds },
           });
-          if (successor) {
-            await transaction.familyMember.update({
-              where: { id: successor.id },
-              data: { memberRole: MemberRole.OWNER },
-            });
-          } else {
-            await transaction.family.update({
-              where: { id: membership.familyId },
-              data: { archivedAt: anonymizedAt },
-            });
-          }
         }
-        await transaction.familyMember.update({
-          where: { id: membership.id },
-          data: { status: MemberStatus.LEFT, memberRole: MemberRole.MEMBER, leftAt: anonymizedAt },
-        });
-        await this.achievementOutbox.enqueueNextVersion(transaction, {
-          familyId: membership.familyId,
-          actorUserId: user.id,
-          eventType: 'MEMBER_LEFT',
-          sourceType: AchievementEventSourceType.MEMBERSHIP,
-          sourceId: membership.id,
-          occurredAt: anonymizedAt,
-          familyTimezone: membership.family.timezone,
-          payload: { membershipId: membership.id, userId: user.id, accountAnonymized: true },
-        });
       }
-      await transaction.user.update({
+
+      await transaction.achievementProgress.deleteMany({
+        where: {
+          OR: [
+            { ownerType: AchievementOwnerType.MEMBER, ownerKey: { endsWith: `:${user.id}` } },
+            { ownerType: AchievementOwnerType.PAIR, ownerKey: { contains: user.id } },
+          ],
+        },
+      });
+      await transaction.achievementAuditLog.deleteMany({ where: { actorUserId: user.id } });
+
+      await transaction.user.delete({
         where: { id: user.id },
-        data: {
-          phoneNumber: null,
-          displayName: anonymousName,
-          plan: 'free',
-          premiumRedeemedAt: null,
-          anonymizedAt,
-        },
       });
-      await transaction.achievementAuditLog.create({
-        data: {
-          actorUserId: user.id,
-          actionType: 'ACCOUNT_ACHIEVEMENTS_ANONYMIZED',
-          entityType: 'User',
-          entityId: user.id,
-          afterJson: { anonymizedAt, familyCount: memberships.length },
-        },
-      });
+
+      for (const familyId of familyIdsToDelete) {
+        await this.deleteFamilyPermanently(transaction, familyId);
+      }
     });
-    return { deleted: true, anonymizedAt };
+    return { deleted: true, deletedAt };
+  }
+
+  private async deleteFamilyPermanently(
+    transaction: Prisma.TransactionClient,
+    familyId: string,
+  ) {
+    await transaction.familyAchievementParticipant.deleteMany({
+      where: { familyAchievement: { familyId } },
+    });
+    await transaction.memberAchievement.deleteMany({ where: { familyId } });
+    await transaction.familyAchievement.deleteMany({ where: { familyId } });
+    await transaction.pairAchievement.deleteMany({ where: { familyId } });
+    await transaction.familyRewardGrant.deleteMany({ where: { familyId } });
+    await transaction.achievementProgress.deleteMany({ where: { familyId } });
+    await transaction.achievementUnlockBatch.deleteMany({ where: { familyId } });
+    await transaction.achievementEvent.deleteMany({ where: { familyId } });
+    await transaction.achievementEligibilitySnapshot.deleteMany({ where: { familyId } });
+    await transaction.achievementAuditLog.deleteMany({ where: { familyId } });
+    await transaction.choreRecord.deleteMany({ where: { familyId } });
+    await transaction.familyMember.deleteMany({ where: { familyId } });
+    await transaction.chore.deleteMany({ where: { familyId } });
+    await transaction.family.delete({ where: { id: familyId } });
   }
 
   private signToken(payload: TokenPayload): string {

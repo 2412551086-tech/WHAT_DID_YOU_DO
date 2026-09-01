@@ -374,6 +374,7 @@ struct ChoreRecord: Identifiable, Hashable {
     var choreId: String? = nil
     var defaultPoints: Int? = nil
     var pointsMultiplier: Double? = nil
+    var syncState: ChoreRecordSyncState = .synced
 
     var displayIdentity: String {
         identityLabel == "自定义" ? (customIdentity ?? identityLabel) : identityLabel
@@ -405,14 +406,71 @@ struct ChoreRecord: Identifiable, Hashable {
     }
 }
 
+enum ChoreRecordSyncState: String, Codable, Hashable {
+    case synced
+    case pending
+    case failed
+}
+
+struct PendingRecordDeletion: Identifiable, Hashable {
+    var id: String { record.id }
+    let record: ChoreRecord
+    let expiresAt: Date
+
+    var isExpired: Bool {
+        expiresAt <= Date()
+    }
+}
+
 struct MonthlyReport: Hashable {
     let month: String
     let totalPoints: Int
     let totalRecords: Int
     let totalMinutes: Int
     let headline: String
+    let comparison: MonthlyReportComparison?
+    let monthlyTrend: [MonthlyReportMonth]
+    let weeklyTrend: [MonthlyReportWeek]
+    let memberContributions: [MonthlyMemberContribution]
     let themeStats: [MonthlyReportTheme]
     let categoryStats: [MonthlyReportCategory]
+}
+
+struct MonthlyReportMonth: Identifiable, Hashable {
+    let month: String
+    let points: Int
+    let recordCount: Int
+    let totalMinutes: Int
+
+    var id: String { month }
+}
+
+struct MonthlyReportComparison: Hashable {
+    let previousMonth: String
+    let totalPoints: Int
+    let totalRecords: Int
+    let totalMinutes: Int
+}
+
+struct MonthlyReportWeek: Identifiable, Hashable {
+    let weekStart: String
+    let weekEnd: String
+    let label: String
+    let points: Int
+    let recordCount: Int
+    let totalMinutes: Int
+
+    var id: String { weekStart }
+}
+
+struct MonthlyMemberContribution: Identifiable, Hashable {
+    let userId: String
+    let displayName: String
+    let points: Int
+    let recordCount: Int
+    let totalMinutes: Int
+
+    var id: String { userId }
 }
 
 struct MonthlyReportTheme: Identifiable, Hashable {
@@ -427,6 +485,19 @@ struct MonthlyReportCategory: Hashable {
     let category: String
     let points: Int
     let recordCount: Int
+    let memberContributions: [MonthlyMemberContribution]
+
+    init(
+        category: String,
+        points: Int,
+        recordCount: Int,
+        memberContributions: [MonthlyMemberContribution] = []
+    ) {
+        self.category = category
+        self.points = points
+        self.recordCount = recordCount
+        self.memberContributions = memberContributions
+    }
 }
 
 enum AchievementVisibility: String, Codable, CaseIterable, Hashable {

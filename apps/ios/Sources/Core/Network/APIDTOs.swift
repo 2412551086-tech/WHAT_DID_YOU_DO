@@ -133,6 +133,11 @@ struct LeaveFamilyResponseDTO: Decodable {
     let left: Bool
 }
 
+struct DeleteAccountResponseDTO: Decodable {
+    let deleted: Bool
+    let deletedAt: Date
+}
+
 struct JoinRequestDTO: Decodable {
     let id: String
     let userId: String
@@ -309,9 +314,15 @@ struct ReactionRequestDTO: Encodable, Sendable {
 
 struct DeleteRecordResponseDTO: Decodable {
     let recordId: String
-    let id: String
     let deletedAt: Date?
     let deletedById: String?
+    let undoExpiresAt: Date?
+    let achievementEvaluation: AchievementEvaluationDTO?
+}
+
+struct RestoreRecordResponseDTO: Decodable {
+    let recordId: String
+    let restored: Bool
     let achievementEvaluation: AchievementEvaluationDTO?
 }
 
@@ -330,10 +341,45 @@ struct MonthlyReportDTO: Decodable {
     let totalRecords: Int
     let totalMinutes: Int?
     let headline: String
+    let comparison: MonthlyReportComparisonDTO?
+    let monthlyTrend: [MonthlyReportMonthDTO]?
+    let weeklyTrend: [MonthlyReportWeekDTO]?
+    let memberContributions: [MonthlyReportMemberContributionDTO]?
     let leaderboard: [MonthlyReportLeaderboardItemDTO]
     let themeStats: [MonthlyReportThemeDTO]?
     let categoryStats: [MonthlyReportCategoryDTO]
     let recentRecords: [MonthlyReportRecordDTO]
+}
+
+struct MonthlyReportMonthDTO: Decodable {
+    let month: String
+    let points: Int
+    let recordCount: Int
+    let totalMinutes: Int
+}
+
+struct MonthlyReportComparisonDTO: Decodable {
+    let previousMonth: String
+    let totalPoints: Int
+    let totalRecords: Int
+    let totalMinutes: Int
+}
+
+struct MonthlyReportWeekDTO: Decodable {
+    let weekStart: String
+    let weekEnd: String
+    let label: String
+    let points: Int
+    let recordCount: Int
+    let totalMinutes: Int
+}
+
+struct MonthlyReportMemberContributionDTO: Decodable {
+    let userId: String
+    let displayName: String
+    let points: Int
+    let recordCount: Int
+    let totalMinutes: Int
 }
 
 struct MonthlyReportLeaderboardItemDTO: Decodable {
@@ -347,6 +393,7 @@ struct MonthlyReportCategoryDTO: Decodable {
     let category: String
     let points: Int
     let recordCount: Int
+    let memberContributions: [MonthlyReportMemberContributionDTO]?
 }
 
 struct MonthlyReportThemeDTO: Decodable {

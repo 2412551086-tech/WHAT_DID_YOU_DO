@@ -12,6 +12,29 @@ enum AppSessionState: Equatable {
     case unauthenticated
 }
 
+private struct PendingChoreRecordUpload: Codable, Identifiable, Hashable {
+    let id: String
+    let userId: String
+    let familyId: String
+    let choreId: String
+    let choreName: String
+    let category: String
+    let standardMinutes: Int
+    let defaultPoints: Int
+    let icon: String
+    let actualMinutes: Int
+    let calculatedPoints: Int
+    let pointsMultiplier: Double?
+    let note: String
+    let createdAt: Date
+    let memberName: String
+    let identityLabel: String
+    let customIdentity: String?
+    let avatarKey: String?
+
+    var localRecordID: String { "offline-\(id)" }
+}
+
 @MainActor
 final class AppViewModel: ObservableObject {
     @Published private(set) var sessionState: AppSessionState = .restoringSession
@@ -60,6 +83,8 @@ final class AppViewModel: ObservableObject {
     @Published private(set) var loadingMessage: String?
     @Published private(set) var isOffline = false
     @Published private(set) var lastSuccessfulSyncAt: Date?
+    @Published private(set) var pendingUploadCount = 0
+    @Published private(set) var isSyncingPendingRecords = false
     @Published var errorMessage: String?
     @Published private(set) var lastRequestPath: String?
     @Published private(set) var lastStatusCode: Int?
@@ -74,6 +99,9 @@ final class AppViewModel: ObservableObject {
     @Published private(set) var achievementSyncState: AchievementSyncState = .idle
     @Published private(set) var achievementLastUpdatedAt: Date?
     @Published var pendingAchievementCelebration: AchievementCelebration?
+    @Published private(set) var pendingRecordDeletion: PendingRecordDeletion?
+    @Published private(set) var isRestoringDeletedRecord = false
+    @Published private(set) var recordUndoErrorMessage: String?
 
     private let apiClient: any APIClientProtocol
     private let tokenStore: any SecureTokenStore
@@ -84,6 +112,8 @@ final class AppViewModel: ObservableObject {
     private var hiddenCommonCustomSlotIDs: Set<String> = []
     private var accountHasPremiumAccess = false
     private var achievementSyncTask: Task<Void, Never>?
+    private var deletionUndoTask: Task<Void, Never>?
+    private var pendingRecordUploads: [PendingChoreRecordUpload] = []
 
     init(
         apiClient: any APIClientProtocol = APIClient(),
@@ -99,6 +129,8 @@ final class AppViewModel: ObservableObject {
         self.dataMode = dataMode
         self.userDefaults = userDefaults
         self.selectedReportMonth = Self.monthFormatter.string(from: Date())
+        self.pendingRecordUploads = Self.loadPendingRecordUploads(from: userDefaults)
+        self.pendingUploadCount = pendingRecordUploads.count
 
         if !forceMockData {
             choreOrder = userDefaults.stringArray(forKey: Self.choreOrderDefaultsKey) ?? []
@@ -566,6 +598,7 @@ final class AppViewModel: ObservableObject {
 
         sessionState = .restoringSession
         await apiClient.setAccessToken(accessToken)
+        await apiClient.setPreferCachedResponses(true)
         await performLoading("正在恢复登录状态") {
             let user: UserDTO = try await apiClient.get("auth/me")
             currentUser = mapUser(user)
@@ -586,14 +619,34 @@ final class AppViewModel: ObservableObject {
                 selectedTab = .today
                 rootScreen = .home
                 try await refreshHomeDataFromAPI(includeChores: false)
+                mergePendingRecordsIntoVisibleActivity()
             }
 
             sessionState = .authenticated
         }
+        await apiClient.setPreferCachedResponses(false)
 
         if sessionState == .restoringSession {
-            await clearInvalidSession()
-            errorMessage = "登录状态恢复失败，请重新登录。"
+            if isOffline, currentUser != nil {
+                sessionState = .authenticated
+                rootScreen = currentFamily == nil ? .createFamily : .home
+                mergePendingRecordsIntoVisibleActivity()
+                errorMessage = "当前处于离线模式，记录会在联网后自动同步。"
+            } else if isOffline {
+                sessionState = .unauthenticated
+                rootScreen = .login
+                errorMessage = "本机还没有可用的家庭数据，请联网打开一次后再离线使用。"
+            } else {
+                await clearInvalidSession()
+                errorMessage = "登录状态恢复失败，请重新登录。"
+            }
+        } else if sessionState == .authenticated {
+            await syncPendingRecordsIfPossible()
+            if isOffline {
+                Task { [weak self] in
+                    await self?.refreshHomeData()
+                }
+            }
         }
     }
 
@@ -973,6 +1026,7 @@ final class AppViewModel: ObservableObject {
             await createRecordWithAPI(
                 chore,
                 actualMinutes: actualMinutes,
+                calculatedPoints: calculatedPoints,
                 pointsMultiplier: pointsMultiplier
             )
         }
@@ -1036,27 +1090,126 @@ final class AppViewModel: ObservableObject {
 
     func deleteRecord(_ record: ChoreRecord) {
         clearError()
+        recordUndoErrorMessage = nil
 
         guard record.canDelete else {
             errorMessage = AppStateError.deleteForbidden.localizedDescription
             return
         }
 
+        if record.syncState == .pending {
+            pendingRecordUploads.removeAll { $0.localRecordID == record.id }
+            persistPendingRecordUploads()
+            removeRecordLocally(record)
+            return
+        }
+
         guard !usesMockData else {
             deleteRecordWithMock(record)
+            beginRecordDeletionUndo(record: record, expiresAt: Date().addingTimeInterval(10))
             return
         }
 
         Task {
-            var evaluation: AchievementEvaluationDTO?
-            await performLoading("正在删除家务记录") {
+            do {
                 let response: DeleteRecordResponseDTO = try await apiClient.delete("chore-records/\(record.id)")
-                evaluation = response.achievementEvaluation
-                try await refreshHomeDataFromAPI()
+                removeRecordLocally(record)
+                beginRecordDeletionUndo(
+                    record: record,
+                    expiresAt: Self.localRecordDeletionUndoExpiration(
+                        deletedAt: response.deletedAt,
+                        undoExpiresAt: response.undoExpiresAt
+                    )
+                )
+
+                do {
+                    try await refreshHomeDataFromAPI(includeChores: false)
+                    isOffline = false
+                    lastSuccessfulSyncAt = Date()
+                } catch {
+                    // Deletion already succeeded. Preserve the local state and let
+                    // the next normal refresh reconcile secondary statistics.
+                    if APIError.isConnectivityError(error) {
+                        isOffline = true
+                    }
+                }
+
+                if let evaluation = response.achievementEvaluation {
+                    beginAchievementSync(evaluation)
+                }
+            } catch {
+                if let apiError = error as? APIError, apiError.isUnauthorized {
+                    await clearInvalidSession()
+                    errorMessage = "登录已失效，请重新登录。"
+                } else {
+                    errorMessage = error.localizedDescription
+                }
             }
-            if let evaluation {
-                beginAchievementSync(evaluation)
+            await syncAPIDebugSnapshot()
+        }
+    }
+
+    func undoLastRecordDeletion() {
+        guard let pending = pendingRecordDeletion else { return }
+
+        guard !pending.isExpired else {
+            clearRecordDeletionUndo()
+            recordUndoErrorMessage = "撤销时间已结束"
+            return
+        }
+
+        recordUndoErrorMessage = nil
+
+        guard !usesMockData else {
+            restoreRecordLocally(pending.record)
+            clearRecordDeletionUndo()
+            return
+        }
+
+        guard !isRestoringDeletedRecord else { return }
+        isRestoringDeletedRecord = true
+
+        Task {
+            defer { isRestoringDeletedRecord = false }
+            do {
+                let response: RestoreRecordResponseDTO = try await apiClient.post(
+                    "chore-records/\(pending.record.id)/restore"
+                )
+                guard response.restored else {
+                    throw APIError.invalidResponse
+                }
+
+                restoreRecordLocally(pending.record)
+                clearRecordDeletionUndo()
+
+                do {
+                    try await refreshHomeDataFromAPI(includeChores: false)
+                    isOffline = false
+                    lastSuccessfulSyncAt = Date()
+                } catch {
+                    if APIError.isConnectivityError(error) {
+                        isOffline = true
+                    }
+                }
+
+                if let evaluation = response.achievementEvaluation {
+                    beginAchievementSync(evaluation)
+                }
+            } catch {
+                if let apiError = error as? APIError, apiError.isUnauthorized {
+                    await clearInvalidSession()
+                    errorMessage = "登录已失效，请重新登录。"
+                } else if case let APIError.requestFailed(statusCode, _) = error,
+                          statusCode == 409 {
+                    clearRecordDeletionUndo()
+                    recordUndoErrorMessage = "撤销时间已结束"
+                } else {
+                    recordUndoErrorMessage = APIError.isConnectivityError(error)
+                        ? "网络开了个小差，请尽快再试一次"
+                        : error.localizedDescription
+                }
             }
+            await syncAPIDebugSnapshot()
         }
     }
 
@@ -1152,8 +1305,10 @@ final class AppViewModel: ObservableObject {
             return
         }
 
+        await syncPendingRecordsIfPossible(refreshAfterSync: false)
         await performLoading("正在同步家庭战况") {
             try await refreshHomeDataFromAPI()
+            mergePendingRecordsIntoVisibleActivity()
         }
     }
 
@@ -1693,9 +1848,82 @@ final class AppViewModel: ObservableObject {
         }
     }
 
+    func deleteAccount() async -> Bool {
+        clearError()
+        isLoading = true
+        loadingMessage = "正在永久注销账户"
+        defer {
+            isLoading = false
+            loadingMessage = nil
+        }
+
+        do {
+            if !usesMockData {
+                let response: DeleteAccountResponseDTO = try await apiClient.delete("auth/me")
+                guard response.deleted else {
+                    throw APIError.invalidResponse
+                }
+            }
+
+            await clearLocalAccountData()
+            return true
+        } catch {
+            if let apiError = error as? APIError, apiError.isUnauthorized {
+                await clearLocalAccountData()
+                errorMessage = "账号登录状态已失效，本机登录信息已清除。"
+                return true
+            }
+            if APIError.isConnectivityError(error) {
+                isOffline = true
+                errorMessage = "永久注销需要连接服务器，请联网后重试。"
+            } else {
+                errorMessage = error.localizedDescription
+            }
+            await syncAPIDebugSnapshot()
+            return false
+        }
+    }
+
+    private func clearLocalAccountData() async {
+        achievementSyncTask?.cancel()
+        achievementSyncTask = nil
+        deletionUndoTask?.cancel()
+        deletionUndoTask = nil
+        pendingRecordUploads.removeAll()
+        pendingUploadCount = 0
+
+        let accountScopedPrefixes = [
+            Self.commonChoreGridDefaultsKeyPrefix,
+            Self.achievementCacheKeyPrefix,
+            "test-premium-access-",
+            "chore_last_duration_",
+        ]
+        let exactKeys = [
+            Self.choreOrderDefaultsKey,
+            Self.pinnedChoresDefaultsKey,
+            Self.pendingRecordUploadsDefaultsKey,
+        ]
+        for key in userDefaults.dictionaryRepresentation().keys where
+            exactKeys.contains(key) || accountScopedPrefixes.contains(where: { key.hasPrefix($0) }) {
+            userDefaults.removeObject(forKey: key)
+        }
+
+        await apiClient.clearCachedResponses()
+        await apiClient.setAccessToken(nil)
+        do {
+            try tokenStore.deleteAccessToken()
+            lastSecureStorageErrorMessage = nil
+        } catch {
+            lastSecureStorageErrorMessage = error.localizedDescription
+        }
+        resetSessionState()
+    }
+
     private func resetSessionState() {
         achievementSyncTask?.cancel()
         achievementSyncTask = nil
+        deletionUndoTask?.cancel()
+        deletionUndoTask = nil
         accessToken = nil
         currentUser = nil
         accountHasPremiumAccess = false
@@ -1742,6 +1970,9 @@ final class AppViewModel: ObservableObject {
         achievementSyncState = .idle
         achievementLastUpdatedAt = nil
         pendingAchievementCelebration = nil
+        pendingRecordDeletion = nil
+        isRestoringDeletedRecord = false
+        recordUndoErrorMessage = nil
         selectedReportMonth = currentMonth
         isOffline = false
         lastSuccessfulSyncAt = nil
@@ -1973,7 +2204,203 @@ final class AppViewModel: ObservableObject {
         sessionState = .authenticated
     }
 
+    private func enqueueOfflineRecord(
+        _ chore: ChoreItem,
+        actualMinutes: Int?,
+        calculatedPoints: Int?,
+        pointsMultiplier: Double?,
+        requestID: String
+    ) {
+        guard let userId = currentUser?.id,
+              let familyId = currentFamily?.id
+        else {
+            errorMessage = AppStateError.missingFamily.localizedDescription
+            return
+        }
+
+        selectedWeekOffset = 0
+        let minutes = max(1, min(180, actualMinutes ?? chore.minutes))
+        let points = calculatedPoints ?? pointsMultiplier.map {
+            Self.estimatedPoints(for: chore, selectedMinutes: minutes, pointsMultiplier: $0)
+        } ?? Self.estimatedPoints(for: chore, selectedMinutes: minutes)
+        let note = recordSuccessNote(for: chore.name)
+        let pending = PendingChoreRecordUpload(
+            id: requestID,
+            userId: userId,
+            familyId: familyId,
+            choreId: chore.id,
+            choreName: chore.name,
+            category: chore.category,
+            standardMinutes: chore.minutes,
+            defaultPoints: chore.points,
+            icon: chore.icon,
+            actualMinutes: minutes,
+            calculatedPoints: points,
+            pointsMultiplier: pointsMultiplier,
+            note: note,
+            createdAt: Date(),
+            memberName: currentUserName,
+            identityLabel: currentMembership?.identityLabel ?? selectedIdentityLabel,
+            customIdentity: currentMembership?.customIdentity,
+            avatarKey: currentMembership?.avatarKey ?? selectedAvatarKey
+        )
+
+        pendingRecordUploads.append(pending)
+        persistPendingRecordUploads()
+        let record = makePendingRecord(from: pending)
+        weekRecords.removeAll { $0.id == record.id }
+        recentRecords.removeAll { $0.id == record.id }
+        weekRecords.insert(record, at: 0)
+        recentRecords.insert(record, at: 0)
+    }
+
+    func syncPendingRecordsIfPossible() async {
+        await syncPendingRecordsIfPossible(refreshAfterSync: true)
+    }
+
+    private func syncPendingRecordsIfPossible(refreshAfterSync: Bool) async {
+        guard !usesMockData,
+              !isSyncingPendingRecords,
+              accessToken != nil,
+              let userId = currentUser?.id,
+              let familyId = currentFamily?.id
+        else { return }
+
+        let queued = pendingRecordUploads.filter {
+            $0.userId == userId && $0.familyId == familyId
+        }.sorted { $0.createdAt < $1.createdAt }
+        guard !queued.isEmpty else { return }
+
+        isSyncingPendingRecords = true
+        defer { isSyncingPendingRecords = false }
+        var uploadedAny = false
+        var latestEvaluation: AchievementEvaluationDTO?
+
+        for pending in queued {
+            do {
+                let response: ChoreRecordDTO = try await apiClient.post(
+                    "chore-records",
+                    body: CreateChoreRecordRequest(
+                        familyId: pending.familyId,
+                        choreId: pending.choreId,
+                        actualMinutes: pending.actualMinutes,
+                        pointsMultiplier: pending.pointsMultiplier,
+                        note: pending.note,
+                        imageUrls: []
+                    ),
+                    headers: ["Idempotency-Key": pending.id]
+                )
+                pendingRecordUploads.removeAll { $0.id == pending.id }
+                weekRecords.removeAll { $0.id == pending.localRecordID }
+                recentRecords.removeAll { $0.id == pending.localRecordID }
+                let synced = mapRecord(response)
+                weekRecords.insert(synced, at: 0)
+                recentRecords.insert(synced, at: 0)
+                latestEvaluation = response.achievementEvaluation ?? latestEvaluation
+                uploadedAny = true
+                persistPendingRecordUploads()
+            } catch {
+                if APIError.isConnectivityError(error) {
+                    isOffline = true
+                    break
+                }
+                if let apiError = error as? APIError, apiError.isUnauthorized {
+                    await clearInvalidSession()
+                    errorMessage = "登录已失效，请重新登录。"
+                    break
+                }
+                errorMessage = "有一条离线记录同步失败：\(error.localizedDescription)"
+                break
+            }
+        }
+
+        if uploadedAny {
+            isOffline = false
+            lastSuccessfulSyncAt = Date()
+            if refreshAfterSync {
+                do {
+                    try await refreshHomeDataFromAPI(includeChores: false)
+                    mergePendingRecordsIntoVisibleActivity()
+                } catch {
+                    if APIError.isConnectivityError(error) {
+                        isOffline = true
+                    }
+                }
+            }
+            if let latestEvaluation {
+                beginAchievementSync(latestEvaluation)
+            } else {
+                Task { await refreshAchievements() }
+            }
+        }
+        await syncAPIDebugSnapshot()
+    }
+
+    private func mergePendingRecordsIntoVisibleActivity() {
+        guard let userId = currentUser?.id,
+              let familyId = currentFamily?.id
+        else { return }
+
+        let pendingRecords = pendingRecordUploads
+            .filter { $0.userId == userId && $0.familyId == familyId }
+            .sorted { $0.createdAt > $1.createdAt }
+            .map(makePendingRecord)
+
+        let pendingIDs = Set(pendingRecords.map(\.id))
+        recentRecords.removeAll { pendingIDs.contains($0.id) }
+        recentRecords.insert(contentsOf: pendingRecords, at: 0)
+
+        if selectedWeekOffset == 0 {
+            weekRecords.removeAll { pendingIDs.contains($0.id) }
+            weekRecords.insert(contentsOf: pendingRecords, at: 0)
+        }
+    }
+
+    private func makePendingRecord(from pending: PendingChoreRecordUpload) -> ChoreRecord {
+        ChoreRecord(
+            id: pending.localRecordID,
+            memberName: pending.memberName,
+            choreName: pending.choreName,
+            category: pending.category,
+            standardMinutes: pending.standardMinutes,
+            actualMinutes: pending.actualMinutes,
+            points: pending.calculatedPoints,
+            note: pending.note,
+            createdAt: pending.createdAt,
+            icon: pending.icon,
+            color: Self.color(forCategory: pending.category),
+            creatorId: pending.userId,
+            identityLabel: pending.identityLabel,
+            customIdentity: pending.customIdentity,
+            avatarKey: pending.avatarKey,
+            likeCount: 0,
+            likedByMe: false,
+            canDelete: true,
+            canEdit: false,
+            choreId: pending.choreId,
+            defaultPoints: pending.defaultPoints,
+            pointsMultiplier: pending.pointsMultiplier,
+            syncState: .pending
+        )
+    }
+
+    private func persistPendingRecordUploads() {
+        pendingUploadCount = pendingRecordUploads.count
+        guard let data = try? JSONEncoder().encode(pendingRecordUploads) else { return }
+        userDefaults.set(data, forKey: Self.pendingRecordUploadsDefaultsKey)
+    }
+
+    private static func loadPendingRecordUploads(from defaults: UserDefaults) -> [PendingChoreRecordUpload] {
+        guard let data = defaults.data(forKey: pendingRecordUploadsDefaultsKey) else { return [] }
+        return (try? JSONDecoder().decode([PendingChoreRecordUpload].self, from: data)) ?? []
+    }
+
     private func deleteRecordWithMock(_ record: ChoreRecord) {
+        removeRecordLocally(record)
+        updateMockMonthlyReport()
+    }
+
+    private func removeRecordLocally(_ record: ChoreRecord) {
         weekRecords.removeAll { $0.id == record.id }
         recentRecords.removeAll { $0.id == record.id }
 
@@ -1987,7 +2414,72 @@ final class AppViewModel: ObservableObject {
             weekRanking.sort { $0.monthlyPoints > $1.monthlyPoints }
         }
 
-        updateMockMonthlyReport()
+    }
+
+    private func restoreRecordLocally(_ record: ChoreRecord) {
+        if !weekRecords.contains(where: { $0.id == record.id }) {
+            weekRecords.append(record)
+            weekRecords.sort { $0.createdAt > $1.createdAt }
+        }
+        if !recentRecords.contains(where: { $0.id == record.id }) {
+            recentRecords.append(record)
+            recentRecords.sort { $0.createdAt > $1.createdAt }
+        }
+
+        if let index = monthlyRanking.firstIndex(where: { $0.id == record.creatorId || $0.name == record.memberName }) {
+            monthlyRanking[index].monthlyPoints += record.points
+            monthlyRanking.sort { $0.monthlyPoints > $1.monthlyPoints }
+        }
+        if let index = weekRanking.firstIndex(where: { $0.id == record.creatorId || $0.name == record.memberName }) {
+            weekRanking[index].monthlyPoints += record.points
+            weekRanking.sort { $0.monthlyPoints > $1.monthlyPoints }
+        }
+
+        if usesMockData {
+            updateMockMonthlyReport()
+        }
+    }
+
+    private func beginRecordDeletionUndo(record: ChoreRecord, expiresAt: Date) {
+        deletionUndoTask?.cancel()
+        pendingRecordDeletion = PendingRecordDeletion(record: record, expiresAt: expiresAt)
+        recordUndoErrorMessage = nil
+
+        let delay = max(0, expiresAt.timeIntervalSinceNow)
+        deletionUndoTask = Task { [weak self] in
+            do {
+                try await Task.sleep(for: .seconds(delay))
+            } catch {
+                return
+            }
+            guard !Task.isCancelled else { return }
+            self?.clearRecordDeletionUndo()
+        }
+    }
+
+    static func localRecordDeletionUndoExpiration(
+        deletedAt: Date?,
+        undoExpiresAt: Date?,
+        now: Date = Date()
+    ) -> Date {
+        let fallbackWindow: TimeInterval = 10
+        let serverWindow = deletedAt.flatMap { deletedAt in
+            undoExpiresAt.map { $0.timeIntervalSince(deletedAt) }
+        }
+        let validServerWindow = serverWindow.flatMap { window in
+            (window > 0 && window <= 60) ? min(window, fallbackWindow) : nil
+        }
+
+        // Rebuild the deadline from the duration instead of comparing clocks
+        // across the phone and server. Keep a small margin for the restore call.
+        let localWindow = max(1, (validServerWindow ?? fallbackWindow) - 0.25)
+        return now.addingTimeInterval(localWindow)
+    }
+
+    private func clearRecordDeletionUndo() {
+        deletionUndoTask?.cancel()
+        deletionUndoTask = nil
+        pendingRecordDeletion = nil
     }
 
     private static func updateMockReaction(
@@ -2026,6 +2518,19 @@ final class AppViewModel: ObservableObject {
             totalRecords: weekRecords.count,
             totalMinutes: weekRecords.reduce(0) { $0 + $1.actualMinutes },
             headline: "家庭互动已同步，功劳簿继续营业",
+            comparison: monthlyReport?.comparison,
+            monthlyTrend: monthlyReport?.monthlyTrend ?? [],
+            weeklyTrend: monthlyReport?.weeklyTrend ?? [],
+            memberContributions: monthlyRanking.map { member in
+                let memberRecords = weekRecords.filter { $0.creatorId == member.id || $0.memberName == member.name }
+                return MonthlyMemberContribution(
+                    userId: member.id,
+                    displayName: member.name,
+                    points: member.monthlyPoints,
+                    recordCount: memberRecords.count,
+                    totalMinutes: memberRecords.reduce(0) { $0 + $1.actualMinutes }
+                )
+            },
             themeStats: Dictionary(grouping: weekRecords) { record in
                 chores.first(where: { $0.name == record.choreName })?.themeKey ?? ChoreTheme.daily.rawValue
             }
@@ -2042,7 +2547,8 @@ final class AppViewModel: ObservableObject {
                     MonthlyReportCategory(
                         category: category,
                         points: records.reduce(0) { $0 + $1.points },
-                        recordCount: records.count
+                        recordCount: records.count,
+                        memberContributions: monthlyContributions(for: records)
                     )
                 }
                 .sorted { $0.points > $1.points }
@@ -2102,6 +2608,49 @@ final class AppViewModel: ObservableObject {
             totalRecords: max(0, MockData.monthlyReport.totalRecords - distance),
             totalMinutes: max(0, MockData.monthlyReport.totalMinutes - distance * 18),
             headline: distance == 0 ? "本月家庭战况持续更新" : "翻到旧功劳簿，看看当月谁最能打",
+            comparison: MonthlyReportComparison(
+                previousMonth: Self.monthFormatter.string(
+                    from: Calendar(identifier: .gregorian).date(byAdding: .month, value: -1, to: selectedDate) ?? selectedDate
+                ),
+                totalPoints: max(0, totalPoints - 52),
+                totalRecords: max(0, MockData.monthlyReport.totalRecords - distance - 2),
+                totalMinutes: max(0, MockData.monthlyReport.totalMinutes - distance * 18 - 45)
+            ),
+            monthlyTrend: (0..<6).map { index in
+                let offset = index - 5
+                let date = Calendar(identifier: .gregorian).date(
+                    byAdding: .month,
+                    value: offset,
+                    to: selectedDate
+                ) ?? selectedDate
+                let monthKey = Self.monthFormatter.string(from: date)
+                let age = 5 - index + distance
+                return MonthlyReportMonth(
+                    month: monthKey,
+                    points: max(0, totalPoints - age * 22 + (index.isMultiple(of: 2) ? 8 : 0)),
+                    recordCount: max(0, MockData.monthlyReport.totalRecords - age),
+                    totalMinutes: max(0, MockData.monthlyReport.totalMinutes - age * 16)
+                )
+            },
+            weeklyTrend: MockData.monthlyReport.weeklyTrend.map { week in
+                MonthlyReportWeek(
+                    weekStart: week.weekStart,
+                    weekEnd: week.weekEnd,
+                    label: week.label,
+                    points: max(0, week.points - distance * 5),
+                    recordCount: max(0, week.recordCount - distance),
+                    totalMinutes: max(0, week.totalMinutes - distance * 6)
+                )
+            },
+            memberContributions: monthlyRanking.map { member in
+                MonthlyMemberContribution(
+                    userId: member.id,
+                    displayName: member.name,
+                    points: member.monthlyPoints,
+                    recordCount: max(0, member.monthlyPoints / 20),
+                    totalMinutes: max(0, member.monthlyPoints)
+                )
+            },
             themeStats: MockData.monthlyReport.themeStats.map { theme in
                 MonthlyReportTheme(
                     themeKey: theme.themeKey,
@@ -2113,7 +2662,8 @@ final class AppViewModel: ObservableObject {
                 MonthlyReportCategory(
                     category: category.category,
                     points: max(0, category.points - distance * 9),
-                    recordCount: max(0, category.recordCount - distance)
+                    recordCount: max(0, category.recordCount - distance),
+                    memberContributions: category.memberContributions
                 )
             }
         )
@@ -2336,10 +2886,16 @@ final class AppViewModel: ObservableObject {
     private func createRecordWithAPI(
         _ chore: ChoreItem,
         actualMinutes: Int?,
+        calculatedPoints: Int?,
         pointsMultiplier: Double?
     ) async {
         var evaluation: AchievementEvaluationDTO?
-        await performLoading("正在记录实际耗时") {
+        let requestID = UUID().uuidString
+        isLoading = true
+        loadingMessage = "正在记录实际耗时"
+        errorMessage = nil
+
+        do {
             guard let familyId = currentFamily?.id else {
                 throw AppStateError.missingFamily
             }
@@ -2354,7 +2910,8 @@ final class AppViewModel: ObservableObject {
                     pointsMultiplier: pointsMultiplier,
                     note: recordSuccessNote(for: chore.name),
                     imageUrls: []
-                )
+                ),
+                headers: ["Idempotency-Key": requestID]
             )
 
             weekRecords.insert(mapRecord(record), at: 0)
@@ -2362,11 +2919,37 @@ final class AppViewModel: ObservableObject {
             evaluation = record.achievementEvaluation
             selectedTab = .today
             try await refreshHomeDataFromAPI()
+            mergePendingRecordsIntoVisibleActivity()
+            isOffline = false
+            lastSuccessfulSyncAt = Date()
+        } catch {
+            if APIError.isConnectivityError(error) {
+                enqueueOfflineRecord(
+                    chore,
+                    actualMinutes: actualMinutes,
+                    calculatedPoints: calculatedPoints,
+                    pointsMultiplier: pointsMultiplier,
+                    requestID: requestID
+                )
+                isOffline = true
+                errorMessage = nil
+                selectedTab = .today
+                rootScreen = .home
+                sessionState = .authenticated
+            } else if let apiError = error as? APIError, apiError.isUnauthorized {
+                await clearInvalidSession()
+                errorMessage = "登录已失效，请重新登录。"
+            } else {
+                errorMessage = error.localizedDescription
+            }
         }
+        await syncAPIDebugSnapshot()
+        isLoading = false
+        loadingMessage = nil
 
         if let evaluation {
             beginAchievementSync(evaluation)
-        } else {
+        } else if !isOffline {
             Task { await refreshAchievements() }
         }
     }
@@ -2904,11 +3487,15 @@ final class AppViewModel: ObservableObject {
         isLoading = true
         loadingMessage = message
         errorMessage = nil
+        _ = await apiClient.consumeOfflineFallbackFlag()
 
         do {
             try await operation()
-            isOffline = false
-            lastSuccessfulSyncAt = Date()
+            let usedCachedResponse = await apiClient.consumeOfflineFallbackFlag()
+            isOffline = usedCachedResponse
+            if !usedCachedResponse {
+                lastSuccessfulSyncAt = Date()
+            }
         } catch {
             if APIError.isConnectivityError(error) {
                 isOffline = true
@@ -2944,6 +3531,10 @@ final class AppViewModel: ObservableObject {
         lastRequestPath = snapshot.lastRequestPath
         lastStatusCode = snapshot.lastStatusCode
         lastAPIErrorMessage = snapshot.lastErrorMessage
+        if snapshot.usedCachedResponse {
+            isOffline = true
+            lastSuccessfulSyncAt = snapshot.cachedResponseDate ?? lastSuccessfulSyncAt
+        }
     }
 
     private func clearError() {
@@ -3254,6 +3845,9 @@ final class AppViewModel: ObservableObject {
 
     private func mapActivity(_ dto: ActivityItemDTO) -> ChoreRecord {
         let creator = dto.createdBy ?? dto.user
+        let currentMember = familyMembers.first { member in
+            member.userId == creator.id && member.status == .active
+        }
         let category = ChoreCategory.resolve(dto.chore.category, choreName: dto.chore.name).rawValue
         return ChoreRecord(
             id: dto.recordId ?? dto.id,
@@ -3270,7 +3864,7 @@ final class AppViewModel: ObservableObject {
             creatorId: creator.id,
             identityLabel: creator.identityLabel ?? "家庭成员",
             customIdentity: creator.customIdentity,
-            avatarKey: creator.avatarKey,
+            avatarKey: currentMember?.avatarKey ?? creator.avatarKey,
             likeCount: dto.likeCount ?? 0,
             likedBy: mapLikers(dto.likedBy),
             likedByMe: dto.likedByMe ?? false,
@@ -3338,6 +3932,49 @@ final class AppViewModel: ObservableObject {
             totalMinutes: dto.totalMinutes
                 ?? dto.recentRecords.reduce(0) { $0 + ($1.actualMinutes ?? $1.minutes) },
             headline: dto.headline,
+            comparison: dto.comparison.map {
+                MonthlyReportComparison(
+                    previousMonth: $0.previousMonth,
+                    totalPoints: $0.totalPoints,
+                    totalRecords: $0.totalRecords,
+                    totalMinutes: $0.totalMinutes
+                )
+            },
+            monthlyTrend: (dto.monthlyTrend ?? []).map {
+                MonthlyReportMonth(
+                    month: $0.month,
+                    points: $0.points,
+                    recordCount: $0.recordCount,
+                    totalMinutes: $0.totalMinutes
+                )
+            },
+            weeklyTrend: (dto.weeklyTrend ?? []).map {
+                MonthlyReportWeek(
+                    weekStart: $0.weekStart,
+                    weekEnd: $0.weekEnd,
+                    label: $0.label,
+                    points: $0.points,
+                    recordCount: $0.recordCount,
+                    totalMinutes: $0.totalMinutes
+                )
+            },
+            memberContributions: (dto.memberContributions ?? dto.leaderboard.map {
+                MonthlyReportMemberContributionDTO(
+                    userId: $0.userId,
+                    displayName: $0.displayName,
+                    points: $0.points,
+                    recordCount: $0.recordCount,
+                    totalMinutes: 0
+                )
+            }).map {
+                MonthlyMemberContribution(
+                    userId: $0.userId,
+                    displayName: $0.displayName,
+                    points: $0.points,
+                    recordCount: $0.recordCount,
+                    totalMinutes: $0.totalMinutes
+                )
+            },
             themeStats: (dto.themeStats ?? []).map {
                 MonthlyReportTheme(
                     themeKey: $0.themeKey,
@@ -3349,10 +3986,35 @@ final class AppViewModel: ObservableObject {
                 MonthlyReportCategory(
                     category: ChoreCategory.resolve($0.category).rawValue,
                     points: $0.points,
-                    recordCount: $0.recordCount
+                    recordCount: $0.recordCount,
+                    memberContributions: ($0.memberContributions ?? []).map {
+                        MonthlyMemberContribution(
+                            userId: $0.userId,
+                            displayName: $0.displayName,
+                            points: $0.points,
+                            recordCount: $0.recordCount,
+                            totalMinutes: $0.totalMinutes
+                        )
+                    }
                 )
             }
         )
+    }
+
+    private func monthlyContributions(for records: [ChoreRecord]) -> [MonthlyMemberContribution] {
+        Dictionary(grouping: records) { record in
+            record.creatorId ?? record.memberName
+        }
+        .map { userId, memberRecords in
+            MonthlyMemberContribution(
+                userId: userId,
+                displayName: memberRecords.first?.memberName ?? "家庭成员",
+                points: memberRecords.reduce(0) { $0 + $1.points },
+                recordCount: memberRecords.count,
+                totalMinutes: memberRecords.reduce(0) { $0 + $1.actualMinutes }
+            )
+        }
+        .sorted { $0.points > $1.points }
     }
 
     private func mapLikers(_ users: [RecordUserDTO]?) -> [ActivityLiker] {
@@ -3451,6 +4113,7 @@ final class AppViewModel: ObservableObject {
     private static let pinnedChoresDefaultsKey = "chore-card-pinned-v1"
     private static let commonChoreGridDefaultsKeyPrefix = "common-chore-grid-order-v1"
     private static let achievementCacheKeyPrefix = "achievement-cache-v1"
+    private static let pendingRecordUploadsDefaultsKey = "pending-chore-record-uploads-v1"
     private static let customChoreSlotPrefix = "custom-chore-slot-"
     private static let mockPremiumRedemptionCode = "241255"
 

@@ -18,6 +18,8 @@ struct ChoreSelectionView: View {
     @State private var bottomPickerArmed = true
     @State private var bottomSentinelMinY = CGFloat.greatestFiniteMagnitude
     @State private var scrollViewportHeight: CGFloat = 0
+    @State private var bottomPullStartedAtBottom = false
+    @State private var bottomOverscrollDistance: CGFloat = 0
     @State private var scrollResetID = UUID()
     @State private var commonChoreFrames: [String: CGRect] = [:]
     @State private var commonChoreContainerGlobalFrame: CGRect = .zero
@@ -35,6 +37,7 @@ struct ChoreSelectionView: View {
     // near the last row does not unexpectedly open the chore library.
     private static let bottomTriggerThreshold: CGFloat = -60
     private static let bottomRearmDistance: CGFloat = 180
+    private static let bottomPullActivationDistance: CGFloat = 44
     private static let reorderCooldown: TimeInterval = 0.08
     private static let reorderTravelThreshold: CGFloat = 18
 
@@ -55,8 +58,15 @@ struct ChoreSelectionView: View {
 
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
-                    ChoreScrollActivityObserver {
+                    ChoreScrollActivityObserver { activity in
                         userHasScrolled = true
+                        bottomPullStartedAtBottom = activity.startedAtBottom
+                        bottomOverscrollDistance = activity.bottomOverscroll
+                        evaluateBottomSentinel(
+                            userDidScroll: true,
+                            pullStartedAtBottom: activity.startedAtBottom,
+                            overscrollDistance: activity.bottomOverscroll
+                        )
                     }
                     .frame(width: 0, height: 0)
                     pageHeader
@@ -393,7 +403,11 @@ struct ChoreSelectionView: View {
             .accessibilityHidden(true)
     }
 
-    private func evaluateBottomSentinel(userDidScroll: Bool = false) {
+    private func evaluateBottomSentinel(
+        userDidScroll: Bool = false,
+        pullStartedAtBottom: Bool? = nil,
+        overscrollDistance: CGFloat? = nil
+    ) {
         guard bottomSentinelMinY.isFinite,
               scrollViewportHeight > 0
         else { return }
@@ -407,7 +421,10 @@ struct ChoreSelectionView: View {
             distanceToBottom: distanceToViewportBottom,
             threshold: Self.bottomTriggerThreshold,
             userHasScrolled: userHasScrolled || userDidScroll,
-            isArmed: bottomPickerArmed
+            isArmed: bottomPickerArmed,
+            pullStartedAtBottom: pullStartedAtBottom ?? bottomPullStartedAtBottom,
+            overscrollDistance: overscrollDistance ?? bottomOverscrollDistance,
+            minimumPullDistance: Self.bottomPullActivationDistance
         ),
               !isLayoutEditing,
               !isReordering,
@@ -654,6 +671,8 @@ struct ChoreSelectionView: View {
         userHasScrolled = false
         bottomPickerArmed = true
         bottomSentinelMinY = .greatestFiniteMagnitude
+        bottomPullStartedAtBottom = false
+        bottomOverscrollDistance = 0
     }
 
     private func requestPremiumUpgrade(for trigger: PremiumUpgradeTrigger) {
@@ -1108,8 +1127,13 @@ private struct ChoreScrollViewportPreferenceKey: PreferenceKey {
     }
 }
 
+private struct ChoreScrollActivity {
+    let startedAtBottom: Bool
+    let bottomOverscroll: CGFloat
+}
+
 private struct ChoreScrollActivityObserver: UIViewRepresentable {
-    let onScroll: () -> Void
+    let onScroll: (ChoreScrollActivity) -> Void
 
     func makeCoordinator() -> Coordinator {
         Coordinator()
@@ -1139,7 +1163,11 @@ private struct ChoreScrollActivityObserver: UIViewRepresentable {
     @MainActor
     final class Coordinator: NSObject {
         weak var observedPanRecognizer: UIPanGestureRecognizer?
-        var onScroll: (() -> Void)?
+        weak var observedScrollView: UIScrollView?
+        var onScroll: ((ChoreScrollActivity) -> Void)?
+        private var gestureStartedAtBottom = false
+
+        private static let bottomStartTolerance: CGFloat = 8
 
         func attach(from view: UIView) {
             guard observedPanRecognizer == nil else { return }
@@ -1150,6 +1178,7 @@ private struct ChoreScrollActivityObserver: UIViewRepresentable {
             }
             guard let scrollView = ancestor as? UIScrollView else { return }
 
+            observedScrollView = scrollView
             observedPanRecognizer = scrollView.panGestureRecognizer
             scrollView.panGestureRecognizer.addTarget(
                 self,
@@ -1163,11 +1192,42 @@ private struct ChoreScrollActivityObserver: UIViewRepresentable {
                 action: #selector(handleScrollPan(_:))
             )
             observedPanRecognizer = nil
+            observedScrollView = nil
+            gestureStartedAtBottom = false
         }
 
         @objc private func handleScrollPan(_ recognizer: UIPanGestureRecognizer) {
-            guard recognizer.state == .began || recognizer.state == .changed else { return }
-            onScroll?()
+            guard let scrollView = observedScrollView else { return }
+
+            let maximumOffset = max(
+                -scrollView.adjustedContentInset.top,
+                scrollView.contentSize.height
+                    - scrollView.bounds.height
+                    + scrollView.adjustedContentInset.bottom
+            )
+
+            if recognizer.state == .began {
+                let remainingDistance = maximumOffset - scrollView.contentOffset.y
+                gestureStartedAtBottom = remainingDistance <= Self.bottomStartTolerance
+            }
+
+            guard recognizer.state == .began || recognizer.state == .changed else {
+                gestureStartedAtBottom = false
+                onScroll?(
+                    ChoreScrollActivity(
+                        startedAtBottom: false,
+                        bottomOverscroll: 0
+                    )
+                )
+                return
+            }
+
+            onScroll?(
+                ChoreScrollActivity(
+                    startedAtBottom: gestureStartedAtBottom,
+                    bottomOverscroll: max(0, scrollView.contentOffset.y - maximumOffset)
+                )
+            )
         }
     }
 }
@@ -1188,9 +1248,16 @@ enum ChoreLibraryRevealPolicy {
         distanceToBottom: CGFloat,
         threshold: CGFloat,
         userHasScrolled: Bool,
-        isArmed: Bool
+        isArmed: Bool,
+        pullStartedAtBottom: Bool,
+        overscrollDistance: CGFloat,
+        minimumPullDistance: CGFloat
     ) -> Bool {
-        distanceToBottom <= threshold && userHasScrolled && isArmed
+        distanceToBottom <= threshold
+            && userHasScrolled
+            && isArmed
+            && pullStartedAtBottom
+            && overscrollDistance >= minimumPullDistance
     }
 }
 

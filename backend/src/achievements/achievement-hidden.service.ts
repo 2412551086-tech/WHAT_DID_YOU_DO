@@ -20,10 +20,6 @@ export class AchievementHiddenService {
     const userId = this.subjectUserId(event);
     if (!userId) throw new Error(`MISSING_ACHIEVEMENT_SUBJECT:${event.id}`);
 
-    const membership = await transaction.familyMember.findUnique({
-      where: { userId_familyId: { userId, familyId: event.familyId } },
-      select: { showAchievementsToFamily: true },
-    });
     const [family, sourceRecord, records, definitions] = await Promise.all([
       transaction.family.findUnique({ where: { id: event.familyId }, select: { timezone: true } }),
       transaction.choreRecord.findUnique({ where: { id: event.sourceId }, select: { occurredAt: true } }),
@@ -119,9 +115,7 @@ export class AchievementHiddenService {
           achievementKey: definition.key,
           tier: definition.tier,
           definitionVersion: definition.definitionVersion,
-          visibility: membership?.showAchievementsToFamily === false
-            ? AchievementVisibility.PRIVATE
-            : AchievementVisibility.FAMILY,
+          visibility: AchievementVisibility.PRIVATE,
           unlockBatchId: unlockBatch.id,
           triggerEventId: event.id,
           unlockedAt: event.occurredAt,

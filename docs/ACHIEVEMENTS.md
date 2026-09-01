@@ -1,14 +1,14 @@
-# 成就系统规划
+# 成就系统实现摘要
 
-更新时间：2026-08-10
+更新时间：2026-08-13
 
-> 状态：早期简版规划，尚未进入业务代码实现。完整规则以 `家庭家务成就系统完整开发文档.md` 为准，工程拆分与阶段验收以 `ACHIEVEMENT_DEVELOPMENT_PLAN.md` 为准；本文件仅保留快速阅读摘要。
+> 状态：阶段 1–7 的本地工程已完成。完整规则以 `家庭家务成就系统完整开发文档.md` 为准，工程阶段与生产剩余项以 `ACHIEVEMENT_DEVELOPMENT_PLAN.md` 为准；本文件提供当前能力的快速阅读摘要。
 
 ## 1. 目标
 
 成就系统用于提升留存和正向反馈，但不能把家庭劳动变成强制考勤。设计同时覆盖：
 
-1. **成长奖励**：通过连续记录逐步扩展免费版能力。
+1. **成长奖励**：通过累计活跃、严格连续和滚动习惯逐步扩展免费版能力。
 2. **技能称号**：让不同类型的劳动被看见，而不是只奖励总积分第一名。
 3. **家庭互动**：鼓励成员回应、共同参与和稳定记录。
 
@@ -25,11 +25,12 @@
 | 条件 | 成就 | 奖励 |
 | ---- | ---- | ---- |
 | 首次记录家务 | 功劳簿开张 | 徽章 |
-| 连续 3 个家庭本地日有记录 | 三天没装没看见 | 免费常用家务上限 +1（6 → 7） |
-| 连续 5 个家庭本地日有记录 | 五日稳定输出 | 免费常用家务上限 +1（7 → 8） |
-| 连续 7 个家庭本地日有记录 | 一周家务常驻人口 | 免费自定义家务上限 +1（2 → 3） |
-| 连续 14 天有记录 | 半月不失踪 | 徽章或外观奖励 |
-| 连续 30 天有记录 | 家庭劳动钉子户 | 金色徽章或外观奖励 |
+| 累计 3 个家庭本地活跃日 | 三日开工 | 免费常用家务上限 +1 |
+| 累计 5 个家庭本地活跃日 | 五日渐入佳境 | 免费常用家务上限 +1 |
+| 累计 7 个家庭本地活跃日 | 七日成习 | 免费自定义家务上限 +1 |
+| 严格连续 7 日有记录 | 一周没掉线 | 徽章 |
+| 严格连续 14 日有记录 | 两周稳稳当当 | 徽章 |
+| 最近 30 日中至少 25 个活跃日 | 习惯养成 25/30 | 徽章 |
 
 奖励规则：
 
@@ -61,24 +62,32 @@
 
 互动成就示例：第一次回应“有人看见了”、累计送出 20 次回应“家庭气氛组”、一周全部 ACTIVE 成员有记录“全员出勤，但不是上班”。互动成就不改变家务积分和排行榜。
 
-## 6. iOS 信息架构
+## 6. iOS 当前体验
 
 首版不增加第五个 Tab：
 
-- `HomeView`：显示距离下一项成长奖励的轻量进度入口。
-- `ProfileView`：增加长期可访问的“我的成就”入口。
-- `AchievementsView`：展示当前连续天数、下一奖励、成长轨道、技能分类和已解锁徽章。
-- `AchievementDetailSheet`：解释条件、进度、奖励和解锁时间。
+- `HomeView`：横向分页展示最多 3 个即将完成成就。
+- `ProfileView`：保留“我的成就”入口，不展示完成数量徽标。
+- `AchievementsView`：直接展示统一成就网格；已解锁排在前，未解锁排在后，有永久奖励的未解锁项位于未解锁区最前。
+- `AchievementDetailSheet`：解释名称、获取条件、当前进度、奖励和解锁时间。
+- 页面右上角使用一个成员级“家庭可见”总开关，不再为每枚成就单独设置。
+- 同一批次解锁一项或多项时，在页面中央弹出反馈；多项可横向滑动查看。
+- 当前 27 枚正式成就资源已经进入 `Assets.xcassets/Achievements`；其余关联成就暂时复用同主题图稿，完整 47 枚独立视觉仍待补齐。
 
-## 7. 后端建议
+## 7. 后端当前实现
 
-建议模型：`AchievementDefinition`、`MemberAchievement`、`FamilyAchievementReward`、`AchievementEvent`。家庭容量可存为 `earnedCommonChoreSlots`、`earnedCustomChoreSlots`，或通过奖励表聚合。
+后端已实现 Definition、Event、Progress、UnlockBatch、Member/Family/Pair Achievement、EligibilitySnapshot、FamilyRewardGrant 和 AuditLog。家务等业务事务写 Outbox，worker 异步幂等结算；成就失败不影响家务记录成功。
 
-建议接口：
+主要接口：
 
-- `GET /families/:familyId/achievements`
-- `GET /families/:familyId/members/me/achievements`
-- 创建家务记录成功时可附带 `unlockedAchievements`。
+- `GET /families/:familyId/achievements/summary`
+- `GET /families/:familyId/achievements/me`
+- `GET /families/:familyId/achievements/:definitionIdOrKey`
+- `PATCH /families/:familyId/achievements/visibility`
+- `GET /families/:familyId/achievement-sync/:eventId`
+- `GET /achievements/archive`
+
+创建或编辑家务记录可返回异步 `achievementEvaluation`；iOS 轮询同步结果并展示同批次解锁。
 
 ## 8. 验收重点
 
@@ -90,10 +99,9 @@
 6. 免费版上限为基础额度加已获得奖励；高级版仍保存奖励结果。
 7. 成就解锁不改变历史积分、排行榜或月报。
 
-## 9. 推荐实施顺序
+## 9. 当前剩余工作
 
-1. 完成数据模型、家庭时区连续日算法和幂等奖励事务。
-2. 实现首记、3 日、5 日、7 日四项成长成就及后端测试。
-3. 增加成就查询接口和 iOS 只读成就页。
-4. 接入解锁反馈和 Home/Profile 入口。
-5. 最后补技能、互动与隐藏成就，并根据真实数据调整门槛。
+1. 将当前复用映射逐步替换为完整 47 枚独立成就视觉。
+2. 在预发布环境接入外部告警，并执行备份恢复、事件重放和全量对账演练。
+3. 使用家庭 allowlist 完成 TestFlight 1/7/30 日灰度观察。
+4. 根据真实使用数据校准专长门槛和近期目标排序，不改变已冻结的奖励幂等规则。

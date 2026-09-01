@@ -40,6 +40,6 @@ export class AuthController {
   @UseGuards(DevAuthGuard)
   @Delete('me')
   deleteCurrentUser(@CurrentUser() user: AuthUser) {
-    return this.authService.anonymizeCurrentUser(user);
+    return this.authService.deleteCurrentUser(user);
   }
 }

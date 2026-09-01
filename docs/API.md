@@ -1,6 +1,6 @@
 # API Contract
 
-更新时间：2026-08-11
+更新时间：2026-08-14
 
 本文仅记录当前 `backend/src` controller 中真实存在的本地 MVP 路由。
 
@@ -22,7 +22,7 @@
 | POST | `/auth/mock-login` | 否 | 已实现 |
 | GET | `/auth/me` | 是 | 已实现，恢复当前开发用户 |
 | PATCH | `/auth/me` | 是 | 已实现，修改当前开发用户昵称 |
-| DELETE | `/auth/me` | 是 | 已实现，匿名化账号并归档当前成就关系 |
+| DELETE | `/auth/me` | 是 | 已实现，永久注销账号并删除关联个人数据 |
 | POST | `/auth/redeem-premium` | 是 | 已实现，仅开发测试兑换 |
 | POST | `/families` | 是 | 已实现 |
 | GET | `/families/me` | 是 | 已实现 |
@@ -270,7 +270,7 @@
 - 当前支持 `avatar_01` 至 `avatar_13`。
 - 同一序号映射一套资源：`family_avatar_action_XX` 为立绘，`avatar_XX` 为圆形头像。
 - 后端只保存 `avatarKey`，iOS 根据该 key 自动选择对应立绘，不重复存储素材名称。
-- 更新后家庭成员列表和 activity 会读取最新头像。
+- 更新后家庭成员列表和 activity 会读取最新头像；历史记录昵称/身份仍使用记录快照，当前家庭成员头像则优先使用最新成员 avatarKey，成员关系不可用时回退到记录头像快照。
 
 ## 5. Chores
 
@@ -412,7 +412,7 @@ Idempotency-Key: <客户端生成的唯一请求 ID，1...128 字符>
 - `occurredAt` 由服务端在记录创建成功时生成；客户端传入该字段会返回 400，V1 不允许补记。
 - 所有系统家务均可直接记录；开发兑换码用于验证“常用家务不限数量、自定义家务产品显示不限（内部 100 项保护）、成员个人常用布局、记录时自定义积分倍率”四项高级权益。
 - 返回完整 activity 记录结构，包括 `actualMinutes`、`points`、`occurredAt`、`likeCount`、`likedByMe` 和 `canDelete`。
-- 创建时同时保存创建者昵称、家庭身份、自定义身份和头像 key 快照。后续改名、换形象、退出或重新加入不会改写历史动态的创建者展示。
+- 创建时同时保存创建者昵称、家庭身份、自定义身份和头像 key 快照。昵称与身份作为历史快照保留；当前家庭成员换形象后，activity 优先展示其最新头像，无法关联当前成员时回退头像快照。
 - 如果家庭开启 `requirePhotoProof`，`imageUrls` 至少需要一项。iOS MVP 固定创建家庭为 false，暂不开放上传。
 - `ACHIEVEMENTS_ENABLED=true` 时，响应额外包含 `achievementEvaluation={eventId,state:"PENDING",retryAfterMs}`；记录保存不等待成就处理。开关关闭时不增加该字段。
 
@@ -431,10 +431,11 @@ Idempotency-Key: <客户端生成的唯一请求 ID，1...128 字符>
 - `pointsMultiplier` 可选，范围 0.5...2.0，仅家庭高级版权益生效时允许传入；不传时按家务默认积分和标准时长重新计算。
 - 返回更新后的 `actualMinutes`、`points`、`pointsMultiplier`、`canEdit`。
 - 成就开关开启时产生 `CHORE_UPDATED` 事件并返回异步 `achievementEvaluation`；编辑可能触发新的成就弹窗。
+- iOS 仅在 `canEdit=true` 时提供左滑编辑入口；保存成功后刷新周/最近 activity、leaderboard、monthly-report，并轮询本次成就评估。
 
 ## 7. Achievement System
 
-阶段三已经接通成长规则、个人解锁和家庭容量奖励。默认仍关闭，用于灰度和保证旧主链路不受影响；启用方式：
+阶段 1–7 的本地成就工程已经完成。默认仍关闭，用于灰度和保证旧主链路不受影响；启用方式：
 
 ```bash
 ACHIEVEMENTS_ENABLED=true pnpm run start:dev
@@ -503,13 +504,16 @@ ACHIEVEMENTS_ENABLED=true pnpm run start:dev
 
 旧客户端可以请求 `{ "visibility": "FAMILY" }` 或 `{ "visibility": "PRIVATE" }`。新版 iOS 不再展示逐个成就开关，也不再调用此接口。
 
-### iOS 成就同步约定
+### iOS 成就同步与展示约定
 
-- Home 只展示下一项目标轻入口，Profile 保留成就中心入口，不增加第五个 Tab。
+- Home 和成就页均展示最多 3 个即将完成目标，使用横向分页滑动；Profile 保留成就中心入口，不增加第五个 Tab。
+- 成就页使用统一网格：已解锁在前，未解锁在后；有永久奖励的未解锁项排在未解锁区最前。点击任意成就查看名称、条件、进度、奖励和解锁日期。
+- 成就隐私只提供一个成员级 `showAchievementsToFamily` 总开关，放在成就页右上角；不展示逐项可见性开关。
 - API 模式只使用服务端 summary、me、visibility 和 achievement-sync 结果，不在客户端自行解锁或发放奖励。
-- `achievementEvaluation.state=PENDING` 不影响家务记录成功；客户端后台轮询 sync，同批次多项解锁合并为一次反馈。
+- `achievementEvaluation.state=PENDING` 不影响家务记录成功；客户端后台轮询 sync，同批次多项解锁在页面中央合并展示，并可横向滑动查看。
 - 最近一次成功的 summary/me 按当前用户和家庭隔离缓存；离线时可读缓存并显示更新时间，401 仍按统一会话规则清理。
 - Mock 模式使用固定本地成就数据，不调用上述网络接口。
+- iOS 当前接入 27 枚正式 Asset Catalog 成就资源；尚未拥有独立图稿的关联成就复用同主题资源。此为客户端视觉映射，不改变服务端 definition key。
 
 ### GET `/families/:familyId/achievement-events/failed`
 
@@ -537,7 +541,24 @@ ACHIEVEMENTS_ENABLED=true pnpm run start:dev
 
 ### DELETE `/auth/me`
 
-匿名化当前开发账号：清除手机号、使用匿名显示名、退出当前家庭并归档家庭/搭档成就关系。旧 Bearer token 随后返回 401。
+永久注销当前账号，成功返回：
+
+```json
+{
+  "deleted": true,
+  "deletedAt": "2026-08-14T11:00:00.000Z"
+}
+```
+
+处理规则：
+
+- 删除用户资料、手机号身份、成员关系、用户创建的家务记录、点赞、个人成就和搭档成就。
+- 多成员家庭中，若注销者是 OWNER，先自动转让给最早加入的 ACTIVE MEMBER。
+- 单人成立且没有可转让成员的家庭随账号永久删除。
+- 仍被其他成员历史记录引用的自定义家务会清除作者信息、替换为中性名称并归档，避免破坏其他成员数据的引用完整性。
+- 旧 Bearer token 随后返回 401。
+- 接口必须在线执行；离线状态不能排队注销。
+- 当前只覆盖开发手机号账号。正式接入 Apple/微信登录后，注销事务还必须撤销对应提供方 token。
 
 ### 成就灰度环境变量
 
@@ -554,6 +575,8 @@ ACHIEVEMENTS_ENABLED=true pnpm run start:dev
 - `week`：按当前家庭 `timezone` 计算本周周一 00:00 至下周一 00:00 的全部未删除记录；iOS“本周战况”使用此范围。
 - `recent`：最近 30 条未删除记录。
 - 仅家庭 ACTIVE 成员可访问。
+- iOS 本周动态把 `createdAt` 转换到家庭 timezone 后显示为“周几 HH:mm”；不改变 API 时间戳的 ISO 8601/UTC 传输格式。
+- iOS 家庭与个人本周二级分析由当前选中周的 `week` activity 和 `week` leaderboard 本地组合，不需要新增分析接口。
 
 ### GET `/families/:familyId/members/:memberId/activity`
 

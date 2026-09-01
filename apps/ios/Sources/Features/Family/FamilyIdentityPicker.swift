@@ -16,6 +16,10 @@ enum FamilyIdentityOptions {
         String(format: "family_avatar_action_%02d", index(for: key) + 1)
     }
 
+    static func neutralAsset(for key: String) -> String {
+        String(format: "family_avatar_neutral_%02d", index(for: key) + 1)
+    }
+
     static func accentColor(for key: String?) -> Color {
         switch key ?? avatarKeys[0] {
         case "avatar_01": return Color(red: 0.80, green: 0.63, blue: 0.38)

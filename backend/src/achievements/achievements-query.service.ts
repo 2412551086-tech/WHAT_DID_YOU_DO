@@ -115,8 +115,20 @@ export class AchievementsQueryService {
         data: { showAchievementsToFamily: showToFamily },
       }),
       this.prisma.memberAchievement.updateMany({
-        where: { familyId, userId: user.id },
+        where: {
+          familyId,
+          userId: user.id,
+          definition: { isHidden: false },
+        },
         data: { visibility },
+      }),
+      this.prisma.memberAchievement.updateMany({
+        where: {
+          familyId,
+          userId: user.id,
+          definition: { isHidden: true },
+        },
+        data: { visibility: AchievementVisibility.PRIVATE },
       }),
     ]);
 

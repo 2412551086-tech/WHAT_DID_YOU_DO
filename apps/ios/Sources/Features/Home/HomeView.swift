@@ -444,7 +444,10 @@ struct HomeView: View {
     }
 
     private var offlineCard: some View {
-        DSOfflineStatusView(lastUpdatedAt: viewModel.lastSuccessfulSyncAt)
+        DSOfflineStatusView(
+            lastUpdatedAt: viewModel.lastSuccessfulSyncAt,
+            pendingUploadCount: viewModel.pendingUploadCount
+        )
     }
 
     private var emptyActivityCard: some View {
