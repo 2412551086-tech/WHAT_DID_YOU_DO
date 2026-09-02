@@ -1307,22 +1307,25 @@ final class WhatDidYouDoTests: XCTestCase {
         XCTAssertEqual(paths, ["POST /auth/mock-login"])
     }
 
-    func testKeychainStoreSavesLoadsAndDeletesToken() throws {
+    func testKeychainStoreSavesLoadsAndDeletesRotatingTokenPair() throws {
         let store = KeychainStore(
             service: "com.whatdidyoudo.tests.\(UUID().uuidString)",
             account: "access-token"
         )
-        defer { try? store.deleteAccessToken() }
+        defer { try? store.deleteTokens() }
 
         do {
-            let initialToken = try store.loadAccessToken()
-            XCTAssertNil(initialToken)
-            try store.saveAccessToken("keychain-test-token")
-            let savedToken = try store.loadAccessToken()
-            XCTAssertEqual(savedToken, "keychain-test-token")
-            try store.deleteAccessToken()
-            let deletedToken = try store.loadAccessToken()
-            XCTAssertNil(deletedToken)
+            let tokens = AuthTokens(
+                accessToken: "keychain-access-token",
+                refreshToken: "keychain-refresh-token",
+                accessTokenExpiresAt: Date(timeIntervalSince1970: 1_800_000_000),
+                refreshTokenExpiresAt: Date(timeIntervalSince1970: 1_802_592_000)
+            )
+            XCTAssertNil(try store.loadTokens())
+            try store.saveTokens(tokens)
+            XCTAssertEqual(try store.loadTokens(), tokens)
+            try store.deleteTokens()
+            XCTAssertNil(try store.loadTokens())
         } catch KeychainStoreError.unhandledStatus(errSecMissingEntitlement) {
             throw XCTSkip("Unsigned CI test hosts cannot access Keychain")
         }
@@ -1356,7 +1359,7 @@ final class WhatDidYouDoTests: XCTestCase {
         XCTAssertNil(json["displayName"])
     }
 
-    func testLogoutDeletesStoredToken() {
+    func testLogoutDeletesStoredToken() async throws {
         let fixture = makeDefaultsFixture()
         defer { fixture.defaults.removePersistentDomain(forName: fixture.suiteName) }
         let tokenStore = MockSecureTokenStore(token: "stored-token")
@@ -1368,6 +1371,7 @@ final class WhatDidYouDoTests: XCTestCase {
         )
 
         viewModel.logout()
+        try await waitUntil { tokenStore.token == nil }
 
         XCTAssertNil(tokenStore.token)
         XCTAssertEqual(tokenStore.deleteCount, 1)
@@ -1570,6 +1574,60 @@ final class WhatDidYouDoTests: XCTestCase {
         XCTAssertNotNil(cached?.savedAt)
     }
 
+    func testAPIClientCoalescesProactiveRefreshAndUsesRotatedAccessToken() async throws {
+        let tokenStore = MockSecureTokenStore()
+        let initialTokens = AuthTokens(
+            accessToken: "nearly-expired-access",
+            refreshToken: "initial-refresh-token",
+            accessTokenExpiresAt: Date().addingTimeInterval(60),
+            refreshTokenExpiresAt: Date().addingTimeInterval(30 * 24 * 60 * 60)
+        )
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [AuthURLProtocolStub.self]
+        let urlSession = URLSession(configuration: configuration)
+        let recorder = AuthRequestRecorder()
+        AuthURLProtocolStub.handler = { request in
+            let count = recorder.record(request)
+            let path = request.url?.path ?? ""
+            if path == "/auth/refresh" {
+                try await Task.sleep(for: .milliseconds(30))
+                XCTAssertEqual(count, 1)
+                return (
+                    201,
+                    Data(
+                        #"{"accessToken":"rotated-access","refreshToken":"rotated-refresh","accessTokenExpiresAt":"2099-01-01T00:15:00.000Z","refreshTokenExpiresAt":"2099-01-31T00:00:00.000Z"}"#.utf8
+                    )
+                )
+            }
+            XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer rotated-access")
+            return (
+                200,
+                Data(#"{"id":"user-1","displayName":"测试用户"}"#.utf8)
+            )
+        }
+        defer { AuthURLProtocolStub.handler = nil }
+
+        let client = APIClient(
+            baseURL: URL(string: "https://auth.test")!,
+            responseCache: APIResponseCache(
+                directoryURL: FileManager.default.temporaryDirectory
+                    .appendingPathComponent("AuthRefreshTests-\(UUID().uuidString)")
+            ),
+            tokenStore: tokenStore,
+            urlSession: urlSession
+        )
+        await client.setAuthTokens(initialTokens)
+
+        async let first: UserDTO = client.get("auth/me")
+        async let second: UserDTO = client.get("auth/me")
+        let users = try await [first, second]
+
+        XCTAssertEqual(users.map(\.id), ["user-1", "user-1"])
+        XCTAssertEqual(recorder.refreshCount, 1)
+        XCTAssertEqual(tokenStore.tokens?.accessToken, "rotated-access")
+        XCTAssertEqual(tokenStore.tokens?.refreshToken, "rotated-refresh")
+    }
+
     func testOfflineRecordIsPersistedAndShownAsPending() async throws {
         let fixture = makeDefaultsFixture()
         defer { fixture.defaults.removePersistentDomain(forName: fixture.suiteName) }
@@ -1721,7 +1779,7 @@ final class WhatDidYouDoTests: XCTestCase {
 
     private static let loginResponses: [String: Data] = [
         "POST /auth/mock-login": Data(
-            #"{"user":{"id":"user-1","phoneNumber":"123456","displayName":"用户123456"},"accessToken":"api-token"}"#.utf8
+            #"{"user":{"id":"user-1","phoneNumber":"123456","displayName":"用户123456"},"accessToken":"api-token","refreshToken":"refresh-token","accessTokenExpiresAt":"2099-01-01T00:15:00.000Z","refreshTokenExpiresAt":"2099-01-31T00:00:00.000Z"}"#.utf8
         ),
         "GET /chores": Data("[]".utf8),
         "GET /families/me": Data("[]".utf8),
@@ -1822,14 +1880,23 @@ private actor SpyAPIClient: APIClientProtocol {
     }
 }
 
-private final class MockSecureTokenStore: SecureTokenStore {
+private final class MockSecureTokenStore: SecureTokenStore, @unchecked Sendable {
     var token: String?
+    var tokens: AuthTokens?
     private(set) var saveCount = 0
     private(set) var loadCount = 0
     private(set) var deleteCount = 0
 
     init(token: String? = nil) {
         self.token = token
+        if let token {
+            self.tokens = AuthTokens(
+                accessToken: token,
+                refreshToken: "refresh-\(token)",
+                accessTokenExpiresAt: Date().addingTimeInterval(900),
+                refreshTokenExpiresAt: Date().addingTimeInterval(30 * 24 * 60 * 60)
+            )
+        }
     }
 
     func saveAccessToken(_ token: String) throws {
@@ -1844,6 +1911,23 @@ private final class MockSecureTokenStore: SecureTokenStore {
 
     func deleteAccessToken() throws {
         deleteCount += 1
+        token = nil
+    }
+
+    func saveTokens(_ tokens: AuthTokens) throws {
+        saveCount += 1
+        self.tokens = tokens
+        token = tokens.accessToken
+    }
+
+    func loadTokens() throws -> AuthTokens? {
+        loadCount += 1
+        return tokens
+    }
+
+    func deleteTokens() throws {
+        deleteCount += 1
+        tokens = nil
         token = nil
     }
 }
@@ -1952,4 +2036,55 @@ private enum SpyError: LocalizedError {
     var errorDescription: String? {
         "Expected test request"
     }
+}
+
+private final class AuthRequestRecorder: @unchecked Sendable {
+    private let lock = NSLock()
+    private var refreshRequests = 0
+
+    var refreshCount: Int {
+        lock.withLock { refreshRequests }
+    }
+
+    func record(_ request: URLRequest) -> Int {
+        lock.withLock {
+            if request.url?.path == "/auth/refresh" {
+                refreshRequests += 1
+            }
+            return refreshRequests
+        }
+    }
+}
+
+private final class AuthURLProtocolStub: URLProtocol, @unchecked Sendable {
+    typealias Handler = @Sendable (URLRequest) async throws -> (statusCode: Int, data: Data)
+    nonisolated(unsafe) static var handler: Handler?
+
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+
+    override func startLoading() {
+        guard let handler = Self.handler else {
+            client?.urlProtocol(self, didFailWithError: SpyError.expectedRequest)
+            return
+        }
+        Task {
+            do {
+                let result = try await handler(request)
+                let response = HTTPURLResponse(
+                    url: request.url!,
+                    statusCode: result.statusCode,
+                    httpVersion: nil,
+                    headerFields: ["Content-Type": "application/json"]
+                )!
+                client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+                client?.urlProtocol(self, didLoad: result.data)
+                client?.urlProtocolDidFinishLoading(self)
+            } catch {
+                client?.urlProtocol(self, didFailWithError: error)
+            }
+        }
+    }
+
+    override func stopLoading() {}
 }

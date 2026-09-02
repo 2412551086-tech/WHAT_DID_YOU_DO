@@ -3,6 +3,14 @@ import Foundation
 struct MockLoginRequest: Encodable {
     let phoneNumber: String
     let displayName: String?
+    let deviceId: String?
+    let deviceName: String?
+    let platform: String?
+    let appVersion: String?
+}
+
+struct RefreshTokenRequest: Encodable, Sendable {
+    let refreshToken: String
 }
 
 struct CreateFamilyRequest: Encodable {
@@ -66,6 +74,39 @@ struct SaveCustomChoreRequest: Encodable {
 struct LoginResponse: Decodable {
     let user: UserDTO
     let accessToken: String
+    let refreshToken: String
+    let accessTokenExpiresAt: Date
+    let refreshTokenExpiresAt: Date
+
+    var tokens: AuthTokens {
+        AuthTokens(
+            accessToken: accessToken,
+            refreshToken: refreshToken,
+            accessTokenExpiresAt: accessTokenExpiresAt,
+            refreshTokenExpiresAt: refreshTokenExpiresAt
+        )
+    }
+}
+
+struct RefreshTokenResponse: Decodable, Sendable {
+    let accessToken: String
+    let refreshToken: String
+    let accessTokenExpiresAt: Date
+    let refreshTokenExpiresAt: Date
+
+    var tokens: AuthTokens {
+        AuthTokens(
+            accessToken: accessToken,
+            refreshToken: refreshToken,
+            accessTokenExpiresAt: accessTokenExpiresAt,
+            refreshTokenExpiresAt: refreshTokenExpiresAt
+        )
+    }
+}
+
+struct LogoutResponseDTO: Decodable {
+    let revoked: Bool?
+    let revokedSessions: Int?
 }
 
 struct PremiumRedemptionRequest: Codable {

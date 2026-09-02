@@ -1,6 +1,6 @@
 # API Contract
 
-更新时间：2026-08-14
+更新时间：2026-09-02
 
 本文仅记录当前 `backend/src` controller 中真实存在的本地 MVP 路由。
 
@@ -75,13 +75,18 @@
 ```json
 {
   "phoneNumber": "123456",
-  "displayName": "可选显示名"
+  "displayName": "可选显示名",
+  "deviceId": "设备稳定标识",
+  "deviceName": "小狼的 iPhone",
+  "platform": "iOS",
+  "appVersion": "0.1.0"
 }
 ```
 
-- 提供手机号时按 `phoneNumber` upsert，同一手机号返回同一开发用户。
+- 提供可识别的大陆手机号时先归一化为 `+86xxxxxxxxxxx`，再通过 `AuthIdentity(PHONE)` 返回稳定的同一用户。
+- E2E 等非手机号开发标识通过 `AuthIdentity(DEV)` 复用账号；`DEV` 不属于正式版登录方式。
 - 只提供 `displayName` 时每次创建一个新开发用户。
-- 返回 `user` 和开发 Bearer `accessToken`。
+- 每次登录创建独立设备会话，返回 `user`、15 分钟 Access Token 和可轮换 Refresh Token。
 
 ```json
 {
@@ -92,15 +97,46 @@
     "plan": "free",
     "premiumRedeemedAt": null
   },
-  "accessToken": "payload.signature"
+  "accessToken": "header.payload.signature",
+  "refreshToken": "frt_random-secret",
+  "accessTokenExpiresAt": "2026-09-02T08:15:00.000Z",
+  "refreshTokenExpiresAt": "2026-10-02T08:00:00.000Z"
 }
 ```
 
-该 token 是本地 HMAC 开发实现，不是生产 JWT/短信认证方案。
+Access Token 使用 HS256 签名并绑定 `User.id + AuthSession.id`；生产环境缺少至少 32 字节的
+`JWT_SECRET` 时后端拒绝启动。旧版两段式无过期 Token 不再兼容，升级后需要重新登录一次。
+统一身份数据模型和绑定规则见 `docs/AUTH_IDENTITY.md`。真实短信、Apple 和微信接口完成服务端凭证验证后，
+才允许调用内部身份绑定服务；当前没有允许客户端直接指定第三方身份标识的公共接口。
+
+### POST `/auth/refresh`
+
+```json
+{ "refreshToken": "frt_random-secret" }
+```
+
+- Refresh Token 采用 30 天滑动有效期，单次登录绝对上限 90 天。
+- 每次成功刷新都返回新的 Access/Refresh Token，旧 Refresh Token 立即标记为已使用。
+- 再次使用旧 Refresh Token 会撤销整个设备会话，后续新 Token 同样失效。
+- 数据库只保存 Refresh Token 的 SHA-256 哈希，不保存原文。
+
+### POST `/auth/logout`
+
+需要 Bearer Token，只撤销当前设备会话。
+
+### POST `/auth/logout-all`
+
+需要 Bearer Token，撤销当前用户全部设备会话。
+
+### GET `/auth/sessions`
+
+列出当前用户仍有效的设备会话，包含设备名称、平台、App 版本、最后活跃时间和是否为当前设备，
+不返回任何 Token 或完整 IP。
 
 ### GET `/auth/me`
 
-使用 Bearer token 返回当前开发用户。iOS 从 Keychain 恢复 token 后先调用此接口恢复昵称和手机号，再继续恢复家庭或加入申请状态。
+使用 Bearer Token 返回当前用户。iOS 从 Keychain 恢复 Token 对并在 Access Token 剩余约 2 分钟时静默刷新，
+随后调用此接口恢复昵称和手机号，再继续恢复家庭或加入申请状态；401 仍作为刷新失败后的兜底处理。
 
 ### PATCH `/auth/me`
 

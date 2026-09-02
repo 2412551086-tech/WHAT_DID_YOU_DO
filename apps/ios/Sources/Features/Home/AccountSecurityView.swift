@@ -33,6 +33,17 @@ struct AccountSecurityView: View {
                             )
                         }
                         .buttonStyle(.plain)
+                        Divider()
+                        Button {
+                            confirmation = .logoutAll
+                        } label: {
+                            actionRow(
+                                title: "退出所有设备",
+                                systemImage: "iphone.gen3.slash",
+                                color: .red
+                            )
+                        }
+                        .buttonStyle(.plain)
                     }
 
                     securitySection("数据与隐私") {
@@ -77,6 +88,10 @@ struct AccountSecurityView: View {
             } else if confirmation == .logout {
                 Button("退出登录", role: .destructive) {
                     viewModel.logout()
+                }
+            } else if confirmation == .logoutAll {
+                Button("退出所有设备", role: .destructive) {
+                    viewModel.logout(allDevices: true)
                 }
             }
             Button("取消", role: .cancel) {}
@@ -337,11 +352,13 @@ struct DeleteAccountView: View {
 private enum AccountConfirmation: Equatable {
     case leaveFamily
     case logout
+    case logoutAll
 
     var title: String {
         switch self {
         case .leaveFamily: "确认退出当前家庭？"
         case .logout: "确认退出登录？"
+        case .logoutAll: "确认退出所有设备？"
         }
     }
 
@@ -349,6 +366,7 @@ private enum AccountConfirmation: Equatable {
         switch self {
         case .leaveFamily: "退出后将看不到该家庭的战况；已经创建的家务记录仍会保留。"
         case .logout: "只清除本机登录状态，不会删除账号或家庭数据。"
+        case .logoutAll: "包括当前手机在内的所有设备都会退出，之后需要重新登录。"
         }
     }
 }

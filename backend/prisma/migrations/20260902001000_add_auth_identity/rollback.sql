@@ -1,0 +1,2 @@
+DROP TABLE IF EXISTS "AuthIdentity";
+DROP TYPE IF EXISTS "AuthProvider";

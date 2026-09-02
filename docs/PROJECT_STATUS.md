@@ -1,6 +1,6 @@
 # Project Status
 
-更新时间：2026-08-13
+更新时间：2026-09-02
 
 ## 当前阶段
 
@@ -9,7 +9,9 @@
 - iOS：SwiftUI + MVVM，支持 Mock/API 模式切换。
 - 后端：NestJS + Prisma + PostgreSQL，本地端口默认为 `3000`。
 - 包管理器：统一使用 `pnpm`，不要与 npm 混用。
-- 当前认证：手机号开发登录/显示名 Mock 登录，不是真实短信验证码。
+- 当前认证：手机号开发登录/显示名 Mock 登录，不是真实短信验证码；正式 Access/Refresh 会话安全底座已接入。
+- 统一身份基础：`AuthIdentity`、旧账号映射、手机号 `+86` 归一化和 Apple/微信绑定冲突核心服务已完成；真实服务商接口尚未接入。
+- 会话安全：Access Token 15 分钟，Refresh Token 30 天滑动且单次会话最长 90 天；支持 Rotation、重放撤销、多设备登录、当前设备/全部设备退出和 iOS 提前静默刷新。
 - 当前发布状态：尚未进入 TestFlight。
 
 ## 已完成的 MVP 主链路
@@ -63,11 +65,11 @@
 最近一轮与上述功能直接相关的验证结果：
 
 - `pnpm run build`：通过
-- `pnpm test --runInBand`：11 个测试套件、38 项测试全部通过
-- `pnpm run test:e2e`：21/21
+- `pnpm test --runInBand`：11 个测试套件、39 项测试全部通过
+- `pnpm run test:e2e`：29/29
 - `pnpm run smoke:mvp`：19/19
 - iOS `build-for-testing` 通过
-- iOS Simulator XCTest：67 项中 66 通过、1 项 Keychain 环境相关用例按既有条件跳过，0 失败
+- iOS XCTest 源码现有 79 项，测试目标已完成编译；本轮因 iOS 26.5 Simulator 启动后卡住而未能进入执行阶段，需在修复运行时后补跑
 
 后续提交前仍应在当前工作区重新执行一次，防止环境或未提交改动引入回归。
 
@@ -76,8 +78,9 @@
 | 能力 | 状态 | 说明 |
 | ---- | ---- | ---- |
 | 正式手机号验证码 | 暂缓 | 当前只是开发登录，没有短信发送与验证码校验 |
-| Apple/微信登录 | 未开始 | UI 可有占位，未接正式认证 |
-| Token 安全存储 | 已完成 | API 模式 accessToken 使用 Keychain 保存、启动恢复，401 或退出登录会清理 |
+| 统一账号身份 | 已完成（基础层） | PHONE/APPLE/WECHAT/DEV 映射到稳定 `User.id`；旧账号迁移、绑定冲突、解绑保护和注销级联已实现 |
+| Apple/微信登录 | 未开始（身份层已就绪） | 尚需客户端 SDK、服务端验签/换票、nonce 和授权撤销 |
+| Token 安全存储 | 已完成 | iOS Keychain 保存 Access/Refresh Token 对；剩余约 2 分钟自动刷新，并发刷新合并；401、退出或旧凭证升级会清理 |
 | 账户注销 | 已完成（开发账号） | App 内可发起永久注销；多人家庭自动转让 OWNER，单人家庭随账号删除；正式第三方登录 token 撤销待对应登录能力接入 |
 | 环境配置 | 已完成 | Debug 默认模拟器本机地址，可切换局域网联调；Release 禁止使用 `127.0.0.1` |
 | 图片凭证 | 暂缓 | 后端字段和校验保留；iOS 隐藏/禁用开关并固定创建为 false |
@@ -86,7 +89,7 @@
 | 成就系统 | 已完成（本地工程） | 阶段 1–7、iOS 徽章墙、中央聚合弹层、成员级分享总开关和 27 枚正式素材已落地；其余独立徽章、外部告警、生产备份恢复演练和 TestFlight 灰度仍待完成 |
 | 真实头像上传 | 暂缓 | 当前仅保存 `avatarKey` 并显示本地占位头像 |
 | 家庭时区 | 已完成 | Family 保存 timezone；日/周 activity、leaderboard 和 monthly-report 按家庭本地时区计算 |
-| 自动化 iOS 测试 | 部分完成 | 当前 XCTest 已在 Simulator 完整通过；双账号 XCUITest 尚未开始 |
+| 自动化 iOS 测试 | 部分完成 | 79 项 XCTest 已通过测试目标编译；本轮模拟器运行时异常，待修复后补跑；双账号 XCUITest 尚未开始 |
 | GitHub Actions CI | 已完成 | push/PR 自动执行后端 Prisma/build/test/e2e/smoke 与 iOS build-for-testing/XCTest |
 | TestFlight | 未开始 | 尚未配置签名、归档和分发流程 |
 

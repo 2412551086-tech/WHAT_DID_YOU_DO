@@ -7,10 +7,12 @@ import {
   AchievementTier,
   AchievementTrack,
   AchievementWindowType,
+  AuthProvider,
 } from "@prisma/client";
 import request = require("supertest");
 import { AchievementWorkerService } from "../src/achievements/achievement-worker.service";
 import { AppModule } from "../src/app.module";
+import { AuthIdentityService } from "../src/auth/auth-identity.service";
 import { getDayRangeForTimeZone, getMonthRangeForTimeZone, getWeekRangeForTimeZone } from "../src/common/timezone-ranges";
 import { PrismaService } from "../src/prisma/prisma.service";
 
@@ -82,6 +84,7 @@ describe("MVP API (e2e)", () => {
 
     return {
       token: response.body.accessToken as string,
+      refreshToken: response.body.refreshToken as string,
       userId: response.body.user.id as string,
     };
   }
@@ -94,6 +97,7 @@ describe("MVP API (e2e)", () => {
 
     return {
       token: response.body.accessToken as string,
+      refreshToken: response.body.refreshToken as string,
       userId: response.body.user.id as string,
       phoneNumber: response.body.user.phoneNumber as string,
     };
@@ -214,7 +218,8 @@ describe("MVP API (e2e)", () => {
 
     expect(firstLogin.phoneNumber).toBe(phoneNumber);
     expect(secondLogin.userId).toBe(firstLogin.userId);
-    expect(secondLogin.token).toBe(firstLogin.token);
+    expect(secondLogin.token).not.toBe(firstLogin.token);
+    expect(secondLogin.refreshToken).not.toBe(firstLogin.refreshToken);
 
     const renamedLogin = await request(app.getHttpServer())
       .post("/auth/mock-login")
@@ -247,6 +252,224 @@ describe("MVP API (e2e)", () => {
       id: firstLogin.userId,
       phoneNumber,
       displayName: "E2E 个人页昵称",
+    });
+  });
+
+  it("rotates refresh tokens and revokes the session when an old token is reused", async () => {
+    const loginResponse = await request(app.getHttpServer())
+      .post("/auth/mock-login")
+      .send({ phoneNumber: `rotation-${Date.now()}`, deviceName: "Rotation iPhone", platform: "iOS" })
+      .expect(201);
+
+    expect(loginResponse.body).toEqual(expect.objectContaining({
+      accessToken: expect.any(String),
+      refreshToken: expect.any(String),
+      accessTokenExpiresAt: expect.any(String),
+      refreshTokenExpiresAt: expect.any(String),
+    }));
+    const accessPayload = JSON.parse(
+      Buffer.from((loginResponse.body.accessToken as string).split('.')[1], 'base64url').toString('utf8'),
+    ) as { exp: number; iat: number; sid: string };
+    expect(accessPayload.exp - accessPayload.iat).toBe(15 * 60);
+
+    const initialSession = await prisma.authSession.findUniqueOrThrow({
+      where: { id: accessPayload.sid },
+    });
+    expect(initialSession.idleExpiresAt.getTime() - initialSession.createdAt.getTime()).toBeGreaterThan(
+      29 * 24 * 60 * 60 * 1000,
+    );
+    expect(initialSession.absoluteExpiresAt.getTime() - initialSession.createdAt.getTime()).toBeGreaterThan(
+      89 * 24 * 60 * 60 * 1000,
+    );
+
+    const refreshResponse = await request(app.getHttpServer())
+      .post("/auth/refresh")
+      .send({ refreshToken: loginResponse.body.refreshToken })
+      .expect(201);
+
+    expect(refreshResponse.body.accessToken).not.toBe(loginResponse.body.accessToken);
+    expect(refreshResponse.body.refreshToken).not.toBe(loginResponse.body.refreshToken);
+    const rotatedSession = await prisma.authSession.findUniqueOrThrow({
+      where: { id: accessPayload.sid },
+    });
+    expect(rotatedSession.idleExpiresAt.getTime()).toBeGreaterThanOrEqual(initialSession.idleExpiresAt.getTime());
+    expect(rotatedSession.idleExpiresAt.getTime()).toBeLessThanOrEqual(rotatedSession.absoluteExpiresAt.getTime());
+
+    await request(app.getHttpServer())
+      .post("/auth/refresh")
+      .send({ refreshToken: loginResponse.body.refreshToken })
+      .expect(401);
+
+    await request(app.getHttpServer())
+      .get("/auth/me")
+      .set("Authorization", `Bearer ${refreshResponse.body.accessToken}`)
+      .expect(401);
+    await request(app.getHttpServer())
+      .post("/auth/refresh")
+      .send({ refreshToken: refreshResponse.body.refreshToken })
+      .expect(401);
+
+    await expect(prisma.authSession.findFirstOrThrow({
+      where: { userId: loginResponse.body.user.id },
+      orderBy: { createdAt: "desc" },
+    })).resolves.toMatchObject({ revokedReason: "refresh_token_reuse" });
+  });
+
+  it("treats concurrent refresh attempts as token reuse and revokes the session", async () => {
+    const loginResponse = await request(app.getHttpServer())
+      .post("/auth/mock-login")
+      .send({ phoneNumber: `concurrent-refresh-${Date.now()}` })
+      .expect(201);
+
+    const responses = await Promise.all([
+      request(app.getHttpServer())
+        .post("/auth/refresh")
+        .send({ refreshToken: loginResponse.body.refreshToken }),
+      request(app.getHttpServer())
+        .post("/auth/refresh")
+        .send({ refreshToken: loginResponse.body.refreshToken }),
+    ]);
+
+    expect(responses.map((response) => response.status).sort()).toEqual([201, 401]);
+    await request(app.getHttpServer())
+      .get("/auth/me")
+      .set("Authorization", `Bearer ${loginResponse.body.accessToken}`)
+      .expect(401);
+  });
+
+  it("keeps device sessions independent and can revoke every device", async () => {
+    const phoneNumber = `multi-device-${Date.now()}`;
+    const first = await request(app.getHttpServer())
+      .post("/auth/mock-login")
+      .send({ phoneNumber, deviceName: "小狼的 iPhone", platform: "iOS", appVersion: "1.0" })
+      .expect(201);
+    const second = await request(app.getHttpServer())
+      .post("/auth/mock-login")
+      .send({ phoneNumber, deviceName: "大力水手的 iPhone", platform: "iOS", appVersion: "1.0" })
+      .expect(201);
+
+    const sessions = await request(app.getHttpServer())
+      .get("/auth/sessions")
+      .set("Authorization", `Bearer ${second.body.accessToken}`)
+      .expect(200);
+    expect(sessions.body).toEqual(expect.arrayContaining([
+      expect.objectContaining({ deviceName: "小狼的 iPhone", isCurrent: false }),
+      expect.objectContaining({ deviceName: "大力水手的 iPhone", isCurrent: true }),
+    ]));
+
+    await request(app.getHttpServer())
+      .post("/auth/logout")
+      .set("Authorization", `Bearer ${first.body.accessToken}`)
+      .expect(201);
+    await request(app.getHttpServer())
+      .get("/auth/me")
+      .set("Authorization", `Bearer ${first.body.accessToken}`)
+      .expect(401);
+    await request(app.getHttpServer())
+      .get("/auth/me")
+      .set("Authorization", `Bearer ${second.body.accessToken}`)
+      .expect(200);
+
+    await request(app.getHttpServer())
+      .post("/auth/logout-all")
+      .set("Authorization", `Bearer ${second.body.accessToken}`)
+      .expect(201)
+      .expect(({ body }) => expect(body.revokedSessions).toBeGreaterThanOrEqual(1));
+    await request(app.getHttpServer())
+      .get("/auth/me")
+      .set("Authorization", `Bearer ${second.body.accessToken}`)
+      .expect(401);
+  });
+
+  it("rejects pre-session legacy bearer tokens", async () => {
+    await request(app.getHttpServer())
+      .get("/auth/me")
+      .set("Authorization", "Bearer eyJzdWIiOiJsZWdhY3kifQ.fake-signature")
+      .expect(401);
+  });
+
+  it("normalizes mainland phone aliases to one stable user identity", async () => {
+    const phoneNumber = `139${String(Date.now()).slice(-8)}`;
+    const firstResponse = await request(app.getHttpServer())
+      .post("/auth/mock-login")
+      .send({ phoneNumber, displayName: "保留这个昵称" })
+      .expect(201);
+    const firstLogin = {
+      userId: firstResponse.body.user.id as string,
+      phoneNumber: firstResponse.body.user.phoneNumber as string,
+    };
+    const secondResponse = await request(app.getHttpServer())
+      .post("/auth/mock-login")
+      .send({ phoneNumber: `+86 ${phoneNumber.slice(0, 3)} ${phoneNumber.slice(3, 7)} ${phoneNumber.slice(7)}` })
+      .expect(201);
+
+    expect(secondResponse.body.user.id).toBe(firstLogin.userId);
+    expect(secondResponse.body.user.displayName).toBe("保留这个昵称");
+    expect(firstLogin.phoneNumber).toBe(`+86${phoneNumber}`);
+    await expect(prisma.authIdentity.findMany({ where: { userId: firstLogin.userId } })).resolves.toEqual([
+      expect.objectContaining({
+        provider: AuthProvider.PHONE,
+        providerSubject: `+86${phoneNumber}`,
+      }),
+    ]);
+  });
+
+  it("attaches a migrated identity without replacing the legacy user id", async () => {
+    const legacyPhoneNumber = `legacy-auth-${Date.now()}`;
+    const legacyUser = await prisma.user.create({
+      data: { phoneNumber: legacyPhoneNumber, displayName: "Legacy identity user" },
+    });
+
+    const loginResponse = await loginWithPhone(legacyPhoneNumber);
+
+    expect(loginResponse.userId).toBe(legacyUser.id);
+    await expect(prisma.authIdentity.findUnique({
+      where: {
+        provider_providerSubject: {
+          provider: AuthProvider.DEV,
+          providerSubject: legacyPhoneNumber,
+        },
+      },
+    })).resolves.toMatchObject({ userId: legacyUser.id });
+  });
+
+  it("binds multiple verified providers without silently merging conflicting accounts", async () => {
+    const suffix = Date.now();
+    const first = await loginWithPhone(`identity-owner-${suffix}`);
+    const second = await loginWithPhone(`identity-other-${suffix}`);
+    const identities = app.get(AuthIdentityService);
+    const appleSubject = `apple-${suffix}`;
+
+    await identities.bindIdentity(first.userId, AuthProvider.APPLE, appleSubject);
+    await identities.bindIdentity(first.userId, AuthProvider.WECHAT, `wechat-${suffix}`);
+    await expect(
+      identities.bindIdentity(second.userId, AuthProvider.APPLE, appleSubject),
+    ).rejects.toMatchObject({ status: 409 });
+
+    const boundIdentities = await identities.listIdentities(first.userId);
+    expect(boundIdentities).toHaveLength(3);
+    expect(boundIdentities).toEqual(expect.arrayContaining([
+      expect.objectContaining({ provider: AuthProvider.DEV }),
+      expect.objectContaining({ provider: AuthProvider.APPLE }),
+      expect.objectContaining({ provider: AuthProvider.WECHAT }),
+    ]));
+
+    await identities.unbindIdentity(first.userId, AuthProvider.APPLE);
+    await identities.unbindIdentity(first.userId, AuthProvider.WECHAT);
+    await expect(
+      identities.unbindIdentity(first.userId, AuthProvider.DEV),
+    ).rejects.toMatchObject({ status: 400 });
+
+    const socialUser = await identities.loginOrCreateIdentity({
+      provider: AuthProvider.APPLE,
+      providerSubject: `apple-phone-binding-${suffix}`,
+      displayName: "Social identity user",
+      verifiedAt: new Date(),
+    });
+    const boundPhone = `138${String(suffix).slice(-8)}`;
+    await identities.bindIdentity(socialUser.id, AuthProvider.PHONE, boundPhone);
+    await expect(prisma.user.findUniqueOrThrow({ where: { id: socialUser.id } })).resolves.toMatchObject({
+      phoneNumber: `+86${boundPhone}`,
     });
   });
 
@@ -3178,6 +3401,7 @@ describe("MVP API (e2e)", () => {
     await expect(prisma.family.findUnique({ where: { id: family.body.id } })).resolves.toBeNull();
     await expect(prisma.choreRecord.count({ where: { userId: user.userId } })).resolves.toBe(0);
     await expect(prisma.familyMember.count({ where: { userId: user.userId } })).resolves.toBe(0);
+    await expect(prisma.authIdentity.count({ where: { userId: user.userId } })).resolves.toBe(0);
     await request(app.getHttpServer())
       .get("/auth/me")
       .set("Authorization", `Bearer ${user.token}`)

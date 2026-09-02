@@ -18,6 +18,13 @@ enum MemberStatus {
   LEFT
 }
 
+enum AuthProvider {
+  PHONE
+  APPLE
+  WECHAT
+  DEV
+}
+
 enum AchievementOwnerType {
   MEMBER
   FAMILY
@@ -162,6 +169,59 @@ model User {
   achievementParticipants     FamilyAchievementParticipant[]
   grantedAchievementRewards   FamilyRewardGrant[]            @relation("AchievementRewardGrantUser")
   achievementAuditLogs        AchievementAuditLog[]          @relation("AchievementAuditActor")
+  authIdentities              AuthIdentity[]
+  authSessions                AuthSession[]
+}
+
+model AuthIdentity {
+  id              String       @id @default(cuid())
+  userId          String
+  provider        AuthProvider
+  providerSubject String
+  verifiedAt      DateTime?
+  lastUsedAt      DateTime?
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+  user            User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerSubject])
+  @@unique([userId, provider])
+  @@index([userId])
+}
+
+model AuthSession {
+  id                String             @id @default(cuid())
+  userId            String
+  deviceId          String?
+  deviceName        String?
+  platform          String?
+  appVersion        String?
+  lastUsedAt        DateTime           @default(now())
+  idleExpiresAt     DateTime
+  absoluteExpiresAt DateTime
+  revokedAt         DateTime?
+  revokedReason     String?
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+  user              User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  refreshTokens     AuthRefreshToken[]
+
+  @@index([userId, revokedAt])
+  @@index([idleExpiresAt])
+  @@index([absoluteExpiresAt])
+}
+
+model AuthRefreshToken {
+  id        String      @id @default(cuid())
+  sessionId String
+  tokenHash String      @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime    @default(now())
+  session   AuthSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@index([sessionId, usedAt])
+  @@index([expiresAt])
 }
 
 model Family {

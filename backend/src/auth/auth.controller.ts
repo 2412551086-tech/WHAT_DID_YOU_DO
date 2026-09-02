@@ -4,6 +4,7 @@ import { DevAuthGuard } from './guards/dev-auth.guard';
 import { AuthUser } from './auth-user';
 import { AuthService } from './auth.service';
 import { MockLoginDto } from './dto/mock-login.dto';
+import { RefreshTokenDto } from './dto/refresh-token.dto';
 import { RedeemPremiumDto } from './dto/redeem-premium.dto';
 import { UpdateCurrentUserDto } from './dto/update-current-user.dto';
 
@@ -14,6 +15,29 @@ export class AuthController {
   @Post('mock-login')
   mockLogin(@Body() dto: MockLoginDto) {
     return this.authService.mockLogin(dto);
+  }
+
+  @Post('refresh')
+  refresh(@Body() dto: RefreshTokenDto) {
+    return this.authService.refresh(dto.refreshToken);
+  }
+
+  @UseGuards(DevAuthGuard)
+  @Post('logout')
+  logout(@CurrentUser() user: AuthUser) {
+    return this.authService.logout(user);
+  }
+
+  @UseGuards(DevAuthGuard)
+  @Post('logout-all')
+  logoutAll(@CurrentUser() user: AuthUser) {
+    return this.authService.logoutAll(user);
+  }
+
+  @UseGuards(DevAuthGuard)
+  @Get('sessions')
+  listSessions(@CurrentUser() user: AuthUser) {
+    return this.authService.listSessions(user);
   }
 
   @UseGuards(DevAuthGuard)

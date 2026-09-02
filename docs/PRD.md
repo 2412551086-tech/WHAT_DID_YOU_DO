@@ -1,6 +1,6 @@
 # 《你今天干啥啦》App PRD v1.0
 
-更新时间：2026-08-13
+更新时间：2026-09-02
 
 > 文档约定：本 PRD 同时保留产品愿景和当前实现。凡涉及当前可验收能力，以“当前 MVP 实现状态”、`PROJECT_STATUS.md`、`API.md` 和 `PRD_ACCEPTANCE_MATRIX.md` 为准；远期章节不代表代码已经实现。
 
@@ -1562,15 +1562,42 @@ points = round(chore.defaultPoints × actualMinutes / chore.defaultMinutes)
 | id             | string   | 用户 ID              |
 | nickname       | string   | 昵称                 |
 | avatar_url     | string   | 头像                 |
-| phone          | string   | 手机号                |
-| apple_id       | string   | Apple 登录 ID        |
-| wechat_openid  | string   | 微信 openid          |
-| wechat_unionid | string   | 微信 unionid         |
-| login_provider | string   | apple、phone、wechat |
+| phone          | string   | 兼容字段，统一身份迁移稳定后移除身份主键职责 |
 | created_at     | datetime | 创建时间               |
 | updated_at     | datetime | 更新时间               |
 
-### 25.2 订阅表 subscriptions
+### 25.2 认证身份表 auth_identities
+
+| 字段 | 类型 | 说明 |
+| --- | --- | --- |
+| id | string | 身份映射 ID |
+| user_id | string | 稳定内部用户 ID |
+| provider | string | PHONE、APPLE、WECHAT；DEV 仅用于开发环境 |
+| provider_subject | string | 服务商稳定身份标识；手机号统一为 `+86` 格式 |
+| verified_at | datetime | 可信凭证最近验证时间 |
+| last_used_at | datetime | 最近登录时间 |
+| created_at | datetime | 创建时间 |
+| updated_at | datetime | 更新时间 |
+
+`provider + provider_subject` 与 `user_id + provider` 均唯一。昵称、头像和家庭身份不参与账号匹配，
+身份冲突时禁止自动合并。完整规则见 `docs/AUTH_IDENTITY.md`。
+
+### 25.3 认证会话表 auth_sessions / auth_refresh_tokens
+
+| 字段 | 类型 | 说明 |
+| --- | --- | --- |
+| user_id | string | 稳定内部用户 ID |
+| device_id / device_name | string | 设备摘要，用于多设备会话识别 |
+| idle_expires_at | datetime | Refresh Token 30 天滑动到期时间 |
+| absolute_expires_at | datetime | 单次登录 90 天绝对上限 |
+| revoked_at / revoked_reason | datetime/string | 会话撤销时间与原因 |
+| token_hash | string | Refresh Token SHA-256 哈希，原文不落库 |
+| used_at | datetime | Refresh Token 是否已轮换使用 |
+
+Access Token 有效期 15 分钟；iOS 剩余约 2 分钟时静默刷新。Refresh Token 每次使用强制 Rotation，
+已使用 Token 再次出现时撤销整个设备会话。允许多设备登录，退出当前设备与退出全部设备分别处理。
+
+### 25.4 订阅表 subscriptions
 
 | 字段         | 类型       | 说明                       |
 | ---------- | -------- | ------------------------ |
@@ -1584,7 +1611,7 @@ points = round(chore.defaultPoints × actualMinutes / chore.defaultMinutes)
 | created_at | datetime | 创建时间                     |
 | updated_at | datetime | 更新时间                     |
 
-### 25.3 家庭表 families
+### 25.5 家庭表 families
 
 | 字段                  | 类型       | 说明                |
 | ------------------- | -------- | ----------------- |
@@ -1597,7 +1624,7 @@ points = round(chore.defaultPoints × actualMinutes / chore.defaultMinutes)
 | created_at          | datetime | 创建时间              |
 | updated_at          | datetime | 更新时间              |
 
-### 25.4 家庭成员表 family_members
+### 25.6 家庭成员表 family_members
 
 | 字段           | 类型       | 说明                         |
 | ------------ | -------- | -------------------------- |
@@ -1609,7 +1636,7 @@ points = round(chore.defaultPoints × actualMinutes / chore.defaultMinutes)
 | joined_at    | datetime | 加入时间                       |
 | status       | string   | active、removed、left        |
 
-### 25.5 家务分类表 chore_categories
+### 25.7 家务分类表 chore_categories
 
 | 字段         | 类型     | 说明    |
 | ---------- | ------ | ----- |
@@ -1619,7 +1646,7 @@ points = round(chore.defaultPoints × actualMinutes / chore.defaultMinutes)
 | sort_order | int    | 排序    |
 | status     | string | 状态    |
 
-### 25.6 家务项目表 chore_items
+### 25.8 家务项目表 chore_items
 
 | 字段                | 类型      | 说明              |
 | ----------------- | ------- | --------------- |
@@ -1636,7 +1663,7 @@ points = round(chore.defaultPoints × actualMinutes / chore.defaultMinutes)
 | description       | string  | 描述              |
 | status            | string  | active、inactive |
 
-### 25.7 自定义家务事项表 custom_chores
+### 25.9 自定义家务事项表 custom_chores
 
 | 字段                | 类型       | 说明                        |
 | ----------------- | -------- | ------------------------- |
@@ -1655,7 +1682,7 @@ points = round(chore.defaultPoints × actualMinutes / chore.defaultMinutes)
 | created_at        | datetime | 创建时间                      |
 | updated_at        | datetime | 更新时间                      |
 
-### 25.8 常做事项表 user_frequent_chores
+### 25.10 常做事项表 user_frequent_chores
 
 | 字段              | 类型       | 说明              |
 | --------------- | -------- | --------------- |
@@ -1675,7 +1702,7 @@ points = round(chore.defaultPoints × actualMinutes / chore.defaultMinutes)
 | created_at      | datetime | 创建时间            |
 | updated_at      | datetime | 更新时间            |
 
-### 25.9 家务记录表 chore_records
+### 25.11 家务记录表 chore_records
 
 | 字段                   | 类型       | 说明                              |
 | -------------------- | -------- | ------------------------------- |
@@ -1704,7 +1731,7 @@ points = round(chore.defaultPoints × actualMinutes / chore.defaultMinutes)
 | status               | string   | normal、deleted                  |
 | created_at           | datetime | 创建时间                            |
 
-### 25.10 语音记录表 voice_logs
+### 25.12 语音记录表 voice_logs
 
 | 字段              | 类型       | 说明                          |
 | --------------- | -------- | --------------------------- |
@@ -1718,7 +1745,7 @@ points = round(chore.defaultPoints × actualMinutes / chore.defaultMinutes)
 | created_records | array    | 生成的家务记录 ID                  |
 | created_at      | datetime | 创建时间                        |
 
-### 25.11 月度报告表 monthly_reports
+### 25.13 月度报告表 monthly_reports
 
 | 字段            | 类型       | 说明                |
 | ------------- | -------- | ----------------- |

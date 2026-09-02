@@ -143,12 +143,13 @@ final class AppViewModel: ObservableObject {
             sessionState = .unauthenticated
         } else {
             do {
-                if let storedToken = try tokenStore.loadAccessToken() {
-                    accessToken = storedToken
+                if let storedTokens = try tokenStore.loadTokens() {
+                    accessToken = storedTokens.accessToken
                     Task { [weak self] in
                         await self?.restoreSessionIfNeeded()
                     }
                 } else {
+                    try? tokenStore.deleteAccessToken()
                     sessionState = .unauthenticated
                 }
             } catch {
@@ -580,10 +581,10 @@ final class AppViewModel: ObservableObject {
             return
         }
 
+        let storedTokens: AuthTokens?
         do {
-            if accessToken == nil {
-                accessToken = try tokenStore.loadAccessToken()
-            }
+            storedTokens = try tokenStore.loadTokens()
+            accessToken = storedTokens?.accessToken
         } catch {
             let storageError = error.localizedDescription
             await clearInvalidSession()
@@ -591,13 +592,13 @@ final class AppViewModel: ObservableObject {
             return
         }
 
-        guard let accessToken, !accessToken.isEmpty else {
+        guard let storedTokens, !storedTokens.accessToken.isEmpty else {
             resetSessionState()
             return
         }
 
         sessionState = .restoringSession
-        await apiClient.setAccessToken(accessToken)
+        await apiClient.setAuthTokens(storedTokens)
         await apiClient.setPreferCachedResponses(true)
         await performLoading("正在恢复登录状态") {
             let user: UserDTO = try await apiClient.get("auth/me")
@@ -1833,18 +1834,18 @@ final class AppViewModel: ObservableObject {
         return succeeded
     }
 
-    func logout() {
-        resetSessionState()
-
-        do {
-            try tokenStore.deleteAccessToken()
-            lastSecureStorageErrorMessage = nil
-        } catch {
-            lastSecureStorageErrorMessage = error.localizedDescription
-        }
-
+    func logout(allDevices: Bool = false) {
         Task {
-            await apiClient.setAccessToken(nil)
+            if !usesMockData {
+                do {
+                    let _: LogoutResponseDTO = try await apiClient.post(
+                        allDevices ? "auth/logout-all" : "auth/logout"
+                    )
+                } catch {
+                    // Local logout still completes if the network is unavailable.
+                }
+            }
+            await clearLocalSession()
         }
     }
 
@@ -1909,14 +1910,18 @@ final class AppViewModel: ObservableObject {
         }
 
         await apiClient.clearCachedResponses()
-        await apiClient.setAccessToken(nil)
+        await clearLocalSession()
+    }
+
+    private func clearLocalSession() async {
+        resetSessionState()
+        await apiClient.setAuthTokens(nil)
         do {
-            try tokenStore.deleteAccessToken()
+            try tokenStore.deleteTokens()
             lastSecureStorageErrorMessage = nil
         } catch {
             lastSecureStorageErrorMessage = error.localizedDescription
         }
-        resetSessionState()
     }
 
     private func resetSessionState() {
@@ -2740,7 +2745,14 @@ final class AppViewModel: ObservableObject {
         await performLoading("正在连接本地后端") {
             let response: LoginResponse = try await apiClient.post(
                 "auth/mock-login",
-                body: MockLoginRequest(phoneNumber: normalizedPhoneNumber, displayName: nil)
+                body: MockLoginRequest(
+                    phoneNumber: normalizedPhoneNumber,
+                    displayName: nil,
+                    deviceId: UIDevice.current.identifierForVendor?.uuidString,
+                    deviceName: UIDevice.current.name,
+                    platform: "iOS",
+                    appVersion: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String
+                )
             )
 
             accessToken = response.accessToken
@@ -2748,10 +2760,10 @@ final class AppViewModel: ObservableObject {
             accountHasPremiumAccess = response.user.plan == "premium"
             hasPremiumAccess = accountHasPremiumAccess
             displayName = response.user.displayName
-            await apiClient.setAccessToken(response.accessToken)
+            await apiClient.setAuthTokens(response.tokens)
 
             do {
-                try tokenStore.saveAccessToken(response.accessToken)
+                try tokenStore.saveTokens(response.tokens)
                 lastSecureStorageErrorMessage = nil
             } catch {
                 lastSecureStorageErrorMessage = error.localizedDescription
@@ -3516,10 +3528,10 @@ final class AppViewModel: ObservableObject {
 
     private func clearInvalidSession() async {
         resetSessionState()
-        await apiClient.setAccessToken(nil)
+        await apiClient.setAuthTokens(nil)
 
         do {
-            try tokenStore.deleteAccessToken()
+            try tokenStore.deleteTokens()
             lastSecureStorageErrorMessage = nil
         } catch {
             lastSecureStorageErrorMessage = error.localizedDescription
