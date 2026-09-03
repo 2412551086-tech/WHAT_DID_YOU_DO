@@ -19,9 +19,10 @@ enum MemberStatus {
 }
 
 enum AuthProvider {
-  PHONE
   APPLE
   WECHAT
+  EMAIL
+  GOOGLE
   DEV
 }
 
@@ -148,7 +149,6 @@ model Chore {
 
 model User {
   id                          String                         @id @default(cuid())
-  phoneNumber                 String?                        @unique
   displayName                 String
   plan                        String                         @default("free")
   premiumRedeemedAt           DateTime?
@@ -171,6 +171,7 @@ model User {
   achievementAuditLogs        AchievementAuditLog[]          @relation("AchievementAuditActor")
   authIdentities              AuthIdentity[]
   authSessions                AuthSession[]
+  localDraftClaims            LocalDraftClaim[]
 }
 
 model AuthIdentity {
@@ -248,8 +249,21 @@ model Family {
   achievementEligibilitySnapshots AchievementEligibilitySnapshot[]
   achievementRewardGrants         FamilyRewardGrant[]
   achievementAuditLogs            AchievementAuditLog[]
+  localDraftClaim                 LocalDraftClaim?
 
   @@index([archivedAt])
+}
+
+model LocalDraftClaim {
+  draftId       String   @id
+  payloadDigest String
+  userId        String
+  familyId      String   @unique
+  claimedAt     DateTime @default(now())
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  family        Family   @relation(fields: [familyId], references: [id], onDelete: Cascade)
+
+  @@index([userId, claimedAt])
 }
 
 model FamilyMember {

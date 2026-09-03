@@ -1,6 +1,6 @@
 # API Contract
 
-更新时间：2026-09-02
+更新时间：2026-09-03
 
 本文仅记录当前 `backend/src` controller 中真实存在的本地 MVP 路由。
 
@@ -10,8 +10,8 @@
 - iOS Debug 模拟器默认使用 `localSimulator`；真机联调需切换为 `localNetwork` 并使用 Mac 局域网 IP；Release/Production 预留 HTTPS 地址。
 - Content-Type：`application/json`
 - 受保护接口：`Authorization: Bearer <accessToken>`
-- `POST /auth/mock-login` 是开发登录，不发送或验证短信验证码。
-- `GET /chores` 当前为公开接口，其余家庭、记录和报告接口均受 `DevAuthGuard` 保护。
+- `POST /auth/mock-login` 仅用于开发与自动化测试，正式构建不显示该入口。
+- `GET /auth/config`、`GET /chores` 和 `GET /family-invitations/:inviteCode` 是公开接口，其余家庭、记录和报告接口受会话保护。
 - 家庭身份字段为 `identityLabel`/`customIdentity`；权限字段为 `memberRole`。
 - 成员只有在 `status=ACTIVE` 时才能访问家庭数据或互动。
 
@@ -20,14 +20,17 @@
 | Method | Path | 鉴权 | 状态 |
 | ---- | ---- | ---- | ---- |
 | POST | `/auth/mock-login` | 否 | 已实现 |
+| GET | `/auth/config` | 否 | 已实现，返回发行区域与可用 Provider |
 | GET | `/auth/me` | 是 | 已实现，恢复当前开发用户 |
 | PATCH | `/auth/me` | 是 | 已实现，修改当前开发用户昵称 |
 | DELETE | `/auth/me` | 是 | 已实现，永久注销账号并删除关联个人数据 |
 | POST | `/auth/redeem-premium` | 是 | 已实现，仅开发测试兑换 |
 | POST | `/families` | 是 | 已实现 |
+| POST | `/families/claim-local-draft` | 是 | 已实现，幂等升级本机体验数据 |
 | GET | `/families/me` | 是 | 已实现 |
 | PATCH | `/families/:familyId` | 是，OWNER | 已实现，修改家庭名称 |
 | GET | `/families/invitations/:inviteCode` | 是 | 已实现，加入前预览 |
+| GET | `/family-invitations/:inviteCode` | 否 | 已实现，登录前公开预览 |
 | GET | `/families/join-requests/me` | 是 | 已实现，恢复申请状态 |
 | POST | `/families/join-requests` | 是 | 已实现，iOS 当前使用 |
 | POST | `/families/:familyId/join-requests` | 是 | 已实现，旧调用兼容 |
@@ -68,13 +71,18 @@
 
 ## 3. Auth
 
+### GET `/auth/config`
+
+返回服务端显式配置的发行区域和正式 Provider。国内为
+`APPLE + WECHAT + EMAIL`，海外为 `APPLE + GOOGLE + EMAIL`；不根据 IP 推断。
+
 ### POST `/auth/mock-login`
 
 请求至少提供一个字段：
 
 ```json
 {
-  "phoneNumber": "123456",
+  "devIdentifier": "test-user-001",
   "displayName": "可选显示名",
   "deviceId": "设备稳定标识",
   "deviceName": "小狼的 iPhone",
@@ -83,8 +91,7 @@
 }
 ```
 
-- 提供可识别的大陆手机号时先归一化为 `+86xxxxxxxxxxx`，再通过 `AuthIdentity(PHONE)` 返回稳定的同一用户。
-- E2E 等非手机号开发标识通过 `AuthIdentity(DEV)` 复用账号；`DEV` 不属于正式版登录方式。
+- 提供 `devIdentifier` 时通过 `AuthIdentity(DEV)` 复用稳定测试账号；`DEV` 不属于正式版登录方式。
 - 只提供 `displayName` 时每次创建一个新开发用户。
 - 每次登录创建独立设备会话，返回 `user`、15 分钟 Access Token 和可轮换 Refresh Token。
 
@@ -92,8 +99,7 @@
 {
   "user": {
     "id": "user-id",
-    "phoneNumber": "123456",
-    "displayName": "用户123456",
+    "displayName": "开发用户",
     "plan": "free",
     "premiumRedeemedAt": null
   },
@@ -106,8 +112,8 @@
 
 Access Token 使用 HS256 签名并绑定 `User.id + AuthSession.id`；生产环境缺少至少 32 字节的
 `JWT_SECRET` 时后端拒绝启动。旧版两段式无过期 Token 不再兼容，升级后需要重新登录一次。
-统一身份数据模型和绑定规则见 `docs/AUTH_IDENTITY.md`。真实短信、Apple 和微信接口完成服务端凭证验证后，
-才允许调用内部身份绑定服务；当前没有允许客户端直接指定第三方身份标识的公共接口。
+统一身份数据模型和绑定规则见 `docs/AUTH_IDENTITY.md`。正式 Provider 必须先完成服务端凭证验证，
+再调用内部身份服务；当前没有允许客户端直接指定任意第三方身份标识的公共接口。
 
 ### POST `/auth/refresh`
 
@@ -136,7 +142,7 @@ Access Token 使用 HS256 签名并绑定 `User.id + AuthSession.id`；生产环
 ### GET `/auth/me`
 
 使用 Bearer Token 返回当前用户。iOS 从 Keychain 恢复 Token 对并在 Access Token 剩余约 2 分钟时静默刷新，
-随后调用此接口恢复昵称和手机号，再继续恢复家庭或加入申请状态；401 仍作为刷新失败后的兜底处理。
+随后调用此接口恢复稳定的 `User.id` 与展示资料，再继续恢复家庭或加入申请状态；401 仍作为刷新失败后的兜底处理。
 
 ### PATCH `/auth/me`
 
@@ -588,13 +594,13 @@ ACHIEVEMENTS_ENABLED=true pnpm run start:dev
 
 处理规则：
 
-- 删除用户资料、手机号身份、成员关系、用户创建的家务记录、点赞、个人成就和搭档成就。
+- 删除用户资料、全部 `AuthIdentity`、成员关系、用户创建的家务记录、点赞、个人成就和搭档成就。
 - 多成员家庭中，若注销者是 OWNER，先自动转让给最早加入的 ACTIVE MEMBER。
 - 单人成立且没有可转让成员的家庭随账号永久删除。
 - 仍被其他成员历史记录引用的自定义家务会清除作者信息、替换为中性名称并归档，避免破坏其他成员数据的引用完整性。
 - 旧 Bearer token 随后返回 401。
 - 接口必须在线执行；离线状态不能排队注销。
-- 当前只覆盖开发手机号账号。正式接入 Apple/微信登录后，注销事务还必须撤销对应提供方 token。
+- 当前会统一删除身份和会话；接入 Apple、微信、Google 后，还需按提供方要求补充 token 撤销或解绑调用。
 
 ### 成就灰度环境变量
 
@@ -766,7 +772,7 @@ activity、leaderboard、monthly-report 均过滤 `deletedAt IS NOT NULL` 的记
 
 ## 10. 当前暂缓契约
 
-- 正式短信验证码、Apple、微信认证接口尚不存在。
+- Apple、微信、邮箱验证码和 Google 的真实认证接口尚未接入；身份模型、区域配置与客户端入口已经预留。
 - 图片上传接口尚不存在。
 - StoreKit 购买、收据校验和正式订阅接口尚不存在；当前仅有生产环境禁用的开发测试兑换接口。
 - 暂无复杂家庭时区选择 UI；iOS 创建家庭先默认发送系统时区。

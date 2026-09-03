@@ -12,6 +12,11 @@ import { UpdateCurrentUserDto } from './dto/update-current-user.dto';
 export class AuthController {
   constructor(private readonly authService: AuthService) {}
 
+  @Get('config')
+  getPublicConfiguration() {
+    return this.authService.getPublicConfiguration();
+  }
+
   @Post('mock-login')
   mockLogin(@Body() dto: MockLoginDto) {
     return this.authService.mockLogin(dto);

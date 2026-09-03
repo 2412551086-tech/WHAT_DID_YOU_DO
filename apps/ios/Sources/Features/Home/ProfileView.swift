@@ -188,7 +188,17 @@ struct ProfileView: View {
 
     private var familySection: some View {
         ProfileGroupCard {
-            inviteCodeRow
+            if viewModel.isGuestWorkspace {
+                Button(action: viewModel.requireAuthenticationForLocalFamily) {
+                    ProfileNavigationRow(
+                        title: "登录并邀请家人",
+                        systemImage: "person.2.badge.plus"
+                    )
+                }
+                .buttonStyle(.plain)
+            } else {
+                inviteCodeRow
+            }
 
             Divider().padding(.leading, 48)
 

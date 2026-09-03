@@ -124,6 +124,39 @@ enum InviteValidationState: Equatable {
     case invalid(String)
 }
 
+enum DistributionRegion: String, Codable, CaseIterable {
+    case cn = "CN"
+    case global = "GLOBAL"
+
+    static var configured: DistributionRegion {
+        let value = Bundle.main.object(forInfoDictionaryKey: "WDDDistributionRegion") as? String
+        return DistributionRegion(rawValue: value?.uppercased() ?? "") ?? .cn
+    }
+
+    var providers: [ClientAuthProvider] {
+        switch self {
+        case .cn: [.apple, .wechat, .email]
+        case .global: [.apple, .google, .email]
+        }
+    }
+}
+
+enum ClientAuthProvider: String, Codable, Identifiable {
+    case apple = "APPLE"
+    case wechat = "WECHAT"
+    case email = "EMAIL"
+    case google = "GOOGLE"
+
+    var id: String { rawValue }
+}
+
+enum PendingAuthAction: Hashable {
+    case claimLocalDraft
+    case joinFamily(inviteCode: String)
+    case enableCloudSync
+    case inviteMembers
+}
+
 enum ChoreTheme: String, CaseIterable, Hashable, Identifiable {
     case daily
     case love
@@ -197,6 +230,7 @@ enum RotatingCopy {
 
 struct ChoreItem: Identifiable, Hashable {
     let id: String
+    var catalogKey: String? = nil
     let name: String
     let category: String
     let minutes: Int

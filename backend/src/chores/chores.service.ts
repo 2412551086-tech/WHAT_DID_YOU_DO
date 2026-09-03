@@ -31,6 +31,7 @@ export class ChoresService {
 
     return systemChores.map((chore) => ({
       id: chore.id,
+      catalogKey: chore.catalogKey,
       name: chore.name,
       themeKey: chore.themeKey,
       category: chore.category,

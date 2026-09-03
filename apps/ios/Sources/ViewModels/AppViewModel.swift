@@ -38,9 +38,9 @@ private struct PendingChoreRecordUpload: Codable, Identifiable, Hashable {
 @MainActor
 final class AppViewModel: ObservableObject {
     @Published private(set) var sessionState: AppSessionState = .restoringSession
-    @Published var rootScreen: AppScreen = .login
+    @Published var rootScreen: AppScreen = .onboarding
     @Published var selectedTab: MainTab = .today
-    @Published var phoneNumber = ""
+    @Published var developmentIdentifier = "dev-local-user"
     @Published var displayName = ""
     @Published var familyName = MockData.family.name
     @Published var requiresPhotoProof = false
@@ -102,12 +102,15 @@ final class AppViewModel: ObservableObject {
     @Published private(set) var pendingRecordDeletion: PendingRecordDeletion?
     @Published private(set) var isRestoringDeletedRecord = false
     @Published private(set) var recordUndoErrorMessage: String?
+    @Published private(set) var localDraftFamily: LocalDraftFamily?
+    @Published private(set) var pendingAuthAction: PendingAuthAction?
 
     private let apiClient: any APIClientProtocol
     private let tokenStore: any SecureTokenStore
     private let forceMockData: Bool
     private let dataMode: AppDataMode
     private let userDefaults: UserDefaults
+    private let localWorkspaceStore: any LocalWorkspaceStoreProtocol
     private var commonChoreGridScope: String?
     private var hiddenCommonCustomSlotIDs: Set<String> = []
     private var accountHasPremiumAccess = false
@@ -121,6 +124,7 @@ final class AppViewModel: ObservableObject {
         forceMockData: Bool = false,
         dataMode: AppDataMode = .configured,
         userDefaults: UserDefaults = .standard,
+        localWorkspaceStore: any LocalWorkspaceStoreProtocol = FileLocalWorkspaceStore(),
         automaticallyRestoreSession: Bool = true
     ) {
         self.apiClient = apiClient
@@ -128,6 +132,7 @@ final class AppViewModel: ObservableObject {
         self.forceMockData = forceMockData
         self.dataMode = dataMode
         self.userDefaults = userDefaults
+        self.localWorkspaceStore = localWorkspaceStore
         self.selectedReportMonth = Self.monthFormatter.string(from: Date())
         self.pendingRecordUploads = Self.loadPendingRecordUploads(from: userDefaults)
         self.pendingUploadCount = pendingRecordUploads.count
@@ -137,24 +142,39 @@ final class AppViewModel: ObservableObject {
             pinnedChoreIDs = Set(userDefaults.stringArray(forKey: Self.pinnedChoresDefaultsKey) ?? [])
         }
 
-        synchronizeChoreLayout()
+        if automaticallyRestoreSession && !usesMockData {
+            do {
+                localDraftFamily = try localWorkspaceStore.load()
+            } catch {
+                lastSecureStorageErrorMessage = error.localizedDescription
+            }
+        }
+
+        if let localDraftFamily {
+            applyLocalDraft(localDraftFamily)
+        } else {
+            synchronizeChoreLayout()
+        }
 
         if !automaticallyRestoreSession || usesMockData {
             sessionState = .unauthenticated
+            rootScreen = localDraftFamily == nil ? .onboarding : localDraftDestination
         } else {
             do {
                 if let storedTokens = try tokenStore.loadTokens() {
                     accessToken = storedTokens.accessToken
                     Task { [weak self] in
-                        await self?.restoreSessionIfNeeded()
+                        await self?.restoreSession(using: storedTokens)
                     }
                 } else {
                     try? tokenStore.deleteAccessToken()
                     sessionState = .unauthenticated
+                    rootScreen = localDraftFamily == nil ? .onboarding : localDraftDestination
                 }
             } catch {
                 lastSecureStorageErrorMessage = error.localizedDescription
                 sessionState = .unauthenticated
+                rootScreen = localDraftFamily == nil ? .onboarding : localDraftDestination
             }
         }
     }
@@ -210,7 +230,7 @@ final class AppViewModel: ObservableObject {
     }
 
     var modeLabel: String {
-        usesMockData ? "Mock 模式" : "API 模式"
+        isGuestWorkspace ? "本机体验" : (usesMockData ? "Mock 模式" : "API 模式")
     }
 
     var debugBaseURL: String {
@@ -227,6 +247,12 @@ final class AppViewModel: ObservableObject {
 
     var hasAccessToken: Bool {
         !(accessToken?.isEmpty ?? true)
+    }
+
+    var distributionRegion: DistributionRegion { .configured }
+
+    var availableAuthProviders: [ClientAuthProvider] {
+        distributionRegion.providers
     }
 
     var nextAchievement: AchievementItem? {
@@ -370,11 +396,22 @@ final class AppViewModel: ObservableObject {
     }
 
     var customChoreLimit: Int {
-        usesMockData ? (hasPremiumAccess ? 100 : 2) : serverCustomChoreLimit
+        isGuestWorkspace ? 2 : (usesMockData ? (hasPremiumAccess ? 100 : 2) : serverCustomChoreLimit)
     }
 
     var commonChoreSelectionLimit: Int? {
-        usesMockData ? (hasPremiumAccess ? nil : 6) : serverCommonChoreSelectionLimit
+        if isGuestWorkspace {
+            return max(0, 6 - customChores.count)
+        }
+        return usesMockData ? (hasPremiumAccess ? nil : 6) : serverCommonChoreSelectionLimit
+    }
+
+    var isGuestWorkspace: Bool {
+        localDraftFamily != nil && accessToken == nil && currentFamily?.id.hasPrefix("local-family-") == true
+    }
+
+    var localOnboardingSelectionCount: Int {
+        choreOrder.count + customChores.count
     }
 
     var canEditCommonChoreLayout: Bool {
@@ -561,8 +598,8 @@ final class AppViewModel: ObservableObject {
     func mockLogin() {
         clearError()
 
-        guard !normalizedPhoneNumber.isEmpty else {
-            errorMessage = AppStateError.missingPhoneNumber.localizedDescription
+        guard !normalizedDevelopmentIdentifier.isEmpty else {
+            errorMessage = "请输入开发登录标识。"
             return
         }
 
@@ -574,6 +611,17 @@ final class AppViewModel: ObservableObject {
         Task {
             await loginWithAPI()
         }
+    }
+
+    func developmentLogin() {
+        #if DEBUG
+        developmentIdentifier = developmentIdentifier.isEmpty ? "dev-local-user" : developmentIdentifier
+        if usesMockData {
+            loginWithMock()
+        } else {
+            Task { await loginWithAPI() }
+        }
+        #endif
     }
 
     func restoreSessionIfNeeded() async {
@@ -592,8 +640,14 @@ final class AppViewModel: ObservableObject {
             return
         }
 
+        await restoreSession(using: storedTokens)
+    }
+
+    private func restoreSession(using storedTokens: AuthTokens?) async {
+        guard !usesMockData else { return }
+
         guard let storedTokens, !storedTokens.accessToken.isEmpty else {
-            resetSessionState()
+            restoreUnauthenticatedWorkspace()
             return
         }
 
@@ -605,7 +659,13 @@ final class AppViewModel: ObservableObject {
             currentUser = mapUser(user)
             accountHasPremiumAccess = user.plan == "premium"
             hasPremiumAccess = accountHasPremiumAccess
-            let families = try await loadMyFamiliesFromAPI()
+            var preferredFamilyId: String?
+            if localDraftFamily?.claimState == .claiming {
+                preferredFamilyId = try await claimLocalDraftWithAPI()
+                localDraftFamily = nil
+                try localWorkspaceStore.delete()
+            }
+            let families = try await loadMyFamiliesFromAPI(preferredFamilyId: preferredFamilyId)
             restoreCurrentUser(from: families)
             try await loadChoresFromAPI()
 
@@ -635,7 +695,7 @@ final class AppViewModel: ObservableObject {
                 errorMessage = "当前处于离线模式，记录会在联网后自动同步。"
             } else if isOffline {
                 sessionState = .unauthenticated
-                rootScreen = .login
+                rootScreen = .onboarding
                 errorMessage = "本机还没有可用的家庭数据，请联网打开一次后再离线使用。"
             } else {
                 await clearInvalidSession()
@@ -651,7 +711,73 @@ final class AppViewModel: ObservableObject {
         }
     }
 
+    func beginLocalFamilyOnboarding() {
+        clearError()
+        let draft = LocalDraftFamily()
+        localDraftFamily = draft
+        persistLocalDraft(draft)
+        applyLocalDraft(draft)
+        rootScreen = .choreSetup
+        sessionState = .unauthenticated
+    }
+
+    func beginJoinFamilyOnboarding() {
+        clearError()
+        joinInviteCode = ""
+        inviteValidationState = .idle
+        rootScreen = .joinFamily
+        sessionState = .unauthenticated
+    }
+
+    func requireAuthenticationForJoin() {
+        guard case .valid = inviteValidationState else {
+            errorMessage = "请先输入有效的家庭邀请码。"
+            return
+        }
+        pendingAuthAction = .joinFamily(inviteCode: normalizedJoinInviteCode)
+        rootScreen = .login
+    }
+
+    func requireAuthenticationForLocalFamily() {
+        guard localDraftFamily != nil else { return }
+        pendingAuthAction = .claimLocalDraft
+        rootScreen = .login
+    }
+
+    func cancelAuthentication() {
+        clearError()
+        switch pendingAuthAction {
+        case let .joinFamily(inviteCode):
+            joinInviteCode = inviteCode
+            rootScreen = .joinFamily
+        case .claimLocalDraft, .enableCloudSync, .inviteMembers:
+            rootScreen = localDraftDestination
+        case nil:
+            rootScreen = localDraftFamily == nil ? .onboarding : localDraftDestination
+        }
+        pendingAuthAction = nil
+    }
+
+    func selectAuthProvider(_ provider: ClientAuthProvider) {
+        clearError()
+        errorMessage = switch provider {
+        case .apple: "Apple 登录接口正在接入，当前开发包可使用开发登录验证流程。"
+        case .wechat: "微信登录接口正在接入。"
+        case .email: "邮箱验证码接口正在接入。"
+        case .google: "Google 登录接口正在接入。"
+        }
+    }
+
+    func returnToOnboarding() {
+        clearError()
+        rootScreen = localDraftFamily == nil ? .onboarding : localDraftDestination
+    }
+
     func showCreateFamily() {
+        if accessToken == nil {
+            beginLocalFamilyOnboarding()
+            return
+        }
         joinRequestSubmitted = false
         currentJoinApplication = nil
         serverCommonChoreSelectionLimit = 6
@@ -688,13 +814,15 @@ final class AppViewModel: ObservableObject {
         Task {
             do {
                 let response: FamilyInvitePreviewDTO = try await apiClient.get(
-                    "families/invitations/\(inviteCode)"
+                    accessToken == nil
+                        ? "family-invitations/\(inviteCode)"
+                        : "families/invitations/\(inviteCode)"
                 )
                 guard normalizedJoinInviteCode == inviteCode else { return }
                 inviteValidationState = .valid(mapInvitePreview(response))
             } catch {
                 guard normalizedJoinInviteCode == inviteCode else { return }
-                if let apiError = error as? APIError, apiError.isUnauthorized {
+                if accessToken != nil, let apiError = error as? APIError, apiError.isUnauthorized {
                     await clearInvalidSession()
                     errorMessage = "登录已失效，请重新登录。"
                 } else {
@@ -905,7 +1033,8 @@ final class AppViewModel: ObservableObject {
             return false
         }
 
-        guard !choreIDs.isEmpty, Set(choreIDs).count == choreIDs.count else {
+        let selectedChoreCount = choreIDs.count + (isGuestWorkspace ? customChores.count : 0)
+        guard selectedChoreCount > 0, Set(choreIDs).count == choreIDs.count else {
             errorMessage = "请至少选择 1 项常用家务。"
             return false
         }
@@ -922,6 +1051,26 @@ final class AppViewModel: ObservableObject {
         }
 
         let normalizedPinned = pinnedIDs.intersection(Set(choreIDs))
+        if isGuestWorkspace {
+            guard choreIDs.count + customChores.count <= 6 else {
+                errorMessage = "免费体验最多启用 6 项家务。"
+                return false
+            }
+            choreOrder = choreIDs
+            pinnedChoreIDs = normalizedPinned
+            choreLayoutConfigured = true
+            choreLayoutCanEdit = true
+            choreLayoutIsPersonalized = false
+            choreLayoutScope = "local"
+            followsFamilyChoreLayout = true
+            persistLocalWorkspaceSelection()
+            synchronizeCommonChoreGridOrder()
+            selectedTab = .record
+            rootScreen = .home
+            sessionState = .unauthenticated
+            return true
+        }
+
         if usesMockData {
             choreOrder = choreIDs
             pinnedChoreIDs = normalizedPinned
@@ -1012,6 +1161,18 @@ final class AppViewModel: ObservableObject {
         pointsMultiplier: Double? = nil
     ) {
         clearError()
+
+        if isGuestWorkspace {
+            recordWithMock(
+                chore,
+                actualMinutes: actualMinutes,
+                calculatedPoints: calculatedPoints,
+                pointsMultiplier: pointsMultiplier
+            )
+            persistLatestLocalRecord(chore: chore, pointsMultiplier: pointsMultiplier)
+            sessionState = .unauthenticated
+            return
+        }
 
         guard !usesMockData else {
             recordWithMock(
@@ -1105,8 +1266,11 @@ final class AppViewModel: ObservableObject {
             return
         }
 
-        guard !usesMockData else {
+        if isGuestWorkspace || usesMockData {
             deleteRecordWithMock(record)
+            if isGuestWorkspace {
+                removeLocalDraftRecord(record)
+            }
             beginRecordDeletionUndo(record: record, expiresAt: Date().addingTimeInterval(10))
             return
         }
@@ -1161,8 +1325,11 @@ final class AppViewModel: ObservableObject {
 
         recordUndoErrorMessage = nil
 
-        guard !usesMockData else {
+        if isGuestWorkspace || usesMockData {
             restoreRecordLocally(pending.record)
+            if isGuestWorkspace {
+                restoreLocalDraftRecord(pending.record)
+            }
             clearRecordDeletionUndo()
             return
         }
@@ -1251,7 +1418,7 @@ final class AppViewModel: ObservableObject {
         }
 
         let minutes = max(1, min(180, actualMinutes))
-        guard !usesMockData else {
+        if isGuestWorkspace || usesMockData {
             let chore = choreItem(for: record)
             let points = pointsMultiplier.map {
                 Self.estimatedPoints(for: chore, selectedMinutes: minutes, pointsMultiplier: $0)
@@ -1267,6 +1434,9 @@ final class AppViewModel: ObservableObject {
             addWeekPoints(delta, to: record.memberName)
             addMonthlyPoints(delta, to: record.memberName)
             updateMockMonthlyReport()
+            if isGuestWorkspace {
+                updateLocalDraftRecord(updated)
+            }
             return
         }
 
@@ -1693,6 +1863,10 @@ final class AppViewModel: ObservableObject {
     @discardableResult
     func saveCustomChore(_ draft: CustomChoreDraft, editing chore: ChoreItem? = nil) async -> Bool {
         clearError()
+        if isGuestWorkspace, chore == nil, localOnboardingSelectionCount >= 6 {
+            errorMessage = "免费体验最多启用 6 项家务。"
+            return false
+        }
         guard chore != nil || availableCustomChoreSlots > 0 else {
             errorMessage = "免费版最多可以创建 2 个自定义家务。"
             return false
@@ -1714,6 +1888,12 @@ final class AppViewModel: ObservableObject {
             standardMinutes: max(1, min(180, draft.standardMinutes)),
             difficultyMultiplier: max(0.5, min(2.0, (draft.difficultyMultiplier * 10).rounded() / 10))
         )
+
+        if isGuestWorkspace {
+            saveMockCustomChore(normalizedDraft, editing: chore)
+            persistLocalWorkspaceSelection()
+            return true
+        }
 
         if usesMockData {
             saveMockCustomChore(normalizedDraft, editing: chore)
@@ -1755,6 +1935,12 @@ final class AppViewModel: ObservableObject {
             return false
         }
         clearError()
+
+        if isGuestWorkspace {
+            replaceChores(chores.filter { $0.id != chore.id })
+            persistLocalWorkspaceSelection()
+            return true
+        }
 
         if usesMockData {
             replaceChores(chores.filter { $0.id != chore.id })
@@ -1892,6 +2078,8 @@ final class AppViewModel: ObservableObject {
         deletionUndoTask = nil
         pendingRecordUploads.removeAll()
         pendingUploadCount = 0
+        localDraftFamily = nil
+        try? localWorkspaceStore.delete()
 
         let accountScopedPrefixes = [
             Self.commonChoreGridDefaultsKeyPrefix,
@@ -1942,7 +2130,7 @@ final class AppViewModel: ObservableObject {
         selectedChore = nil
         selectedTab = .today
         selectedWeekOffset = 0
-        phoneNumber = ""
+        developmentIdentifier = "dev-local-user"
         displayName = ""
         familyName = MockData.family.name
         selectedIdentityLabel = "男主人"
@@ -1981,7 +2169,12 @@ final class AppViewModel: ObservableObject {
         selectedReportMonth = currentMonth
         isOffline = false
         lastSuccessfulSyncAt = nil
-        rootScreen = .login
+        if let localDraftFamily {
+            applyLocalDraft(localDraftFamily)
+            rootScreen = localDraftDestination
+        } else {
+            rootScreen = .onboarding
+        }
         sessionState = .unauthenticated
         clearError()
     }
@@ -2021,6 +2214,259 @@ final class AppViewModel: ObservableObject {
         achievementSyncState = .idle
         achievementLastUpdatedAt = nil
         pendingAchievementCelebration = nil
+    }
+
+    private var localDraftDestination: AppScreen {
+        guard let localDraftFamily else { return .onboarding }
+        return localDraftFamily.selectedChores.isEmpty ? .choreSetup : .home
+    }
+
+    private func restoreUnauthenticatedWorkspace() {
+        accessToken = nil
+        if let localDraftFamily {
+            applyLocalDraft(localDraftFamily)
+            rootScreen = localDraftDestination
+        } else {
+            currentUser = nil
+            currentFamily = nil
+            currentMembership = nil
+            familyMembers = []
+            rootScreen = .onboarding
+        }
+        sessionState = .unauthenticated
+    }
+
+    private func applyLocalDraft(_ draft: LocalDraftFamily) {
+        let localUserID = "local-user-\(draft.id.uuidString.lowercased())"
+        let localFamilyID = "local-family-\(draft.id.uuidString.lowercased())"
+        currentUser = AppUser(
+            id: localUserID,
+            displayName: "我",
+            avatarInitial: "我",
+            badge: "本机体验"
+        )
+        currentFamily = FamilySpace(
+            id: localFamilyID,
+            name: draft.name,
+            inviteCode: "",
+            requiresPhotoProof: false,
+            timezone: TimeZone.current.identifier
+        )
+        currentMembership = FamilyMembership(
+            id: "local-membership-\(draft.id.uuidString.lowercased())",
+            userId: localUserID,
+            familyId: localFamilyID,
+            identityLabel: selectedIdentityLabel,
+            customIdentity: nil,
+            avatarKey: selectedAvatarKey,
+            memberRole: .owner,
+            status: .active
+        )
+        familyMembers = [
+            FamilyMemberProfile(
+                id: currentMembership?.id ?? "local-membership",
+                userId: localUserID,
+                name: "我",
+                identityLabel: selectedIdentityLabel,
+                customIdentity: nil,
+                avatarKey: selectedAvatarKey,
+                memberRole: .owner,
+                status: .active,
+                joinedAt: draft.createdAt
+            ),
+        ]
+
+        var available = MockData.chores
+        let customItems = draft.selectedChores
+            .filter { $0.source == .custom }
+            .map(localChoreItem)
+        available.removeAll { $0.isCustom }
+        available.append(contentsOf: customItems)
+        chores = available
+        choreOrder = draft.selectedChores
+            .filter { $0.source == .catalog }
+            .map(\.id)
+        pinnedChoreIDs = []
+        choreLayoutConfigured = !draft.selectedChores.isEmpty
+        choreLayoutCanEdit = true
+        choreLayoutScope = "local"
+        choreLayoutIsPersonalized = false
+        followsFamilyChoreLayout = true
+        serverCommonChoreSelectionLimit = 6
+        serverCustomChoreLimit = 2
+
+        let mappedRecords = draft.records
+            .sorted { $0.occurredAt > $1.occurredAt }
+            .map { localRecord in
+                ChoreRecord(
+                    id: "local-record-\(localRecord.id.uuidString.lowercased())",
+                    memberName: "我",
+                    choreName: localRecord.choreName,
+                    category: localRecord.category,
+                    standardMinutes: localRecord.standardMinutes,
+                    actualMinutes: localRecord.actualMinutes,
+                    points: localRecord.points,
+                    note: localRecord.note,
+                    createdAt: localRecord.occurredAt,
+                    icon: localRecord.icon,
+                    color: localChoreColor(themeKey: "", icon: localRecord.icon),
+                    creatorId: localUserID,
+                    identityLabel: selectedIdentityLabel,
+                    customIdentity: nil,
+                    avatarKey: selectedAvatarKey,
+                    canDelete: true,
+                    canEdit: true,
+                    choreId: localRecord.choreID,
+                    defaultPoints: localRecord.defaultPoints,
+                    pointsMultiplier: localRecord.pointsMultiplier
+                )
+            }
+        weekRecords = mappedRecords.filter { Calendar.current.isDate($0.createdAt, equalTo: Date(), toGranularity: .weekOfYear) }
+        recentRecords = mappedRecords
+        weekRanking = [
+            FamilyMember(
+                id: localUserID,
+                name: "我",
+                monthlyPoints: weekRecords.reduce(0) { $0 + $1.points },
+                badge: "本机体验",
+                color: DSColor.yellow
+            ),
+        ]
+        monthlyRanking = weekRanking
+        familyName = draft.name
+        synchronizeCommonChoreGridOrder()
+    }
+
+    private func localChoreItem(_ local: LocalDraftChore) -> ChoreItem {
+        ChoreItem(
+            id: local.id,
+            catalogKey: local.catalogKey,
+            name: local.name,
+            category: local.category,
+            minutes: local.minutes,
+            points: local.points,
+            icon: local.icon,
+            color: localChoreColor(themeKey: local.themeKey, icon: local.icon),
+            themeKey: local.themeKey,
+            difficultyMultiplier: local.difficultyMultiplier,
+            isCustom: local.source == .custom,
+            customSlot: local.customSlot
+        )
+    }
+
+    private func localChoreColor(themeKey: String, icon: String) -> Color {
+        if let option = CustomChoreCatalog.option(for: icon) {
+            return option.color
+        }
+        return switch ChoreTheme(rawValue: themeKey) {
+        case .love: DSColor.coral
+        case .childcare: DSColor.sky
+        case .pet: DSColor.mint
+        default: DSColor.yellow
+        }
+    }
+
+    private func persistLocalWorkspaceSelection() {
+        guard var draft = localDraftFamily else { return }
+        let selectedIDs = Set(choreOrder)
+        let selectedCatalog = chores
+            .filter { !$0.isCustom && selectedIDs.contains($0.id) }
+            .map(LocalDraftChore.init)
+        let selectedCustom = customChores.map(LocalDraftChore.init)
+        draft.selectedChores = selectedCatalog + selectedCustom
+        draft.updatedAt = Date()
+        draft.claimState = .local
+        localDraftFamily = draft
+        persistLocalDraft(draft)
+    }
+
+    private func persistLatestLocalRecord(chore: ChoreItem, pointsMultiplier: Double?) {
+        guard var draft = localDraftFamily, let record = recentRecords.first else { return }
+        guard let recordID = localDraftRecordID(from: record.id) else { return }
+        draft.records.insert(
+            LocalDraftChoreRecord(
+                id: recordID,
+                choreID: chore.id,
+                choreName: record.choreName,
+                category: record.category,
+                standardMinutes: record.standardMinutes,
+                defaultPoints: record.defaultPoints ?? chore.points,
+                icon: record.icon,
+                actualMinutes: record.actualMinutes,
+                points: record.points,
+                pointsMultiplier: pointsMultiplier,
+                note: record.note,
+                occurredAt: record.createdAt
+            ),
+            at: 0
+        )
+        draft.updatedAt = Date()
+        localDraftFamily = draft
+        persistLocalDraft(draft)
+    }
+
+    private func removeLocalDraftRecord(_ record: ChoreRecord) {
+        guard var draft = localDraftFamily,
+              let id = localDraftRecordID(from: record.id)
+        else { return }
+        draft.records.removeAll { $0.id == id }
+        draft.updatedAt = Date()
+        localDraftFamily = draft
+        persistLocalDraft(draft)
+    }
+
+    private func restoreLocalDraftRecord(_ record: ChoreRecord) {
+        guard var draft = localDraftFamily,
+              let id = localDraftRecordID(from: record.id),
+              !draft.records.contains(where: { $0.id == id })
+        else { return }
+        draft.records.append(localDraftRecord(from: record, id: id))
+        draft.records.sort { $0.occurredAt > $1.occurredAt }
+        draft.updatedAt = Date()
+        localDraftFamily = draft
+        persistLocalDraft(draft)
+    }
+
+    private func updateLocalDraftRecord(_ record: ChoreRecord) {
+        guard var draft = localDraftFamily,
+              let id = localDraftRecordID(from: record.id),
+              let index = draft.records.firstIndex(where: { $0.id == id })
+        else { return }
+        draft.records[index] = localDraftRecord(from: record, id: id)
+        draft.updatedAt = Date()
+        localDraftFamily = draft
+        persistLocalDraft(draft)
+    }
+
+    private func localDraftRecord(from record: ChoreRecord, id: UUID) -> LocalDraftChoreRecord {
+        LocalDraftChoreRecord(
+            id: id,
+            choreID: record.choreId ?? record.id,
+            choreName: record.choreName,
+            category: record.category,
+            standardMinutes: record.standardMinutes,
+            defaultPoints: record.defaultPoints ?? max(1, record.points),
+            icon: record.icon,
+            actualMinutes: record.actualMinutes,
+            points: record.points,
+            pointsMultiplier: record.pointsMultiplier,
+            note: record.note,
+            occurredAt: record.createdAt
+        )
+    }
+
+    private func localDraftRecordID(from recordID: String) -> UUID? {
+        let prefix = "local-record-"
+        guard recordID.hasPrefix(prefix) else { return nil }
+        return UUID(uuidString: String(recordID.dropFirst(prefix.count)))
+    }
+
+    private func persistLocalDraft(_ draft: LocalDraftFamily) {
+        do {
+            try localWorkspaceStore.save(draft)
+        } catch {
+            errorMessage = "本机体验数据保存失败：\(error.localizedDescription)"
+        }
     }
 
     private var usesMockData: Bool {
@@ -2098,7 +2544,7 @@ final class AppViewModel: ObservableObject {
 
     private func loginWithMock() {
         accessToken = "mock-token"
-        let nickname = normalizedDisplayName ?? "用户\(normalizedPhoneNumber)"
+        let nickname = normalizedDisplayName ?? "开发用户"
         currentUser = AppUser(
             id: MockData.currentUser.id,
             displayName: nickname,
@@ -2174,8 +2620,11 @@ final class AppViewModel: ObservableObject {
             Self.estimatedPoints(for: chore, selectedMinutes: minutes, pointsMultiplier: $0)
         } ?? Self.estimatedPoints(for: chore, selectedMinutes: minutes)
 
+        let recordID = isGuestWorkspace
+            ? "local-record-\(UUID().uuidString.lowercased())"
+            : "mock-record-\(UUID().uuidString)"
         let record = ChoreRecord(
-            id: "mock-record-\(UUID().uuidString)",
+            id: recordID,
             memberName: currentUserName,
             choreName: chore.name,
             category: chore.category,
@@ -2476,7 +2925,7 @@ final class AppViewModel: ObservableObject {
         }
 
         // Rebuild the deadline from the duration instead of comparing clocks
-        // across the phone and server. Keep a small margin for the restore call.
+        // across the device and server. Keep a small margin for the restore call.
         let localWindow = max(1, (validServerWindow ?? fallbackWindow) - 0.25)
         return now.addingTimeInterval(localWindow)
     }
@@ -2746,7 +3195,7 @@ final class AppViewModel: ObservableObject {
             let response: LoginResponse = try await apiClient.post(
                 "auth/mock-login",
                 body: MockLoginRequest(
-                    phoneNumber: normalizedPhoneNumber,
+                    devIdentifier: normalizedDevelopmentIdentifier,
                     displayName: nil,
                     deviceId: UIDevice.current.identifierForVendor?.uuidString,
                     deviceName: UIDevice.current.name,
@@ -2755,37 +3204,107 @@ final class AppViewModel: ObservableObject {
                 )
             )
 
-            accessToken = response.accessToken
-            currentUser = mapUser(response.user)
-            accountHasPremiumAccess = response.user.plan == "premium"
-            hasPremiumAccess = accountHasPremiumAccess
-            displayName = response.user.displayName
-            await apiClient.setAuthTokens(response.tokens)
-
-            do {
-                try tokenStore.saveTokens(response.tokens)
-                lastSecureStorageErrorMessage = nil
-            } catch {
-                lastSecureStorageErrorMessage = error.localizedDescription
-            }
-
-            try await loadChoresFromAPI()
-            let families = try await loadMyFamiliesFromAPI()
-
-            if families.isEmpty {
-                if try await loadMyJoinApplicationFromAPI() != nil {
-                    rootScreen = .joinStatus
-                } else {
-                    rootScreen = .createFamily
-                }
-            } else {
-                selectedTab = .today
-                rootScreen = .home
-                try await refreshHomeDataFromAPI()
-            }
-
-            sessionState = .authenticated
+            try await completeAPILogin(response)
         }
+    }
+
+    private func completeAPILogin(_ response: LoginResponse) async throws {
+        accessToken = response.accessToken
+        currentUser = mapUser(response.user)
+        accountHasPremiumAccess = response.user.plan == "premium"
+        hasPremiumAccess = accountHasPremiumAccess
+        displayName = response.user.displayName
+        await apiClient.setAuthTokens(response.tokens)
+
+        do {
+            try tokenStore.saveTokens(response.tokens)
+            lastSecureStorageErrorMessage = nil
+        } catch {
+            lastSecureStorageErrorMessage = error.localizedDescription
+        }
+
+        if case let .joinFamily(inviteCode) = pendingAuthAction {
+            joinInviteCode = inviteCode
+            pendingAuthAction = nil
+            rootScreen = .joinFamily
+            sessionState = .authenticated
+            validateJoinInviteCode()
+            return
+        }
+        if pendingAuthAction == .claimLocalDraft {
+            let familyId = try await claimLocalDraftWithAPI()
+            pendingAuthAction = nil
+            localDraftFamily = nil
+            try localWorkspaceStore.delete()
+            let families = try await loadMyFamiliesFromAPI(preferredFamilyId: familyId)
+            guard !families.isEmpty else {
+                throw AppStateError.missingFamily
+            }
+            try await loadChoresFromAPI()
+            selectedTab = .today
+            rootScreen = .home
+            try await refreshHomeDataFromAPI(includeChores: false)
+            sessionState = .authenticated
+            return
+        }
+
+        let families = try await loadMyFamiliesFromAPI()
+        try await loadChoresFromAPI()
+        if families.isEmpty {
+            if try await loadMyJoinApplicationFromAPI() != nil {
+                rootScreen = .joinStatus
+            } else {
+                rootScreen = .createFamily
+            }
+        } else {
+            selectedTab = .today
+            rootScreen = .home
+            try await refreshHomeDataFromAPI()
+        }
+        sessionState = .authenticated
+    }
+
+    private func claimLocalDraftWithAPI() async throws -> String {
+        guard var draft = localDraftFamily else {
+            throw AppStateError.missingFamily
+        }
+        draft.claimState = .claiming
+        localDraftFamily = draft
+        persistLocalDraft(draft)
+
+        let response: ClaimLocalDraftResponse = try await apiClient.post(
+            "families/claim-local-draft",
+            body: ClaimLocalDraftRequest(
+                draftId: draft.id.uuidString.lowercased(),
+                draftCreatedAt: draft.createdAt,
+                familyName: draft.name,
+                identityLabel: selectedIdentityLabel,
+                avatarKey: selectedAvatarKey,
+                timezone: TimeZone.current.identifier,
+                chores: draft.selectedChores.map { chore in
+                    ClaimLocalDraftChoreRequest(
+                        localId: chore.id,
+                        source: chore.source == .catalog ? "CATALOG" : "CUSTOM",
+                        catalogKey: chore.catalogKey,
+                        name: chore.name,
+                        category: chore.category,
+                        standardMinutes: chore.minutes,
+                        difficultyMultiplier: chore.difficultyMultiplier,
+                        icon: chore.icon
+                    )
+                },
+                records: draft.records.map { record in
+                    ClaimLocalDraftRecordRequest(
+                        id: record.id.uuidString.lowercased(),
+                        choreLocalId: record.choreID,
+                        actualMinutes: record.actualMinutes,
+                        note: record.note,
+                        occurredAt: record.occurredAt
+                    )
+                }
+            )
+        )
+        return response.familyId
     }
 
     private func createFamilyWithAPI() async {
@@ -2883,7 +3402,7 @@ final class AppViewModel: ObservableObject {
                 _ = try await loadMyFamiliesFromAPI(preferredFamilyId: familyId)
             }
         } catch {
-            if let apiError = error as? APIError, apiError.isUnauthorized {
+            if let apiError = error as? APIError, apiError.isUnauthorized, accessToken != nil {
                 await clearInvalidSession()
                 errorMessage = "登录已失效，请重新登录。"
             } else {
@@ -3553,8 +4072,8 @@ final class AppViewModel: ObservableObject {
         errorMessage = nil
     }
 
-    private var normalizedPhoneNumber: String {
-        phoneNumber.trimmingCharacters(in: .whitespacesAndNewlines)
+    private var normalizedDevelopmentIdentifier: String {
+        developmentIdentifier.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     private var normalizedDisplayName: String? {
@@ -3807,6 +4326,7 @@ final class AppViewModel: ObservableObject {
         let category = ChoreCategory.resolve(dto.category, choreName: dto.name).rawValue
         return ChoreItem(
             id: dto.id,
+            catalogKey: dto.catalogKey,
             name: dto.name,
             category: category,
             minutes: dto.minutes,
@@ -4213,7 +4733,6 @@ final class AppViewModel: ObservableObject {
 }
 
 private enum AppStateError: LocalizedError {
-    case missingPhoneNumber
     case missingUser
     case missingFamily
     case missingFamilyIdentifier
@@ -4224,8 +4743,6 @@ private enum AppStateError: LocalizedError {
 
     var errorDescription: String? {
         switch self {
-        case .missingPhoneNumber:
-            return "请输入手机号。联调账号不限制手机号长度。"
         case .missingUser:
             return "当前登录用户不存在，请重新登录。"
         case .missingFamily:

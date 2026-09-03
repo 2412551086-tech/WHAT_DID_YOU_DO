@@ -123,7 +123,7 @@ actor APIClient: APIClientProtocol {
         }
     }
 
-    func setAuthTokens(_ tokens: AuthTokens?) {
+    func setAuthTokens(_ tokens: AuthTokens?) async {
         authTokens = tokens
         accessToken = tokens?.accessToken
     }

@@ -5,13 +5,14 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { AchievementEventSourceType, MemberRole, MemberStatus } from '@prisma/client';
-import { randomBytes } from 'node:crypto';
+import { AchievementEventSourceType, MemberRole, MemberStatus, Prisma } from '@prisma/client';
+import { createHash, randomBytes } from 'node:crypto';
 import { AchievementOutboxService } from '../achievements/achievement-outbox.service';
 import { AuthUser } from '../auth/auth-user';
 import { DEFAULT_FAMILY_TIMEZONE, isValidTimeZone, normalizeTimeZone } from '../common/timezone-ranges';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateFamilyDto } from './dto/create-family.dto';
+import { ClaimLocalDraftDto } from './dto/claim-local-draft.dto';
 import { CreateJoinRequestByInviteCodeDto } from './dto/create-join-request-by-invite-code.dto';
 import { CreateJoinRequestDto } from './dto/create-join-request.dto';
 import { ReviewJoinRequestDto } from './dto/review-join-request.dto';
@@ -91,6 +92,241 @@ export class FamiliesService {
         ? { achievementEvaluation: this.achievementOutbox.evaluation(created.event) }
         : {}),
     };
+  }
+
+  async claimLocalDraft(user: AuthUser, dto: ClaimLocalDraftDto) {
+    const payloadDigest = this.payloadDigest(dto);
+    const existing = await this.prisma.localDraftClaim.findUnique({
+      where: { draftId: dto.draftId },
+    });
+    if (existing) {
+      if (existing.userId !== user.id || existing.payloadDigest !== payloadDigest) {
+        throw new ConflictException('Local draft has already been claimed with different data');
+      }
+      return {
+        familyId: existing.familyId,
+        createdRecordCount: await this.prisma.choreRecord.count({
+          where: { familyId: existing.familyId, userId: user.id },
+        }),
+        alreadyClaimed: true,
+      };
+    }
+
+    if (dto.chores.length < 1 || dto.chores.length > 6) {
+      throw new BadRequestException('Local draft must contain 1 to 6 chores');
+    }
+    const localIds = new Set(dto.chores.map((chore) => chore.localId));
+    if (localIds.size !== dto.chores.length) {
+      throw new BadRequestException('Local chore identifiers must be unique');
+    }
+    const customChores = dto.chores.filter((chore) => chore.source === 'CUSTOM');
+    if (customChores.length > 2) {
+      throw new BadRequestException('Free local drafts support up to 2 custom chores');
+    }
+
+    const catalogKeys = dto.chores
+      .filter((chore) => chore.source === 'CATALOG')
+      .map((chore) => chore.catalogKey)
+      .filter((key): key is string => Boolean(key));
+    if (catalogKeys.length !== dto.chores.length - customChores.length) {
+      throw new BadRequestException('Catalog chores require stable catalog keys');
+    }
+    const catalogChores = await this.prisma.chore.findMany({
+      where: {
+        catalogKey: { in: catalogKeys },
+        familyId: null,
+        isCustom: false,
+        archivedAt: null,
+      },
+    });
+    if (catalogChores.length !== new Set(catalogKeys).size) {
+      throw new BadRequestException('Local draft contains an unavailable catalog chore');
+    }
+
+    const draftCreatedAt = new Date(dto.draftCreatedAt);
+    const claimStartedAt = new Date();
+    for (const record of dto.records) {
+      if (!localIds.has(record.choreLocalId)) {
+        throw new BadRequestException('Local record references an unknown chore');
+      }
+      const occurredAt = new Date(record.occurredAt);
+      if (
+        occurredAt.getTime() < draftCreatedAt.getTime() - 5 * 60 * 1000
+        || occurredAt.getTime() > claimStartedAt.getTime() + 5 * 60 * 1000
+      ) {
+        throw new BadRequestException('Local record time is outside the draft experience window');
+      }
+    }
+
+    const identity = this.normalizeIdentityInput(dto.identityLabel, undefined);
+    const timezone = this.normalizeTimezoneInput(dto.timezone);
+    try {
+      return await this.prisma.$transaction(async (transaction) => {
+        const family = await transaction.family.create({
+          data: {
+            name: dto.familyName.trim(),
+            requirePhotoProof: false,
+            timezone,
+            inviteCode: this.createInviteCode(),
+          },
+        });
+        const membership = await transaction.familyMember.create({
+          data: {
+            userId: user.id,
+            familyId: family.id,
+            identityLabel: identity.identityLabel,
+            customIdentity: identity.customIdentity,
+            avatarKey: this.normalizeOptional(dto.avatarKey),
+            memberRole: MemberRole.OWNER,
+            status: MemberStatus.ACTIVE,
+            approvedAt: claimStartedAt,
+            approvedById: user.id,
+            choreSetupCompleted: true,
+            followFamilyLayout: true,
+          },
+        });
+        await this.achievementOutbox.enqueue(transaction, {
+          familyId: family.id,
+          actorUserId: user.id,
+          eventType: 'MEMBER_JOINED',
+          sourceType: AchievementEventSourceType.MEMBERSHIP,
+          sourceId: membership.id,
+          sourceVersion: 1,
+          occurredAt: claimStartedAt,
+          familyTimezone: family.timezone,
+          payload: {
+            membershipId: membership.id,
+            userId: user.id,
+            memberRole: membership.memberRole,
+            isFamilyCreator: true,
+            claimedLocalDraft: true,
+          },
+        });
+
+        const choreIdByLocalId = new Map<string, string>();
+        for (const chore of dto.chores) {
+          if (chore.source === 'CATALOG') {
+            const catalog = catalogChores.find((item) => item.catalogKey === chore.catalogKey);
+            if (!catalog) {
+              throw new BadRequestException('Catalog chore is no longer available');
+            }
+            choreIdByLocalId.set(chore.localId, catalog.id);
+            continue;
+          }
+
+          const customSlot = customChores.findIndex((item) => item.localId === chore.localId) + 1;
+          const multiplier = Math.round(chore.difficultyMultiplier * 10) / 10;
+          const created = await transaction.chore.create({
+            data: {
+              familyId: family.id,
+              createdById: user.id,
+              name: chore.name.trim(),
+              themeKey: 'custom',
+              category: chore.category,
+              standardMinutes: chore.standardMinutes,
+              difficultyMultiplier: multiplier,
+              defaultPoints: Math.max(1, Math.round(chore.standardMinutes * multiplier)),
+              icon: chore.icon,
+              isFreeCore: false,
+              isCustom: true,
+              customSlot,
+              sortOrder: customSlot,
+            },
+          });
+          choreIdByLocalId.set(chore.localId, created.id);
+        }
+
+        const choreOrder = dto.chores.map((chore) => choreIdByLocalId.get(chore.localId)!);
+        await transaction.family.update({
+          where: { id: family.id },
+          data: { choreOrder, choreSetupCompleted: true },
+        });
+
+        for (const record of dto.records) {
+          const choreId = choreIdByLocalId.get(record.choreLocalId)!;
+          const chore = dto.chores.find((item) => item.localId === record.choreLocalId)!;
+          const catalog = catalogChores.find((item) => item.id === choreId);
+          const standardMinutes = catalog?.standardMinutes ?? chore.standardMinutes;
+          const defaultPoints = catalog?.defaultPoints
+            ?? Math.max(1, Math.round(chore.standardMinutes * chore.difficultyMultiplier));
+          const points = Math.max(
+            1,
+            Math.round(defaultPoints * record.actualMinutes / standardMinutes),
+          );
+          const occurredAt = new Date(record.occurredAt);
+          const createdRecord = await transaction.choreRecord.create({
+            data: {
+              familyId: family.id,
+              userId: user.id,
+              choreId,
+              note: record.note?.trim() || null,
+              imageUrls: [],
+              minutes: standardMinutes,
+              actualMinutes: record.actualMinutes,
+              points,
+              pointsMultiplier: null,
+              creatorDisplayNameSnapshot: user.displayName,
+              creatorIdentityLabelSnapshot: membership.identityLabel,
+              creatorCustomIdentitySnapshot: membership.customIdentity,
+              creatorAvatarKeySnapshot: membership.avatarKey,
+              clientRequestId: `draft:${dto.draftId}:${record.id}`,
+              occurredAt,
+              createdAt: occurredAt,
+            },
+          });
+          await this.achievementOutbox.enqueue(transaction, {
+            familyId: family.id,
+            actorUserId: user.id,
+            eventType: 'CHORE_CREATED',
+            sourceType: AchievementEventSourceType.CHORE,
+            sourceId: createdRecord.id,
+            sourceVersion: 1,
+            occurredAt,
+            familyTimezone: family.timezone,
+            payload: {
+              recordId: createdRecord.id,
+              choreId,
+              userId: user.id,
+              actualMinutes: record.actualMinutes,
+              points,
+              themeKey: catalog?.themeKey ?? 'custom',
+              category: catalog?.category ?? chore.category,
+              claimedLocalDraft: true,
+            },
+          });
+        }
+
+        await transaction.localDraftClaim.create({
+          data: {
+            draftId: dto.draftId,
+            payloadDigest,
+            userId: user.id,
+            familyId: family.id,
+          },
+        });
+
+        return {
+          familyId: family.id,
+          createdRecordCount: dto.records.length,
+          alreadyClaimed: false,
+        };
+      });
+    } catch (error) {
+      if (!(error instanceof Prisma.PrismaClientKnownRequestError) || error.code !== 'P2002') {
+        throw error;
+      }
+      const raced = await this.prisma.localDraftClaim.findUnique({
+        where: { draftId: dto.draftId },
+      });
+      if (!raced || raced.userId !== user.id || raced.payloadDigest !== payloadDigest) {
+        throw new ConflictException('Local draft claim conflicted with another request');
+      }
+      return {
+        familyId: raced.familyId,
+        createdRecordCount: dto.records.length,
+        alreadyClaimed: true,
+      };
+    }
   }
 
   async updateFamilyName(user: AuthUser, familyId: string, rawName: string) {
@@ -224,6 +460,26 @@ export class FamiliesService {
           ? null
           : (existingMembership?.status ?? null),
     };
+  }
+
+  async getPublicInvitePreview(rawInviteCode: string) {
+    const inviteCode = rawInviteCode.trim().toUpperCase();
+    const family = await this.prisma.family.findUnique({
+      where: { inviteCode },
+      include: {
+        members: {
+          where: { status: MemberStatus.ACTIVE },
+          include: { user: true },
+          orderBy: { createdAt: 'asc' },
+        },
+      },
+    });
+
+    if (!family || family.archivedAt) {
+      throw new NotFoundException('Invite code not found');
+    }
+
+    return this.formatFamilyPreview(family);
   }
 
   async getMyJoinRequest(user: AuthUser) {
@@ -704,6 +960,25 @@ export class FamiliesService {
     }
 
     return normalized;
+  }
+
+  private payloadDigest(value: unknown) {
+    const canonicalize = (input: unknown): unknown => {
+      if (Array.isArray(input)) {
+        return input.map(canonicalize);
+      }
+      if (input && typeof input === 'object') {
+        return Object.fromEntries(
+          Object.entries(input as Record<string, unknown>)
+            .sort(([left], [right]) => left.localeCompare(right))
+            .map(([key, nested]) => [key, canonicalize(nested)]),
+        );
+      }
+      return input;
+    };
+    return createHash('sha256')
+      .update(JSON.stringify(canonicalize(value)))
+      .digest('hex');
   }
 
   private createInviteCode(): string {

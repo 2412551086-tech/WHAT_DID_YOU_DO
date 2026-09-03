@@ -25,18 +25,30 @@ export class AuthService {
     private readonly authSessions: AuthSessionService,
   ) {}
 
+  getPublicConfiguration() {
+    const region = process.env.AUTH_DISTRIBUTION_REGION?.toUpperCase() === 'GLOBAL'
+      ? 'GLOBAL'
+      : 'CN';
+    return {
+      distributionRegion: region,
+      providers: region === 'GLOBAL'
+        ? ['APPLE', 'GOOGLE', 'EMAIL']
+        : ['APPLE', 'WECHAT', 'EMAIL'],
+    };
+  }
+
   async mockLogin(dto: MockLoginDto) {
-    const phoneNumber = dto.phoneNumber?.trim();
+    const devIdentifier = dto.devIdentifier?.trim();
     const requestedDisplayName = dto.displayName?.trim();
 
-    if (!phoneNumber && !requestedDisplayName) {
-      throw new BadRequestException('phoneNumber or displayName is required');
+    if (!devIdentifier && !requestedDisplayName) {
+      throw new BadRequestException('devIdentifier or displayName is required');
     }
 
-    const displayName = requestedDisplayName || `用户${phoneNumber}`;
-    const user = phoneNumber
+    const displayName = requestedDisplayName || '开发用户';
+    const user = devIdentifier
       ? await this.authIdentities.loginOrCreateIdentity({
-          ...this.authIdentities.resolveDevelopmentIdentifier(phoneNumber),
+          ...this.authIdentities.resolveDevelopmentIdentifier(devIdentifier),
           displayName,
           updateDisplayName: Boolean(requestedDisplayName),
         })

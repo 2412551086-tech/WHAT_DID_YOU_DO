@@ -89,22 +89,28 @@ describe("MVP API (e2e)", () => {
     };
   }
 
-  async function loginWithPhone(phoneNumber: string) {
+  async function loginAsDev(devIdentifier: string) {
     const response = await request(app.getHttpServer())
       .post("/auth/mock-login")
-      .send({ phoneNumber })
+      .send({ devIdentifier })
       .expect(201);
 
     return {
       token: response.body.accessToken as string,
       refreshToken: response.body.refreshToken as string,
       userId: response.body.user.id as string,
-      phoneNumber: response.body.user.phoneNumber as string,
     };
   }
 
   it("returns 404 for the empty application root", () => {
     return request(app.getHttpServer()).get("/").expect(404);
+  });
+
+  it("publishes the configured authentication providers without requiring a session", async () => {
+    await request(app.getHttpServer())
+      .get("/auth/config")
+      .expect(200)
+      .expect({ distributionRegion: "CN", providers: ["APPLE", "WECHAT", "EMAIL"] });
   });
 
   it("returns the four themed system chore catalogs as free and unlocked", async () => {
@@ -134,7 +140,7 @@ describe("MVP API (e2e)", () => {
   });
 
   it("keeps test premium redemption while system chores remain free", async () => {
-    const premiumUser = await loginWithPhone(`e2e-premium-${Date.now()}`);
+    const premiumUser = await loginAsDev(`e2e-premium-${Date.now()}`);
     const familyResponse = await request(app.getHttpServer())
       .post("/families")
       .set("Authorization", `Bearer ${premiumUser.token}`)
@@ -211,23 +217,21 @@ describe("MVP API (e2e)", () => {
       .expect(400);
   });
 
-  it("reuses the same development account for repeated phone login", async () => {
-    const phoneNumber = `e2e-${Date.now()}`;
-    const firstLogin = await loginWithPhone(phoneNumber);
-    const secondLogin = await loginWithPhone(phoneNumber);
+  it("reuses the same development account for a stable development identifier", async () => {
+    const devIdentifier = `e2e-${Date.now()}`;
+    const firstLogin = await loginAsDev(devIdentifier);
+    const secondLogin = await loginAsDev(devIdentifier);
 
-    expect(firstLogin.phoneNumber).toBe(phoneNumber);
     expect(secondLogin.userId).toBe(firstLogin.userId);
     expect(secondLogin.token).not.toBe(firstLogin.token);
     expect(secondLogin.refreshToken).not.toBe(firstLogin.refreshToken);
 
     const renamedLogin = await request(app.getHttpServer())
       .post("/auth/mock-login")
-      .send({ phoneNumber, displayName: "E2E 可编辑昵称" })
+      .send({ devIdentifier, displayName: "E2E 可编辑昵称" })
       .expect(201);
     expect(renamedLogin.body.user).toMatchObject({
       id: firstLogin.userId,
-      phoneNumber,
       displayName: "E2E 可编辑昵称",
     });
 
@@ -238,7 +242,6 @@ describe("MVP API (e2e)", () => {
 
     expect(currentUserResponse.body).toMatchObject({
       id: firstLogin.userId,
-      phoneNumber,
       displayName: "E2E 可编辑昵称",
     });
 
@@ -250,15 +253,72 @@ describe("MVP API (e2e)", () => {
 
     expect(profileRenameResponse.body).toMatchObject({
       id: firstLogin.userId,
-      phoneNumber,
       displayName: "E2E 个人页昵称",
     });
+  });
+
+  it("claims a local onboarding draft exactly once without duplicating records", async () => {
+    const user = await loginAsDev(`local-draft-${Date.now()}`);
+    const draftId = `draft-${Date.now()}`;
+    const occurredAt = new Date();
+    const payload = {
+      draftId,
+      draftCreatedAt: new Date(occurredAt.getTime() - 60_000).toISOString(),
+      familyName: "本机体验升级家庭",
+      identityLabel: "家庭成员",
+      avatarKey: "avatar_01",
+      timezone: "Asia/Shanghai",
+      chores: [
+        {
+          localId: "local-cook",
+          source: "CATALOG",
+          catalogKey: "core-cook-prepare",
+          name: "做饭备餐",
+          category: "烹饪",
+          standardMinutes: 30,
+          difficultyMultiplier: 1,
+          icon: "chore_catalog_cook_prepare",
+        },
+      ],
+      records: [
+        {
+          id: "local-record-1",
+          choreLocalId: "local-cook",
+          actualMinutes: 20,
+          note: "离线体验记录",
+          occurredAt: occurredAt.toISOString(),
+        },
+      ],
+    };
+
+    const first = await request(app.getHttpServer())
+      .post("/families/claim-local-draft")
+      .set("Authorization", `Bearer ${user.token}`)
+      .send(payload)
+      .expect(201);
+    expect(first.body).toMatchObject({ createdRecordCount: 1, alreadyClaimed: false });
+
+    const second = await request(app.getHttpServer())
+      .post("/families/claim-local-draft")
+      .set("Authorization", `Bearer ${user.token}`)
+      .send(payload)
+      .expect(201);
+    expect(second.body).toMatchObject({
+      familyId: first.body.familyId,
+      createdRecordCount: 1,
+      alreadyClaimed: true,
+    });
+
+    await expect(prisma.choreRecord.count({
+      where: { familyId: first.body.familyId, userId: user.userId },
+    })).resolves.toBe(1);
+    await expect(prisma.localDraftClaim.count({ where: { draftId } })).resolves.toBe(1);
   });
 
   it("rotates refresh tokens and revokes the session when an old token is reused", async () => {
     const loginResponse = await request(app.getHttpServer())
       .post("/auth/mock-login")
-      .send({ phoneNumber: `rotation-${Date.now()}`, deviceName: "Rotation iPhone", platform: "iOS" })
+      .send({ devIdentifier: `rotation-${Date.now()}`, deviceName: "Rotation iPhone", platform: "iOS" })
       .expect(201);
 
     expect(loginResponse.body).toEqual(expect.objectContaining({
@@ -318,7 +378,7 @@ describe("MVP API (e2e)", () => {
   it("treats concurrent refresh attempts as token reuse and revokes the session", async () => {
     const loginResponse = await request(app.getHttpServer())
       .post("/auth/mock-login")
-      .send({ phoneNumber: `concurrent-refresh-${Date.now()}` })
+      .send({ devIdentifier: `concurrent-refresh-${Date.now()}` })
       .expect(201);
 
     const responses = await Promise.all([
@@ -338,14 +398,14 @@ describe("MVP API (e2e)", () => {
   });
 
   it("keeps device sessions independent and can revoke every device", async () => {
-    const phoneNumber = `multi-device-${Date.now()}`;
+    const devIdentifier = `multi-device-${Date.now()}`;
     const first = await request(app.getHttpServer())
       .post("/auth/mock-login")
-      .send({ phoneNumber, deviceName: "小狼的 iPhone", platform: "iOS", appVersion: "1.0" })
+      .send({ devIdentifier, deviceName: "小狼的 iPhone", platform: "iOS", appVersion: "1.0" })
       .expect(201);
     const second = await request(app.getHttpServer())
       .post("/auth/mock-login")
-      .send({ phoneNumber, deviceName: "大力水手的 iPhone", platform: "iOS", appVersion: "1.0" })
+      .send({ devIdentifier, deviceName: "大力水手的 iPhone", platform: "iOS", appVersion: "1.0" })
       .expect(201);
 
     const sessions = await request(app.getHttpServer())
@@ -388,55 +448,10 @@ describe("MVP API (e2e)", () => {
       .expect(401);
   });
 
-  it("normalizes mainland phone aliases to one stable user identity", async () => {
-    const phoneNumber = `139${String(Date.now()).slice(-8)}`;
-    const firstResponse = await request(app.getHttpServer())
-      .post("/auth/mock-login")
-      .send({ phoneNumber, displayName: "保留这个昵称" })
-      .expect(201);
-    const firstLogin = {
-      userId: firstResponse.body.user.id as string,
-      phoneNumber: firstResponse.body.user.phoneNumber as string,
-    };
-    const secondResponse = await request(app.getHttpServer())
-      .post("/auth/mock-login")
-      .send({ phoneNumber: `+86 ${phoneNumber.slice(0, 3)} ${phoneNumber.slice(3, 7)} ${phoneNumber.slice(7)}` })
-      .expect(201);
-
-    expect(secondResponse.body.user.id).toBe(firstLogin.userId);
-    expect(secondResponse.body.user.displayName).toBe("保留这个昵称");
-    expect(firstLogin.phoneNumber).toBe(`+86${phoneNumber}`);
-    await expect(prisma.authIdentity.findMany({ where: { userId: firstLogin.userId } })).resolves.toEqual([
-      expect.objectContaining({
-        provider: AuthProvider.PHONE,
-        providerSubject: `+86${phoneNumber}`,
-      }),
-    ]);
-  });
-
-  it("attaches a migrated identity without replacing the legacy user id", async () => {
-    const legacyPhoneNumber = `legacy-auth-${Date.now()}`;
-    const legacyUser = await prisma.user.create({
-      data: { phoneNumber: legacyPhoneNumber, displayName: "Legacy identity user" },
-    });
-
-    const loginResponse = await loginWithPhone(legacyPhoneNumber);
-
-    expect(loginResponse.userId).toBe(legacyUser.id);
-    await expect(prisma.authIdentity.findUnique({
-      where: {
-        provider_providerSubject: {
-          provider: AuthProvider.DEV,
-          providerSubject: legacyPhoneNumber,
-        },
-      },
-    })).resolves.toMatchObject({ userId: legacyUser.id });
-  });
-
   it("binds multiple verified providers without silently merging conflicting accounts", async () => {
     const suffix = Date.now();
-    const first = await loginWithPhone(`identity-owner-${suffix}`);
-    const second = await loginWithPhone(`identity-other-${suffix}`);
+    const first = await loginAsDev(`identity-owner-${suffix}`);
+    const second = await loginAsDev(`identity-other-${suffix}`);
     const identities = app.get(AuthIdentityService);
     const appleSubject = `apple-${suffix}`;
 
@@ -462,15 +477,16 @@ describe("MVP API (e2e)", () => {
 
     const socialUser = await identities.loginOrCreateIdentity({
       provider: AuthProvider.APPLE,
-      providerSubject: `apple-phone-binding-${suffix}`,
+      providerSubject: `apple-email-binding-${suffix}`,
       displayName: "Social identity user",
       verifiedAt: new Date(),
     });
-    const boundPhone = `138${String(suffix).slice(-8)}`;
-    await identities.bindIdentity(socialUser.id, AuthProvider.PHONE, boundPhone);
-    await expect(prisma.user.findUniqueOrThrow({ where: { id: socialUser.id } })).resolves.toMatchObject({
-      phoneNumber: `+86${boundPhone}`,
-    });
+    const email = `member-${suffix}@example.com`;
+    await identities.bindIdentity(socialUser.id, AuthProvider.EMAIL, email.toUpperCase());
+    await expect(identities.listIdentities(socialUser.id)).resolves.toEqual(expect.arrayContaining([
+      expect.objectContaining({ provider: AuthProvider.APPLE }),
+      expect.objectContaining({ provider: AuthProvider.EMAIL }),
+    ]));
   });
 
   it("keeps the legacy create-family request compatible", async () => {
@@ -995,6 +1011,19 @@ describe("MVP API (e2e)", () => {
         avatarKey: "avatar_owner",
       },
     });
+
+    await request(app.getHttpServer())
+      .get(`/family-invitations/${inviteCode.toLowerCase()}`)
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body).toMatchObject({
+          id: familyId,
+          name: "E2E interaction family",
+          inviteCode,
+          memberCount: 1,
+        });
+        expect(body.currentStatus).toBeUndefined();
+      });
 
     await request(app.getHttpServer())
       .get("/families/invitations/NOTFOUND")
@@ -2211,7 +2240,7 @@ describe("MVP API (e2e)", () => {
   });
 
   it("uses server occurrence time and only restores a soft deletion within ten seconds", async () => {
-    const user = await loginWithPhone(`e2e-achievement-foundation-${Date.now()}`);
+    const user = await loginAsDev(`e2e-achievement-foundation-${Date.now()}`);
     const familyResponse = await request(app.getHttpServer())
       .post("/families")
       .set("Authorization", `Bearer ${user.token}`)
@@ -2281,7 +2310,7 @@ describe("MVP API (e2e)", () => {
   });
 
   it("enforces achievement definition and event idempotency constraints in the database", async () => {
-    const user = await loginWithPhone(`e2e-achievement-constraints-${Date.now()}`);
+    const user = await loginAsDev(`e2e-achievement-constraints-${Date.now()}`);
     const familyResponse = await request(app.getHttpServer())
       .post("/families")
       .set("Authorization", `Bearer ${user.token}`)
@@ -2383,7 +2412,7 @@ describe("MVP API (e2e)", () => {
     process.env.ACHIEVEMENTS_ENABLED = "true";
 
     try {
-      const owner = await loginWithPhone(`e2e-achievement-pipeline-${Date.now()}`);
+      const owner = await loginAsDev(`e2e-achievement-pipeline-${Date.now()}`);
       const familyResponse = await request(app.getHttpServer())
         .post("/families")
         .set("Authorization", `Bearer ${owner.token}`)
@@ -2471,7 +2500,7 @@ describe("MVP API (e2e)", () => {
         }),
       ).resolves.toBe(1);
 
-      const member = await loginWithPhone(`e2e-achievement-member-${Date.now()}`);
+      const member = await loginAsDev(`e2e-achievement-member-${Date.now()}`);
       const joinResponse = await request(app.getHttpServer())
         .post("/families/join-requests")
         .set("Authorization", `Bearer ${member.token}`)
@@ -2612,7 +2641,7 @@ describe("MVP API (e2e)", () => {
     process.env.ACHIEVEMENTS_ENABLED = "true";
 
     try {
-      const owner = await loginWithPhone(`e2e-stage-three-owner-${Date.now()}`);
+      const owner = await loginAsDev(`e2e-stage-three-owner-${Date.now()}`);
       const familyResponse = await request(app.getHttpServer())
         .post("/families")
         .set("Authorization", `Bearer ${owner.token}`)
@@ -2702,7 +2731,7 @@ describe("MVP API (e2e)", () => {
           expect(body).toMatchObject({ selectionLimit: 8, customChoreLimit: 3 });
         });
 
-      const member = await loginWithPhone(`e2e-stage-three-member-${Date.now()}`);
+      const member = await loginAsDev(`e2e-stage-three-member-${Date.now()}`);
       const joinResponse = await request(app.getHttpServer())
         .post("/families/join-requests")
         .set("Authorization", `Bearer ${member.token}`)
@@ -2785,7 +2814,7 @@ describe("MVP API (e2e)", () => {
     process.env.ACHIEVEMENTS_ENABLED = "true";
 
     try {
-      const owner = await loginWithPhone(`e2e-stage-five-owner-${Date.now()}`);
+      const owner = await loginAsDev(`e2e-stage-five-owner-${Date.now()}`);
       const familyResponse = await request(app.getHttpServer())
         .post("/families")
         .set("Authorization", `Bearer ${owner.token}`)
@@ -2932,7 +2961,7 @@ describe("MVP API (e2e)", () => {
     process.env.ACHIEVEMENTS_ENABLED = "true";
 
     try {
-      const owner = await loginWithPhone(`e2e-stage-six-owner-${Date.now()}`);
+      const owner = await loginAsDev(`e2e-stage-six-owner-${Date.now()}`);
       const familyResponse = await request(app.getHttpServer())
         .post("/families")
         .set("Authorization", `Bearer ${owner.token}`)
@@ -2960,7 +2989,7 @@ describe("MVP API (e2e)", () => {
           ].includes(item.key))).toBe(false);
         });
 
-      const member = await loginWithPhone(`e2e-stage-six-member-${Date.now()}`);
+      const member = await loginAsDev(`e2e-stage-six-member-${Date.now()}`);
       const joinResponse = await request(app.getHttpServer())
         .post("/families/join-requests")
         .set("Authorization", `Bearer ${member.token}`)
@@ -3064,7 +3093,7 @@ describe("MVP API (e2e)", () => {
       const eligibleBeforeJoin = snapshotBeforeJoin.eligibleMemberIdsJson as string[];
       expect(eligibleBeforeJoin).toHaveLength(2);
 
-      const lateMember = await loginWithPhone(`e2e-stage-six-late-${Date.now()}`);
+      const lateMember = await loginAsDev(`e2e-stage-six-late-${Date.now()}`);
       const lateJoin = await request(app.getHttpServer())
         .post("/families/join-requests")
         .set("Authorization", `Bearer ${lateMember.token}`)
@@ -3151,7 +3180,7 @@ describe("MVP API (e2e)", () => {
     const previousFlag = process.env.ACHIEVEMENTS_ENABLED;
     process.env.ACHIEVEMENTS_ENABLED = "true";
     try {
-      const owner = await loginWithPhone(`e2e-stage-seven-owner-${Date.now()}`);
+      const owner = await loginAsDev(`e2e-stage-seven-owner-${Date.now()}`);
       const familyResponse = await request(app.getHttpServer())
         .post("/families")
         .set("Authorization", `Bearer ${owner.token}`)
@@ -3298,7 +3327,7 @@ describe("MVP API (e2e)", () => {
         where: { familyId, achievementKey: "ACTIVE_DAYS_3" },
       })).resolves.toBe(1);
 
-      const member = await loginWithPhone(`e2e-stage-seven-member-${Date.now()}`);
+      const member = await loginAsDev(`e2e-stage-seven-member-${Date.now()}`);
       const join = await request(app.getHttpServer())
         .post("/families/join-requests")
         .set("Authorization", `Bearer ${member.token}`)
@@ -3378,7 +3407,7 @@ describe("MVP API (e2e)", () => {
   }, 60_000);
 
   it("permanently deletes an account and its single-member family", async () => {
-    const user = await loginWithPhone(`e2e-account-delete-${Date.now()}`);
+    const user = await loginAsDev(`e2e-account-delete-${Date.now()}`);
     const family = await request(app.getHttpServer())
       .post("/families")
       .set("Authorization", `Bearer ${user.token}`)
@@ -3410,8 +3439,8 @@ describe("MVP API (e2e)", () => {
 
   it("transfers ownership and removes personal data when deleting an account in a shared family", async () => {
     const suffix = Date.now();
-    const owner = await loginWithPhone(`e2e-delete-owner-${suffix}`);
-    const member = await loginWithPhone(`e2e-delete-member-${suffix}`);
+    const owner = await loginAsDev(`e2e-delete-owner-${suffix}`);
+    const member = await loginAsDev(`e2e-delete-member-${suffix}`);
     const familyResponse = await request(app.getHttpServer())
       .post("/families")
       .set("Authorization", `Bearer ${owner.token}`)

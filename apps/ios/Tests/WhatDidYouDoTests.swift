@@ -5,6 +5,164 @@ import XCTest
 
 @MainActor
 final class WhatDidYouDoTests: XCTestCase {
+    func testLocalWorkspaceStorePersistsDraftAcrossLaunches() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("local-workspace-test-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = FileLocalWorkspaceStore(fileURL: directory.appendingPathComponent("draft.json"))
+        let chore = LocalDraftChore(chore: MockData.chores[0])
+        let draft = LocalDraftFamily(
+            createdAt: Date(timeIntervalSince1970: 1_800_000_000),
+            name: "本机体验家庭",
+            selectedChores: [chore]
+        )
+
+        try store.save(draft)
+
+        XCTAssertEqual(try store.load(), draft)
+        try store.delete()
+        XCTAssertNil(try store.load())
+    }
+
+    func testFirstLaunchStartsAtOnboardingWithoutAuthentication() {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("first-launch-test-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let viewModel = AppViewModel(
+            tokenStore: MockSecureTokenStore(),
+            dataMode: .api,
+            localWorkspaceStore: FileLocalWorkspaceStore(fileURL: directory.appendingPathComponent("draft.json")),
+            automaticallyRestoreSession: true
+        )
+
+        XCTAssertEqual(viewModel.sessionState, .unauthenticated)
+        XCTAssertEqual(viewModel.rootScreen, .onboarding)
+        XCTAssertNil(viewModel.localDraftFamily)
+    }
+
+    func testLocalFamilyOnboardingPersistsAndRestoresSelectedChores() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("draft-restore-test-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let fileURL = directory.appendingPathComponent("draft.json")
+        let first = AppViewModel(
+            tokenStore: MockSecureTokenStore(),
+            dataMode: .api,
+            localWorkspaceStore: FileLocalWorkspaceStore(fileURL: fileURL),
+            automaticallyRestoreSession: true
+        )
+        first.beginLocalFamilyOnboarding()
+        let selectedIDs = Array(first.routineCatalogChores.prefix(4).map(\.id))
+
+        let didSave = await first.saveChoreLayout(choreIDs: selectedIDs, pinnedIDs: [])
+        XCTAssertTrue(didSave)
+        XCTAssertEqual(first.rootScreen, .home)
+        XCTAssertTrue(first.isGuestWorkspace)
+
+        let restored = AppViewModel(
+            tokenStore: MockSecureTokenStore(),
+            dataMode: .api,
+            localWorkspaceStore: FileLocalWorkspaceStore(fileURL: fileURL),
+            automaticallyRestoreSession: true
+        )
+        XCTAssertEqual(restored.rootScreen, .home)
+        XCTAssertEqual(restored.choreOrder, selectedIDs)
+        XCTAssertTrue(restored.isGuestWorkspace)
+    }
+
+    func testDistributionRegionsExposeOnlyTheirConfiguredProviders() {
+        XCTAssertEqual(DistributionRegion.cn.providers, [.apple, .wechat, .email])
+        XCTAssertEqual(DistributionRegion.global.providers, [.apple, .google, .email])
+    }
+
+    func testLocalOnboardingCanStartWithOnlyACustomChore() async {
+        let viewModel = AppViewModel(
+            tokenStore: MockSecureTokenStore(),
+            dataMode: .api,
+            automaticallyRestoreSession: false
+        )
+        viewModel.beginLocalFamilyOnboarding()
+        let customSaved = await viewModel.saveCustomChore(
+            CustomChoreDraft(
+                name: "擦琴",
+                iconKey: "chore_custom_generic_01",
+                category: .cleaning,
+                standardMinutes: 15,
+                difficultyMultiplier: 1
+            )
+        )
+        let layoutSaved = await viewModel.saveChoreLayout(choreIDs: [], pinnedIDs: [])
+
+        XCTAssertTrue(customSaved)
+        XCTAssertTrue(layoutSaved)
+        XCTAssertEqual(viewModel.rootScreen, .home)
+        XCTAssertEqual(viewModel.localOnboardingSelectionCount, 1)
+    }
+
+    func testGuestWorkspacePersistsRecordedChoreAcrossLaunches() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("guest-record-test-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let fileURL = directory.appendingPathComponent("draft.json")
+        let first = AppViewModel(
+            tokenStore: MockSecureTokenStore(),
+            dataMode: .api,
+            localWorkspaceStore: FileLocalWorkspaceStore(fileURL: fileURL),
+            automaticallyRestoreSession: true
+        )
+        first.beginLocalFamilyOnboarding()
+        let chore = try XCTUnwrap(first.routineCatalogChores.first)
+        let savedLayout = await first.saveChoreLayout(choreIDs: [chore.id], pinnedIDs: [])
+        XCTAssertTrue(savedLayout)
+
+        first.record(chore, actualMinutes: 17, calculatedPoints: 23)
+
+        let restored = AppViewModel(
+            tokenStore: MockSecureTokenStore(),
+            dataMode: .api,
+            localWorkspaceStore: FileLocalWorkspaceStore(fileURL: fileURL),
+            automaticallyRestoreSession: true
+        )
+        XCTAssertEqual(restored.recentRecords.count, 1)
+        XCTAssertEqual(restored.recentRecords.first?.choreName, chore.name)
+        XCTAssertEqual(restored.recentRecords.first?.actualMinutes, 17)
+        XCTAssertEqual(restored.recentRecords.first?.points, 23)
+        XCTAssertEqual(restored.sessionState, .unauthenticated)
+        XCTAssertEqual(restored.rootScreen, .home)
+    }
+
+    func testGuestWorkspaceSixItemLimitIncludesCustomChores() async {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("guest-limit-test-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let viewModel = AppViewModel(
+            tokenStore: MockSecureTokenStore(),
+            dataMode: .api,
+            localWorkspaceStore: FileLocalWorkspaceStore(fileURL: directory.appendingPathComponent("draft.json")),
+            automaticallyRestoreSession: true
+        )
+        viewModel.beginLocalFamilyOnboarding()
+        let custom = CustomChoreDraft(
+            name: "擦琴",
+            iconKey: "chore_custom_generic_01",
+            category: .cleaning,
+            standardMinutes: 10,
+            difficultyMultiplier: 1
+        )
+        let savedCustomChore = await viewModel.saveCustomChore(custom)
+        XCTAssertTrue(savedCustomChore)
+        let catalogIDs = Array(viewModel.routineCatalogChores.prefix(6).map(\.id))
+
+        let savedOverLimitLayout = await viewModel.saveChoreLayout(choreIDs: catalogIDs, pinnedIDs: [])
+        XCTAssertFalse(savedOverLimitLayout)
+        let savedAllowedLayout = await viewModel.saveChoreLayout(
+            choreIDs: Array(catalogIDs.prefix(5)),
+            pinnedIDs: []
+        )
+        XCTAssertTrue(savedAllowedLayout)
+        XCTAssertEqual(viewModel.localOnboardingSelectionCount, 6)
+    }
+
     func testAchievementArtworkMapsAllCurrentAchievementThemes() {
         let expectedMappings = [
             "FIRST_RECORD": "achievement_first_record",
@@ -218,7 +376,7 @@ final class WhatDidYouDoTests: XCTestCase {
         )
         XCTAssertFalse(overFreeLimit)
 
-        viewModel.phoneNumber = "layout-premium"
+        viewModel.developmentIdentifier = "layout-premium"
         viewModel.mockLogin()
         let redeemed = await viewModel.redeemPremium(code: "241255")
         XCTAssertTrue(redeemed)
@@ -488,7 +646,7 @@ final class WhatDidYouDoTests: XCTestCase {
         let fixture = makeDefaultsFixture()
         defer { fixture.defaults.removePersistentDomain(forName: fixture.suiteName) }
         let viewModel = makeViewModel(defaults: fixture.defaults)
-        viewModel.phoneNumber = "premium-placeholder-removal"
+        viewModel.developmentIdentifier = "premium-placeholder-removal"
         viewModel.mockLogin()
         let redeemed = await viewModel.redeemPremium(code: "241255")
         XCTAssertTrue(redeemed)
@@ -595,7 +753,7 @@ final class WhatDidYouDoTests: XCTestCase {
         let fixture = makeDefaultsFixture()
         defer { fixture.defaults.removePersistentDomain(forName: fixture.suiteName) }
         let viewModel = makeViewModel(defaults: fixture.defaults)
-        viewModel.phoneNumber = "premium-grid"
+        viewModel.developmentIdentifier = "premium-grid"
         viewModel.mockLogin()
         let redeemed = await viewModel.redeemPremium(code: "241255")
         XCTAssertTrue(redeemed)
@@ -661,7 +819,7 @@ final class WhatDidYouDoTests: XCTestCase {
         defer { fixture.defaults.removePersistentDomain(forName: fixture.suiteName) }
 
         let viewModel = makeViewModel(defaults: fixture.defaults)
-        viewModel.phoneNumber = "123456"
+        viewModel.developmentIdentifier = "123456"
         viewModel.mockLogin()
 
         let wrongCodeSucceeded = await viewModel.redeemPremium(code: "000000")
@@ -675,7 +833,7 @@ final class WhatDidYouDoTests: XCTestCase {
         XCTAssertEqual(viewModel.availableCustomChoreSlots, 100)
 
         let restoredViewModel = makeViewModel(defaults: fixture.defaults)
-        restoredViewModel.phoneNumber = "123456"
+        restoredViewModel.developmentIdentifier = "123456"
         restoredViewModel.mockLogin()
         XCTAssertTrue(restoredViewModel.hasPremiumAccess)
         XCTAssertEqual(restoredViewModel.customChoreLimit, 100)
@@ -1192,7 +1350,7 @@ final class WhatDidYouDoTests: XCTestCase {
             dataMode: .mock,
             userDefaults: fixture.defaults
         )
-        viewModel.phoneNumber = "123456"
+        viewModel.developmentIdentifier = "123456"
 
         viewModel.mockLogin()
 
@@ -1211,7 +1369,7 @@ final class WhatDidYouDoTests: XCTestCase {
             userDefaults: fixture.defaults,
             automaticallyRestoreSession: false
         )
-        viewModel.phoneNumber = "123456"
+        viewModel.developmentIdentifier = "123456"
         viewModel.displayName = "小明"
 
         viewModel.mockLogin()
@@ -1228,7 +1386,7 @@ final class WhatDidYouDoTests: XCTestCase {
             userDefaults: fixture.defaults,
             automaticallyRestoreSession: false
         )
-        viewModel.phoneNumber = "123456"
+        viewModel.developmentIdentifier = "123456"
         viewModel.mockLogin()
 
         let updated = await viewModel.updateDisplayName("新的昵称")
@@ -1245,7 +1403,7 @@ final class WhatDidYouDoTests: XCTestCase {
             userDefaults: fixture.defaults,
             automaticallyRestoreSession: false
         )
-        viewModel.phoneNumber = "123456"
+        viewModel.developmentIdentifier = "123456"
         viewModel.mockLogin()
         viewModel.displayName = "创建家庭昵称"
         viewModel.familyName = "昵称测试家庭"
@@ -1265,7 +1423,7 @@ final class WhatDidYouDoTests: XCTestCase {
             userDefaults: fixture.defaults,
             automaticallyRestoreSession: false
         )
-        viewModel.phoneNumber = "654321"
+        viewModel.developmentIdentifier = "654321"
         viewModel.mockLogin()
         viewModel.showJoinFamily()
         viewModel.displayName = "加入家庭昵称"
@@ -1291,7 +1449,7 @@ final class WhatDidYouDoTests: XCTestCase {
             userDefaults: fixture.defaults,
             automaticallyRestoreSession: false
         )
-        viewModel.phoneNumber = "654321"
+        viewModel.developmentIdentifier = "654321"
 
         viewModel.mockLogin()
 
@@ -1343,7 +1501,7 @@ final class WhatDidYouDoTests: XCTestCase {
             userDefaults: fixture.defaults,
             automaticallyRestoreSession: false
         )
-        viewModel.phoneNumber = "123456"
+        viewModel.developmentIdentifier = "123456"
 
         viewModel.mockLogin()
         try await waitUntil { tokenStore.token == "api-token" && !viewModel.isLoading }
@@ -1355,7 +1513,7 @@ final class WhatDidYouDoTests: XCTestCase {
         let requestBodies = await client.requestBodies
         let requestBody = try XCTUnwrap(requestBodies["POST /auth/mock-login"])
         let json = try XCTUnwrap(JSONSerialization.jsonObject(with: requestBody) as? [String: Any])
-        XCTAssertEqual(json["phoneNumber"] as? String, "123456")
+        XCTAssertEqual(json["devIdentifier"] as? String, "123456")
         XCTAssertNil(json["displayName"])
     }
 
@@ -1377,7 +1535,7 @@ final class WhatDidYouDoTests: XCTestCase {
         XCTAssertEqual(tokenStore.deleteCount, 1)
         XCTAssertNil(viewModel.accessToken)
         XCTAssertEqual(viewModel.sessionState, .unauthenticated)
-        XCTAssertEqual(viewModel.rootScreen, .login)
+        XCTAssertEqual(viewModel.rootScreen, .onboarding)
     }
 
     func testDeleteAccountClearsTokenCachePendingDataAndSession() async throws {
@@ -1408,7 +1566,7 @@ final class WhatDidYouDoTests: XCTestCase {
         XCTAssertNil(viewModel.currentUser)
         XCTAssertNil(viewModel.currentFamily)
         XCTAssertEqual(viewModel.sessionState, .unauthenticated)
-        XCTAssertEqual(viewModel.rootScreen, .login)
+        XCTAssertEqual(viewModel.rootScreen, .onboarding)
         XCTAssertNil(fixture.defaults.data(forKey: "pending-chore-record-uploads-v1"))
         let clearCacheCount = await client.clearCacheCount
         let requestPaths = await client.requestPaths
@@ -1496,7 +1654,7 @@ final class WhatDidYouDoTests: XCTestCase {
         try await waitUntil { viewModel.rootScreen == .home && !viewModel.isLoading }
 
         XCTAssertEqual(viewModel.accessToken, "restored-token")
-        XCTAssertEqual(viewModel.currentUser?.displayName, "用户123456")
+        XCTAssertEqual(viewModel.currentUser?.displayName, "开发用户")
         XCTAssertEqual(viewModel.currentFamily?.id, "family-1")
         XCTAssertEqual(viewModel.sessionState, .authenticated)
         XCTAssertEqual(viewModel.rootScreen, .home)
@@ -1556,7 +1714,7 @@ final class WhatDidYouDoTests: XCTestCase {
         XCTAssertNil(tokenStore.token)
         XCTAssertEqual(tokenStore.deleteCount, 1)
         XCTAssertEqual(viewModel.sessionState, .unauthenticated)
-        XCTAssertEqual(viewModel.rootScreen, .login)
+        XCTAssertEqual(viewModel.rootScreen, .onboarding)
         XCTAssertEqual(viewModel.errorMessage, "登录已失效，请重新登录。")
     }
 
@@ -1779,7 +1937,7 @@ final class WhatDidYouDoTests: XCTestCase {
 
     private static let loginResponses: [String: Data] = [
         "POST /auth/mock-login": Data(
-            #"{"user":{"id":"user-1","phoneNumber":"123456","displayName":"用户123456"},"accessToken":"api-token","refreshToken":"refresh-token","accessTokenExpiresAt":"2099-01-01T00:15:00.000Z","refreshTokenExpiresAt":"2099-01-31T00:00:00.000Z"}"#.utf8
+            #"{"user":{"id":"user-1","displayName":"开发用户"},"accessToken":"api-token","refreshToken":"refresh-token","accessTokenExpiresAt":"2099-01-01T00:15:00.000Z","refreshTokenExpiresAt":"2099-01-31T00:00:00.000Z"}"#.utf8
         ),
         "GET /chores": Data("[]".utf8),
         "GET /families/me": Data("[]".utf8),
@@ -1788,10 +1946,10 @@ final class WhatDidYouDoTests: XCTestCase {
 
     private static let restoreResponses: [String: Data] = [
         "GET /auth/me": Data(
-            #"{"id":"user-1","phoneNumber":"123456","displayName":"用户123456"}"#.utf8
+            #"{"id":"user-1","displayName":"开发用户"}"#.utf8
         ),
         "GET /families/me": Data(
-            #"[{"id":"family-1","name":"测试家庭","requirePhotoProof":false,"timezone":"Asia/Shanghai","inviteCode":"ABC12345","memberRole":"OWNER","status":"ACTIVE","hasPremiumAccess":true,"myMembership":{"id":"member-1","userId":"user-1","familyId":"family-1","identityLabel":"男主人","avatarKey":"avatar_01","memberRole":"OWNER","status":"ACTIVE","user":{"id":"user-1","phoneNumber":"123456","displayName":"用户123456"}}}]"#.utf8
+            #"[{"id":"family-1","name":"测试家庭","requirePhotoProof":false,"timezone":"Asia/Shanghai","inviteCode":"ABC12345","memberRole":"OWNER","status":"ACTIVE","hasPremiumAccess":true,"myMembership":{"id":"member-1","userId":"user-1","familyId":"family-1","identityLabel":"男主人","avatarKey":"avatar_01","memberRole":"OWNER","status":"ACTIVE","user":{"id":"user-1","displayName":"开发用户"}}}]"#.utf8
         ),
         "GET /chores": Data("[]".utf8),
         "GET /families/family-1/custom-chores": Data("[]".utf8),
@@ -1809,7 +1967,7 @@ final class WhatDidYouDoTests: XCTestCase {
 
     private static let pendingRestoreResponses: [String: Data] = [
         "GET /auth/me": Data(
-            #"{"id":"user-2","phoneNumber":"654321","displayName":"用户654321"}"#.utf8
+            #"{"id":"user-2","displayName":"开发用户"}"#.utf8
         ),
         "GET /families/me": Data("[]".utf8),
         "GET /chores": Data("[]".utf8),

@@ -11,5 +11,5 @@ export class MockLoginDto extends SessionDeviceDto {
   @IsOptional()
   @IsString()
   @MinLength(1)
-  phoneNumber?: string;
+  devIdentifier?: string;
 }

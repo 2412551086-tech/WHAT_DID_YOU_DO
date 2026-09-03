@@ -78,10 +78,10 @@ expect_json() {
 
 printf 'MVP smoke test\nBase URL: %s\nRun ID: %s\n\n' "$BASE_URL" "$RUN_ID"
 
-request_api POST /auth/mock-login "" "{\"phoneNumber\":\"smoke-a-${RUN_ID}\"}"
+request_api POST /auth/mock-login "" "{\"devIdentifier\":\"smoke-a-${RUN_ID}\"}"
 expect_status 201 "User A login"
 TOKEN_A="$(json_value 'data.accessToken')" || fail "User A login: accessToken missing"
-pass "User A development phone login"
+pass "User A development identity login"
 
 request_api POST /families "$TOKEN_A" "{\"name\":\"Smoke Family ${RUN_ID}\",\"requirePhotoProof\":false,\"identityLabel\":\"男主人\",\"avatarKey\":\"avatar_01\"}"
 expect_status 201 "Create family"
@@ -90,11 +90,11 @@ INVITE_CODE="$(json_value 'data.inviteCode')" || fail "Create family: inviteCode
 expect_json 'data.myMembership.memberRole === "OWNER" && data.myMembership.status === "ACTIVE"' "Create family owner state"
 pass "User A creates family and receives inviteCode ${INVITE_CODE}"
 
-request_api POST /auth/mock-login "" "{\"phoneNumber\":\"smoke-b-${RUN_ID}\"}"
+request_api POST /auth/mock-login "" "{\"devIdentifier\":\"smoke-b-${RUN_ID}\"}"
 expect_status 201 "User B login"
 TOKEN_B="$(json_value 'data.accessToken')" || fail "User B login: accessToken missing"
 USER_B_ID="$(json_value 'data.user.id')" || fail "User B login: user id missing"
-pass "User B development phone login"
+pass "User B development identity login"
 
 request_api POST /families/join-requests "$TOKEN_B" "{\"inviteCode\":\"${INVITE_CODE}\",\"identityLabel\":\"室友\",\"avatarKey\":\"avatar_02\"}"
 expect_status 201 "User B join request"

@@ -3,6 +3,7 @@ import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { DevAuthGuard } from '../auth/guards/dev-auth.guard';
 import { AuthUser } from '../auth/auth-user';
 import { CreateFamilyDto } from './dto/create-family.dto';
+import { ClaimLocalDraftDto } from './dto/claim-local-draft.dto';
 import { CreateJoinRequestByInviteCodeDto } from './dto/create-join-request-by-invite-code.dto';
 import { CreateJoinRequestDto } from './dto/create-join-request.dto';
 import { ReviewJoinRequestDto } from './dto/review-join-request.dto';
@@ -19,6 +20,11 @@ export class FamiliesController {
   @Post()
   createFamily(@CurrentUser() user: AuthUser, @Body() dto: CreateFamilyDto) {
     return this.familiesService.createFamily(user, dto);
+  }
+
+  @Post('claim-local-draft')
+  claimLocalDraft(@CurrentUser() user: AuthUser, @Body() dto: ClaimLocalDraftDto) {
+    return this.familiesService.claimLocalDraft(user, dto);
   }
 
   @Get('me')

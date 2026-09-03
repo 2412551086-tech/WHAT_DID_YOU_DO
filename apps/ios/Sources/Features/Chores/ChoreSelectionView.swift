@@ -1364,7 +1364,9 @@ struct ChoreRoutineEditorView: View {
 
             Text(viewModel.hasPremiumAccess
                 ? "高级版常用家务不限数量，并可创建 10 项自定义家务。"
-                : "可少选，免费版最多 6 项；一家之主的设置会同步给全家。")
+                : (viewModel.isGuestWorkspace
+                    ? "先选最多 6 项家务，开始使用不需要登录。"
+                    : "可少选，免费版最多 6 项；一家之主的设置会同步给全家。"))
                 .font(.system(size: 13))
                 .foregroundStyle(DSColor.mutedInk)
                 .fixedSize(horizontal: false, vertical: true)
@@ -1419,13 +1421,13 @@ struct ChoreRoutineEditorView: View {
             Image(systemName: selectedIDs.isEmpty ? "hand.tap" : "checkmark.circle.fill")
                 .foregroundStyle(selectedIDs.isEmpty ? DSColor.mutedInk : DSColor.mint)
 
-            Text(selectedIDs.isEmpty ? "点卡片开始选择" : "已选择 \(selectedIDs.count) 项")
+            Text(selectionCount == 0 ? "点卡片开始选择" : "已选 \(selectionCount) / \(selectionMaximum)")
                 .font(.system(size: 14, weight: .semibold))
                 .foregroundStyle(DSColor.ink)
 
             Spacer()
 
-            Text(selectionLimit.map { "最多 \($0) 项" } ?? "不限数量")
+            Text(viewModel.isGuestWorkspace ? "含自定义家务" : (selectionLimit.map { "最多 \($0) 项" } ?? "不限数量"))
                 .font(.system(size: 12, weight: .medium))
                 .foregroundStyle(DSColor.mutedInk)
         }
@@ -1485,6 +1487,14 @@ struct ChoreRoutineEditorView: View {
 
     private var selectionLimit: Int? {
         viewModel.commonChoreSelectionLimit
+    }
+
+    private var selectionCount: Int {
+        selectedIDs.count + (viewModel.isGuestWorkspace ? viewModel.customChores.count : 0)
+    }
+
+    private var selectionMaximum: Int {
+        viewModel.isGuestWorkspace ? 6 : (selectionLimit ?? selectionCount)
     }
 
     private func themeAccent(_ theme: ChoreTheme) -> Color {
@@ -1702,10 +1712,11 @@ struct ChoreRoutineEditorView: View {
                 .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
             }
 
-            if viewModel.availableCustomChoreSlots > 0 || !viewModel.hasPremiumAccess {
+            if (viewModel.availableCustomChoreSlots > 0 || !viewModel.hasPremiumAccess)
+                && (!viewModel.isGuestWorkspace || selectionCount < 6) {
                 Button {
                     let context = CustomChoreEditorContext(id: "new-\(UUID().uuidString)", chore: nil)
-                    if viewModel.hasPremiumAccess {
+                    if viewModel.hasPremiumAccess || viewModel.isGuestWorkspace {
                         customEditorContext = context
                     } else {
                         pendingCustomEditorContext = context
@@ -1755,16 +1766,16 @@ struct ChoreRoutineEditorView: View {
                 } label: {
                     Group {
                         if isSaving { ProgressView().tint(DSColor.ink) }
-                        else { Label(isInitialSetup ? "保存并开始记录" : "保存常用家务", systemImage: "checkmark.circle.fill") }
+                        else { Label(isInitialSetup ? "开始使用" : "保存常用家务", systemImage: "checkmark.circle.fill") }
                     }
                     .font(.system(size: 16, weight: .semibold))
                     .frame(maxWidth: .infinity, minHeight: 50)
-                    .background(selectedIDs.isEmpty ? DSColor.surface : DSColor.yellow)
+                    .background(selectionCount == 0 ? DSColor.surface : DSColor.yellow)
                     .foregroundStyle(DSColor.ink)
                     .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
                 }
                 .buttonStyle(.plain)
-                .disabled(isSaving || selectedIDs.isEmpty)
+                .disabled(isSaving || selectionCount == 0)
             }
         }
         .padding(.horizontal, 20)

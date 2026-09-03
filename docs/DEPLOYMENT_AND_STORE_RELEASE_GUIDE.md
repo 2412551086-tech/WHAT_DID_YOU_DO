@@ -13,7 +13,7 @@
 1. 确定上架主体，统一域名、服务器、备案和开发者账号的实名信息。
 2. 购买正式域名和中国大陆云服务器，部署 HTTPS 后端。
 3. 完成网站备案和 App 备案；面向中国大陆分发时，iOS 和 Android 平台信息都要填入 App 备案。
-4. 把开发手机号登录升级为真实短信验证码登录，并完成 Apple 登录、微信登录或移除未实现入口。
+4. 完成 Apple、邮箱验证码以及对应发行区域的微信或 Google 登录。
 5. 增加用户在 App 内注销账号的完整流程。
 6. 把测试兑换码升级会员的逻辑从正式版本中移除，改为符合商店规则的应用内购买。
 7. 准备隐私政策、用户协议、技术支持和账号注销说明网页。
@@ -53,7 +53,7 @@
 
 - NestJS、Prisma、PostgreSQL 后端和数据库 migration。
 - SwiftUI iOS 客户端、Keychain token 保存和 Mock/API 环境切换。
-- 开发手机号登录、家庭创建/加入/审核、家务记录、积分、动态、排行和月报。
+- 免登录本机体验、统一身份与设备会话、家庭创建/加入/审核、家务记录、积分、动态、排行和月报。
 - 后端 build、Jest、e2e、smoke test，以及 iOS XCTest 和 GitHub Actions CI。
 - Debug 模拟器和局域网真机联调能力。
 
@@ -62,10 +62,9 @@
 | 阻断项 | 当前情况 | 上架前动作 |
 |---|---|---|
 | 生产 API | 仍是 `api.whatdidyoudo.example.com` 占位地址 | 替换为正式 HTTPS 域名 |
-| 手机号登录 | `/auth/mock-login` 是开发登录 | 接入真实短信验证码、限流和过期机制 |
-| Token | 自定义 HMAC token，缺少正式的过期/刷新/撤销体系 | 升级 access token + refresh token |
-| Apple/微信登录 | 界面入口与正式服务尚未完整实现 | 实现或在审核版移除入口 |
-| 账号注销 | 尚缺完整的 App 内注销流程 | 增加删除账号、二次确认和数据处理说明 |
+| 正式认证 | 统一身份和区域入口已完成，真实提供方未接入 | 接入 Apple、邮箱及对应区域的微信或 Google |
+| Token | Access/Refresh Token Rotation 与设备会话已完成 | 在生产环境配置 JWT Secret 并演练撤销和轮换 |
+| 账号注销 | App 内流程与服务端清理已完成 | 用生产提供方补充 token 撤销并完成审核演练 |
 | 付费 | 当前兑换码仅用于测试 | 正式版使用 StoreKit / 各安卓渠道支付规则 |
 | 后端部署 | 没有生产 Dockerfile、Compose、反向代理和部署 workflow | 建立可重复部署方案 |
 | 运维 | 缺少健康检查、告警、异地备份和恢复演练 | 上线前补齐 |
@@ -245,15 +244,12 @@ REDIS_URL=redis://redis:6379
 JWT_SECRET=至少32字节的随机密钥
 CORS_ORIGINS=https://www.jiatingbaowei.com
 
-# 正式登录完成后再增加
-SMS_SECRET_ID=
-SMS_SECRET_KEY=
-SMS_APP_ID=
-SMS_SIGN_NAME=
-SMS_TEMPLATE_ID=
+AUTH_DISTRIBUTION_REGION=CN
 APPLE_CLIENT_ID=
 WECHAT_APP_ID=
 WECHAT_APP_SECRET=
+EMAIL_PROVIDER=
+GOOGLE_CLIENT_ID=
 ```
 
 还应把 `JWT_SECRET` 的开发兜底值移除，生产缺少密钥时直接拒绝启动。
@@ -274,20 +270,12 @@ WECHAT_APP_SECRET=
 - 备份必须加密，COS 权限设为私有。
 - 每月至少实际恢复一次到临时数据库，确认备份可用。
 - 监控 HTTPS、API 5xx、响应时间、CPU、内存、磁盘和数据库连接。
-- 日志不能打印完整 token、短信验证码、手机号或隐私数据。
+- 日志不能打印完整 token、邮箱验证码、稳定身份标识或其他隐私数据。
 
 ## 9. 正式登录能力
 
-### 短信验证码
-
-推荐使用腾讯云短信，先阅读[短信快速入门](https://cloud.tencent.com/document/product/382/37745)。通常需要：
-
-1. 云账号实名认证。
-2. 短信资质、签名和模板审核。
-3. Redis 保存验证码和过期时间。
-4. 对手机号、IP、设备和发送频率限流。
-5. 验证码只能使用一次，错误次数要有限制。
-6. 登录成功后签发短期 access token 和可撤销的 refresh token。
+正式版采用统一 `User + AuthIdentity`：国内显示 Apple、微信和邮箱，海外显示 Apple、Google 和邮箱。
+发行区域必须由构建与服务端环境变量显式配置，不依赖 IP。邮箱第一版使用一次性验证码，不建立密码体系。
 
 ### Apple 登录
 
@@ -492,12 +480,12 @@ Apple 要求提供账号注册的 App 允许用户在 App 内发起账号删除�
 - 域名实名认证、DNS、网站和 HTTPS。
 - 提交网站备案与 App 备案资料。
 - 注册微信开放平台和安卓商店账号。
-- 提交短信签名和模板。
+- 验证邮箱发信域名和验证码模板，完成 Apple/微信或 Google 平台资料。
 - Codex 可并行建立生产 Docker、备份、监控和部署 workflow。
 
 ### 第 2–4 周：生产正确性
 
-- 正式短信、Apple 和微信登录。
+- Apple、邮箱验证码及对应发行区域的微信或 Google 登录。
 - access/refresh token、限流和安全日志。
 - App 内账号注销。
 - StoreKit 会员和后端凭证校验。
@@ -565,7 +553,7 @@ Codex 不能代替你购买服务、冒用身份、完成人脸核验或替你�
 - [ ] 生产 secret 未进入 Git。
 - [ ] migration、备份、恢复、监控和回滚已经演练。
 - [ ] 隐私、协议、支持和注销网页已上线。
-- [ ] 正式短信、Apple/微信登录按实际展示状态可用。
+- [ ] Apple、邮箱及对应发行区域的微信或 Google 登录按实际展示状态可用。
 - [ ] App 内账号注销可用。
 - [ ] 生产环境不包含测试会员兑换入口。
 

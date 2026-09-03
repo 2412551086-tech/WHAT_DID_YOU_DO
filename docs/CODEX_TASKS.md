@@ -8,7 +8,8 @@
 
 - [x] NestJS + Prisma + PostgreSQL 本地后端。
 - [x] SwiftUI + MVVM、DesignSystem、Mock/API 切换。
-- [x] 手机号开发登录与 Bearer token。
+- [x] 统一 `User + AuthIdentity`、Access/Refresh Token Rotation、设备会话与开发 `DEV` 身份。
+- [x] 首次启动免登录本机体验、邀请预览后认证和本地草稿认领接口。
 - [x] 创建家庭、inviteCode 加入、OWNER 审核。
 - [x] 家庭身份、头像占位、ACTIVE/PENDING/REJECTED 权限。
 - [x] 36 项免费系统家务，按日常家庭、恋爱陪伴、育儿、宠物四主题组织。
@@ -106,7 +107,7 @@
 
 ## 暂缓功能
 
-- 正式短信验证码、Apple 登录、微信登录。
+- Apple、微信、Google 与邮箱一次性验证码的真实提供方接入。
 - 真实头像和图片凭证上传。
 - StoreKit 订阅与服务端权益校验。
 - 语音识别、常做/重复任务。

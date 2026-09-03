@@ -7,7 +7,12 @@ import { DevAuthGuard } from './guards/dev-auth.guard';
 
 @Module({
   controllers: [AuthController],
-  providers: [AuthService, AuthIdentityService, AuthSessionService, DevAuthGuard],
+  providers: [
+    AuthService,
+    AuthIdentityService,
+    AuthSessionService,
+    DevAuthGuard,
+  ],
   exports: [AuthService, AuthIdentityService, AuthSessionService, DevAuthGuard],
 })
 export class AuthModule {}

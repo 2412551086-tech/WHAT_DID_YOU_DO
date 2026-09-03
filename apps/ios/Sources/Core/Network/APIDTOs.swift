@@ -1,7 +1,7 @@
 import Foundation
 
 struct MockLoginRequest: Encodable {
-    let phoneNumber: String
+    let devIdentifier: String
     let displayName: String?
     let deviceId: String?
     let deviceName: String?
@@ -20,6 +20,42 @@ struct CreateFamilyRequest: Encodable {
     let customIdentity: String?
     let avatarKey: String?
     let timezone: String?
+}
+
+struct ClaimLocalDraftChoreRequest: Encodable {
+    let localId: String
+    let source: String
+    let catalogKey: String?
+    let name: String
+    let category: String
+    let standardMinutes: Int
+    let difficultyMultiplier: Double
+    let icon: String
+}
+
+struct ClaimLocalDraftRecordRequest: Encodable {
+    let id: String
+    let choreLocalId: String
+    let actualMinutes: Int
+    let note: String?
+    let occurredAt: Date
+}
+
+struct ClaimLocalDraftRequest: Encodable {
+    let draftId: String
+    let draftCreatedAt: Date
+    let familyName: String
+    let identityLabel: String
+    let avatarKey: String
+    let timezone: String
+    let chores: [ClaimLocalDraftChoreRequest]
+    let records: [ClaimLocalDraftRecordRequest]
+}
+
+struct ClaimLocalDraftResponse: Decodable {
+    let familyId: String
+    let createdRecordCount: Int
+    let alreadyClaimed: Bool
 }
 
 struct CreateJoinRequestRequest: Encodable {
@@ -120,7 +156,6 @@ struct PremiumRedemptionResponseDTO: Decodable {
 
 struct UserDTO: Decodable {
     let id: String
-    let phoneNumber: String?
     let displayName: String
     let plan: String?
     let premiumRedeemedAt: Date?
@@ -229,6 +264,7 @@ struct JoinApplicationDTO: Decodable {
 
 struct ChoreDTO: Decodable {
     let id: String
+    let catalogKey: String?
     let name: String
     let themeKey: String?
     let category: String

@@ -178,7 +178,7 @@ label {
   height: 28px;
 }
 
-.login-button--phone {
+.login-button--email {
   background: var(--yellow);
 }
 
