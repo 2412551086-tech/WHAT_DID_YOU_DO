@@ -39,15 +39,13 @@ struct JoinFamilyView: View {
                             .foregroundStyle(DSColor.mutedInk)
 
                         invitationSection
-                        if viewModel.hasAccessToken {
-                            nicknameSection
+                        nicknameSection
 
-                            FamilyIdentityPicker(
-                                identityLabel: $viewModel.selectedIdentityLabel,
-                                customIdentity: $viewModel.customIdentity,
-                                avatarKey: $viewModel.selectedAvatarKey
-                            )
-                        }
+                        FamilyIdentityPicker(
+                            identityLabel: $viewModel.selectedIdentityLabel,
+                            customIdentity: $viewModel.customIdentity,
+                            avatarKey: $viewModel.selectedAvatarKey
+                        )
 
                         statusBanner
 

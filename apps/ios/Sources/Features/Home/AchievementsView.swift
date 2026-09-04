@@ -352,6 +352,8 @@ struct AchievementCelebrationOverlay: View {
                 .stroke(DSColor.floatingStroke, lineWidth: 0.8)
         )
         .shadow(color: DSColor.shadow.opacity(0.13), radius: 22, x: 0, y: 10)
+        .contentShape(Rectangle())
+        .onTapGesture(perform: dismiss)
         .accessibilityElement(children: .contain)
     }
 

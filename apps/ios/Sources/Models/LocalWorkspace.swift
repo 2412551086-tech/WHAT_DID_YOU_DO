@@ -8,6 +8,11 @@ struct LocalDraftFamily: Codable, Equatable, Identifiable {
     var createdAt: Date
     var updatedAt: Date
     var name: String
+    var displayName: String?
+    var identityLabel: String?
+    var customIdentity: String?
+    var avatarKey: String?
+    var profileConfigured: Bool?
     var selectedChores: [LocalDraftChore]
     var records: [LocalDraftChoreRecord]
     var claimState: LocalDraftClaimState
@@ -16,6 +21,11 @@ struct LocalDraftFamily: Codable, Equatable, Identifiable {
         id: UUID = UUID(),
         createdAt: Date = Date(),
         name: String = "我的家庭",
+        displayName: String? = nil,
+        identityLabel: String? = nil,
+        customIdentity: String? = nil,
+        avatarKey: String? = nil,
+        profileConfigured: Bool? = nil,
         selectedChores: [LocalDraftChore] = [],
         records: [LocalDraftChoreRecord] = [],
         claimState: LocalDraftClaimState = .local
@@ -25,6 +35,11 @@ struct LocalDraftFamily: Codable, Equatable, Identifiable {
         self.createdAt = createdAt
         updatedAt = createdAt
         self.name = name
+        self.displayName = displayName
+        self.identityLabel = identityLabel
+        self.customIdentity = customIdentity
+        self.avatarKey = avatarKey
+        self.profileConfigured = profileConfigured
         self.selectedChores = selectedChores
         self.records = records
         self.claimState = claimState

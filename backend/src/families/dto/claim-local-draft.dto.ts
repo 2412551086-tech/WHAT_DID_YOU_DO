@@ -102,6 +102,11 @@ export class ClaimLocalDraftDto {
 
   @IsOptional()
   @IsString()
+  @MaxLength(30)
+  customIdentity?: string;
+
+  @IsOptional()
+  @IsString()
   @MaxLength(100)
   avatarKey?: string;
 

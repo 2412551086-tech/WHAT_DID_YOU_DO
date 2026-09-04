@@ -5,6 +5,19 @@ import XCTest
 
 @MainActor
 final class WhatDidYouDoTests: XCTestCase {
+    private func configureLocalFamilyProfile(
+        _ viewModel: AppViewModel,
+        familyName: String = "本机体验家庭",
+        displayName: String = "体验成员"
+    ) {
+        viewModel.familyName = familyName
+        viewModel.displayName = displayName
+        viewModel.selectedIdentityLabel = "家庭成员"
+        viewModel.selectedAvatarKey = "avatar_01"
+        viewModel.createFamily()
+        XCTAssertEqual(viewModel.rootScreen, .choreSetup)
+    }
+
     func testLocalWorkspaceStorePersistsDraftAcrossLaunches() throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("local-workspace-test-\(UUID().uuidString)", isDirectory: true)
@@ -25,12 +38,15 @@ final class WhatDidYouDoTests: XCTestCase {
     }
 
     func testFirstLaunchStartsAtOnboardingWithoutAuthentication() {
+        let fixture = makeDefaultsFixture()
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.suiteName) }
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("first-launch-test-\(UUID().uuidString)", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: directory) }
         let viewModel = AppViewModel(
             tokenStore: MockSecureTokenStore(),
             dataMode: .api,
+            userDefaults: fixture.defaults,
             localWorkspaceStore: FileLocalWorkspaceStore(fileURL: directory.appendingPathComponent("draft.json")),
             automaticallyRestoreSession: true
         )
@@ -38,6 +54,26 @@ final class WhatDidYouDoTests: XCTestCase {
         XCTAssertEqual(viewModel.sessionState, .unauthenticated)
         XCTAssertEqual(viewModel.rootScreen, .onboarding)
         XCTAssertNil(viewModel.localDraftFamily)
+    }
+
+    func testReturningUserWithoutStoredTokensStartsAtLogin() {
+        let fixture = makeDefaultsFixture()
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.suiteName) }
+        fixture.defaults.set(true, forKey: "has-authenticated-before-v1")
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("returning-login-test-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let viewModel = AppViewModel(
+            tokenStore: MockSecureTokenStore(),
+            dataMode: .api,
+            userDefaults: fixture.defaults,
+            localWorkspaceStore: FileLocalWorkspaceStore(fileURL: directory.appendingPathComponent("draft.json")),
+            automaticallyRestoreSession: true
+        )
+
+        XCTAssertEqual(viewModel.sessionState, .unauthenticated)
+        XCTAssertEqual(viewModel.rootScreen, .login)
     }
 
     func testLocalFamilyOnboardingPersistsAndRestoresSelectedChores() async throws {
@@ -52,6 +88,7 @@ final class WhatDidYouDoTests: XCTestCase {
             automaticallyRestoreSession: true
         )
         first.beginLocalFamilyOnboarding()
+        configureLocalFamilyProfile(first, familyName: "温暖小家", displayName: "小明")
         let selectedIDs = Array(first.routineCatalogChores.prefix(4).map(\.id))
 
         let didSave = await first.saveChoreLayout(choreIDs: selectedIDs, pinnedIDs: [])
@@ -68,6 +105,8 @@ final class WhatDidYouDoTests: XCTestCase {
         XCTAssertEqual(restored.rootScreen, .home)
         XCTAssertEqual(restored.choreOrder, selectedIDs)
         XCTAssertTrue(restored.isGuestWorkspace)
+        XCTAssertEqual(restored.familyDisplayName, "温暖小家")
+        XCTAssertEqual(restored.currentUserName, "小明")
     }
 
     func testDistributionRegionsExposeOnlyTheirConfiguredProviders() {
@@ -82,6 +121,7 @@ final class WhatDidYouDoTests: XCTestCase {
             automaticallyRestoreSession: false
         )
         viewModel.beginLocalFamilyOnboarding()
+        configureLocalFamilyProfile(viewModel)
         let customSaved = await viewModel.saveCustomChore(
             CustomChoreDraft(
                 name: "擦琴",
@@ -111,6 +151,7 @@ final class WhatDidYouDoTests: XCTestCase {
             automaticallyRestoreSession: true
         )
         first.beginLocalFamilyOnboarding()
+        configureLocalFamilyProfile(first)
         let chore = try XCTUnwrap(first.routineCatalogChores.first)
         let savedLayout = await first.saveChoreLayout(choreIDs: [chore.id], pinnedIDs: [])
         XCTAssertTrue(savedLayout)
@@ -142,6 +183,7 @@ final class WhatDidYouDoTests: XCTestCase {
             automaticallyRestoreSession: true
         )
         viewModel.beginLocalFamilyOnboarding()
+        configureLocalFamilyProfile(viewModel)
         let custom = CustomChoreDraft(
             name: "擦琴",
             iconKey: "chore_custom_generic_01",
@@ -1597,6 +1639,7 @@ final class WhatDidYouDoTests: XCTestCase {
             draftCreatedAt: Date(timeIntervalSince1970: 1_800_000_000),
             familyName: "我的家庭",
             identityLabel: "成员",
+            customIdentity: nil,
             avatarKey: "avatar-01",
             timezone: "Asia/Shanghai",
             chores: [],

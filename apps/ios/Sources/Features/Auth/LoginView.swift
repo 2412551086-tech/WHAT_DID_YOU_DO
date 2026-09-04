@@ -36,14 +36,14 @@ struct LoginView: View {
                 .padding(.horizontal, 20)
                 .padding(.top, 8)
 
-                Spacer(minLength: 220)
+                Spacer(minLength: 180)
 
-                VStack(alignment: .leading, spacing: 16) {
+                VStack(alignment: .leading, spacing: 18) {
                     VStack(alignment: .leading, spacing: 6) {
                         Text(gateTitle)
-                            .font(.system(size: 28, weight: .bold))
+                            .font(.system(size: 30, weight: .bold))
                             .foregroundStyle(DSColor.ink)
-                        Text("登录后会继续刚才的步骤，不需要重新配置。")
+                        Text(gateSubtitle)
                             .font(.system(size: 14))
                             .foregroundStyle(DSColor.mutedInk)
                     }
@@ -52,17 +52,13 @@ struct LoginView: View {
                         DSErrorBanner(message: errorMessage)
                     }
 
-                    ForEach(viewModel.availableAuthProviders) { provider in
-                        AuthProviderButton(provider: provider, isLoading: viewModel.isLoading) {
-                            guard hasAcceptedAgreement else {
-                                notice = .agreementRequired
-                                return
-                            }
-                            if provider == .email {
-                                viewModel.selectAuthProvider(provider)
-                                showsEmailLogin = true
-                            } else {
-                                viewModel.selectAuthProvider(provider)
+                    LazyVGrid(
+                        columns: Array(repeating: GridItem(.flexible(), spacing: 10), count: orderedProviders.count),
+                        spacing: 10
+                    ) {
+                        ForEach(orderedProviders) { provider in
+                            AuthProviderTile(provider: provider, isLoading: viewModel.isLoading) {
+                                beginAuthentication(with: provider)
                             }
                         }
                     }
@@ -82,7 +78,7 @@ struct LoginView: View {
 
                     agreementRow
                 }
-                .padding(22)
+                .padding(20)
                 .background(DSColor.quietBackground.opacity(0.97))
                 .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
                 .padding(.horizontal, 20)
@@ -109,7 +105,40 @@ struct LoginView: View {
         case .claimLocalDraft: "登录后开启家庭同步"
         case .enableCloudSync: "登录后开启云端同步"
         case .inviteMembers: "登录后邀请家人"
-        case nil: "登录家庭保卫战"
+        case nil: "欢迎回来"
+        }
+    }
+
+    private var gateSubtitle: String {
+        pendingActionSubtitle ?? "选择你上次使用的方式，继续守护这个家。"
+    }
+
+    private var pendingActionSubtitle: String? {
+        switch viewModel.pendingAuthAction {
+        case .joinFamily: "验证账号后将继续加入家庭。"
+        case .claimLocalDraft: "登录后会保留本机家务和记录，并开启同步。"
+        case .enableCloudSync: "登录后会保留当前内容，并开启云端同步。"
+        case .inviteMembers: "登录后会回到邀请家人的步骤。"
+        case nil: nil
+        }
+    }
+
+    private var orderedProviders: [ClientAuthProvider] {
+        viewModel.availableAuthProviders.sorted { left, right in
+            if left == .email { return true }
+            if right == .email { return false }
+            return left.rawValue < right.rawValue
+        }
+    }
+
+    private func beginAuthentication(with provider: ClientAuthProvider) {
+        guard hasAcceptedAgreement else {
+            notice = .agreementRequired
+            return
+        }
+        viewModel.selectAuthProvider(provider)
+        if provider == .email {
+            showsEmailLogin = true
         }
     }
 
@@ -331,26 +360,28 @@ private struct EmailOTPLoginSheet: View {
     }
 }
 
-private struct AuthProviderButton: View {
+private struct AuthProviderTile: View {
     let provider: ClientAuthProvider
     let isLoading: Bool
     let action: () -> Void
 
     var body: some View {
         Button(action: action) {
-            HStack(spacing: 12) {
+            VStack(spacing: 10) {
                 Image(systemName: systemImage)
-                    .font(.system(size: 20, weight: .semibold))
-                    .frame(width: 26)
+                    .font(.system(size: 22, weight: .semibold))
+                    .frame(width: 42, height: 42)
+                    .background(iconFillColor)
+                    .clipShape(Circle())
                 Text(title)
-                    .font(.system(size: 17, weight: .semibold))
-                Spacer()
-                Image(systemName: "arrow.right")
-                    .font(.system(size: 14, weight: .semibold))
+                    .font(.system(size: 13, weight: .semibold))
+                    .multilineTextAlignment(.center)
+                    .lineLimit(2)
+                    .minimumScaleFactor(0.8)
             }
             .foregroundStyle(foregroundColor)
-            .padding(.horizontal, 17)
-            .frame(minHeight: 54)
+            .padding(.horizontal, 6)
+            .frame(maxWidth: .infinity, minHeight: 94)
             .background(fillColor)
             .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
             .overlay {
@@ -364,10 +395,10 @@ private struct AuthProviderButton: View {
 
     private var title: String {
         switch provider {
-        case .apple: "通过 Apple 登录"
-        case .wechat: "通过微信登录"
-        case .email: "通过邮箱验证码登录"
-        case .google: "通过 Google 登录"
+        case .apple: "Apple"
+        case .wechat: "微信"
+        case .email: "邮箱验证码"
+        case .google: "Google"
         }
     }
 
@@ -381,11 +412,20 @@ private struct AuthProviderButton: View {
     }
 
     private var fillColor: Color {
-        provider == .apple ? DSColor.ink : DSColor.pureSurface
+        DSColor.pureSurface
     }
 
     private var foregroundColor: Color {
-        provider == .apple ? DSColor.pureSurface : DSColor.ink
+        DSColor.ink
+    }
+
+    private var iconFillColor: Color {
+        switch provider {
+        case .email: DSColor.yellow.opacity(0.72)
+        case .wechat: DSColor.mint.opacity(0.65)
+        case .apple: DSColor.ink.opacity(0.08)
+        case .google: DSColor.sky.opacity(0.58)
+        }
     }
 }
 

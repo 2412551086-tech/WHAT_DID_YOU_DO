@@ -3,6 +3,7 @@ import {
   AchievementEventSourceType,
   AchievementOwnerType,
   AchievementParticipantDisplayRole,
+  AuthProvider,
   MemberRole,
   MemberStatus,
   Prisma,
@@ -108,11 +109,13 @@ export class AuthService {
   }
 
   async redeemPremium(user: AuthUser, dto: RedeemPremiumDto) {
-    if (process.env.NODE_ENV === 'production') {
-      throw new ForbiddenException('Test premium redemption is disabled in production');
-    }
+    await this.assertPremiumRedemptionAllowed(user.id);
 
-    const expectedCode = process.env.TEST_PREMIUM_REDEMPTION_CODE || '241255';
+    const expectedCode = process.env.TEST_PREMIUM_REDEMPTION_CODE
+      || (process.env.NODE_ENV === 'production' ? '' : '241255');
+    if (!expectedCode) {
+      throw new ForbiddenException('Premium redemption is not configured');
+    }
     if (dto.code.trim() !== expectedCode) {
       throw new BadRequestException('Invalid premium redemption code');
     }
@@ -167,6 +170,31 @@ export class AuthService {
           }
         : {}),
     };
+  }
+
+  private async assertPremiumRedemptionAllowed(userId: string) {
+    if (process.env.NODE_ENV !== 'production') {
+      return;
+    }
+
+    if (process.env.TEST_PREMIUM_REDEMPTION_ENABLED !== 'true') {
+      throw new ForbiddenException('内测会员兑换暂未开放');
+    }
+
+    const allowedEmails = new Set(
+      (process.env.TEST_PREMIUM_REDEMPTION_EMAILS ?? '')
+        .split(',')
+        .map((email) => email.trim().toLowerCase())
+        .filter(Boolean),
+    );
+    const emailIdentity = await this.prisma.authIdentity.findFirst({
+      where: { userId, provider: AuthProvider.EMAIL },
+      select: { providerSubject: true },
+    });
+
+    if (!emailIdentity || !allowedEmails.has(emailIdentity.providerSubject.toLowerCase())) {
+      throw new ForbiddenException('当前账号不在内测兑换名单中');
+    }
   }
 
   async deleteCurrentUser(user: AuthUser) {

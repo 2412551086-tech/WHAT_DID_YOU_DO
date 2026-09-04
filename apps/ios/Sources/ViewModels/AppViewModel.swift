@@ -44,7 +44,7 @@ final class AppViewModel: ObservableObject {
     @Published var displayName = ""
     @Published var familyName = MockData.family.name
     @Published var requiresPhotoProof = false
-    @Published var selectedIdentityLabel = "男主人"
+    @Published var selectedIdentityLabel = "家庭成员"
     @Published var customIdentity = ""
     @Published var selectedAvatarKey = "avatar_07"
     @Published var joinInviteCode = ""
@@ -115,6 +115,7 @@ final class AppViewModel: ObservableObject {
     private var hiddenCommonCustomSlotIDs: Set<String> = []
     private var accountHasPremiumAccess = false
     private var achievementSyncTask: Task<Void, Never>?
+    private var dismissedAchievementCelebrationIDs: Set<String> = []
     private var deletionUndoTask: Task<Void, Never>?
     private var pendingRecordUploads: [PendingChoreRecordUpload] = []
 
@@ -162,6 +163,7 @@ final class AppViewModel: ObservableObject {
         } else {
             do {
                 if let storedTokens = try tokenStore.loadTokens() {
+                    userDefaults.set(true, forKey: Self.hasAuthenticatedBeforeDefaultsKey)
                     accessToken = storedTokens.accessToken
                     Task { [weak self] in
                         await self?.restoreSession(using: storedTokens)
@@ -169,12 +171,12 @@ final class AppViewModel: ObservableObject {
                 } else {
                     try? tokenStore.deleteAccessToken()
                     sessionState = .unauthenticated
-                    rootScreen = localDraftFamily == nil ? .onboarding : localDraftDestination
+                    rootScreen = unauthenticatedDestination
                 }
             } catch {
                 lastSecureStorageErrorMessage = error.localizedDescription
                 sessionState = .unauthenticated
-                rootScreen = localDraftFamily == nil ? .onboarding : localDraftDestination
+                rootScreen = unauthenticatedDestination
             }
         }
     }
@@ -713,11 +715,39 @@ final class AppViewModel: ObservableObject {
 
     func beginLocalFamilyOnboarding() {
         clearError()
-        let draft = LocalDraftFamily()
+        let draft = LocalDraftFamily(
+            name: "",
+            displayName: "",
+            identityLabel: "家庭成员",
+            avatarKey: FamilyIdentityOptions.avatarKeys[0],
+            profileConfigured: false
+        )
+        selectedIdentityLabel = "家庭成员"
+        customIdentity = ""
+        selectedAvatarKey = FamilyIdentityOptions.avatarKeys[0]
         localDraftFamily = draft
         persistLocalDraft(draft)
         applyLocalDraft(draft)
-        rootScreen = .choreSetup
+        rootScreen = .createFamily
+        sessionState = .unauthenticated
+    }
+
+    func beginExistingAccountLogin() {
+        clearError()
+        pendingAuthAction = nil
+        rootScreen = .login
+        sessionState = .unauthenticated
+    }
+
+    func cancelLocalFamilyOnboarding() {
+        guard isGuestWorkspace else {
+            returnToOnboarding()
+            return
+        }
+        localDraftFamily = nil
+        try? localWorkspaceStore.delete()
+        resetSessionState()
+        rootScreen = .onboarding
         sessionState = .unauthenticated
     }
 
@@ -732,6 +762,9 @@ final class AppViewModel: ObservableObject {
     func requireAuthenticationForJoin() {
         guard case .valid = inviteValidationState else {
             errorMessage = "请先输入有效的家庭邀请码。"
+            return
+        }
+        guard validateIdentitySelection(), validatedDisplayNameForFamilyFlow() != nil else {
             return
         }
         pendingAuthAction = .joinFamily(inviteCode: normalizedJoinInviteCode)
@@ -976,6 +1009,28 @@ final class AppViewModel: ObservableObject {
         guard validateIdentitySelection(),
               let nickname = validatedDisplayNameForFamilyFlow()
         else {
+            return
+        }
+
+        if isGuestWorkspace {
+            let normalizedFamilyName = familyName.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !normalizedFamilyName.isEmpty, normalizedFamilyName.count <= 30 else {
+                errorMessage = "家庭名称需要填写，且不能超过 30 个字。"
+                return
+            }
+            guard var draft = localDraftFamily else { return }
+            draft.name = normalizedFamilyName
+            draft.displayName = nickname
+            draft.identityLabel = selectedIdentityLabel
+            draft.customIdentity = normalizedCustomIdentity
+            draft.avatarKey = selectedAvatarKey
+            draft.profileConfigured = true
+            draft.updatedAt = Date()
+            localDraftFamily = draft
+            persistLocalDraft(draft)
+            applyLocalDraft(draft)
+            prepareInitialChoreSetup()
+            rootScreen = .choreSetup
             return
         }
 
@@ -1601,6 +1656,9 @@ final class AppViewModel: ObservableObject {
     }
 
     func dismissAchievementCelebration() {
+        if let id = pendingAchievementCelebration?.id {
+            dismissedAchievementCelebrationIDs.insert(id)
+        }
         pendingAchievementCelebration = nil
     }
 
@@ -2130,6 +2188,7 @@ final class AppViewModel: ObservableObject {
         pendingUploadCount = 0
         localDraftFamily = nil
         try? localWorkspaceStore.delete()
+        userDefaults.removeObject(forKey: Self.hasAuthenticatedBeforeDefaultsKey)
 
         let accountScopedPrefixes = [
             Self.commonChoreGridDefaultsKeyPrefix,
@@ -2183,7 +2242,7 @@ final class AppViewModel: ObservableObject {
         developmentIdentifier = "dev-local-user"
         displayName = ""
         familyName = MockData.family.name
-        selectedIdentityLabel = "男主人"
+        selectedIdentityLabel = "家庭成员"
         customIdentity = ""
         selectedAvatarKey = "avatar_07"
         joinInviteCode = ""
@@ -2223,7 +2282,7 @@ final class AppViewModel: ObservableObject {
             applyLocalDraft(localDraftFamily)
             rootScreen = localDraftDestination
         } else {
-            rootScreen = .onboarding
+            rootScreen = unauthenticatedDestination
         }
         sessionState = .unauthenticated
         clearError()
@@ -2268,6 +2327,10 @@ final class AppViewModel: ObservableObject {
 
     private var localDraftDestination: AppScreen {
         guard let localDraftFamily else { return .onboarding }
+        if localDraftFamily.profileConfigured == false
+            || (localDraftFamily.profileConfigured == nil && localDraftFamily.selectedChores.isEmpty) {
+            return .createFamily
+        }
         return localDraftFamily.selectedChores.isEmpty ? .choreSetup : .home
     }
 
@@ -2281,18 +2344,29 @@ final class AppViewModel: ObservableObject {
             currentFamily = nil
             currentMembership = nil
             familyMembers = []
-            rootScreen = .onboarding
+            rootScreen = unauthenticatedDestination
         }
         sessionState = .unauthenticated
+    }
+
+    private var unauthenticatedDestination: AppScreen {
+        if localDraftFamily != nil {
+            return localDraftDestination
+        }
+        return userDefaults.bool(forKey: Self.hasAuthenticatedBeforeDefaultsKey) ? .login : .onboarding
     }
 
     private func applyLocalDraft(_ draft: LocalDraftFamily) {
         let localUserID = "local-user-\(draft.id.uuidString.lowercased())"
         let localFamilyID = "local-family-\(draft.id.uuidString.lowercased())"
+        let localDisplayName = draft.displayName ?? "我"
+        selectedIdentityLabel = draft.identityLabel ?? selectedIdentityLabel
+        customIdentity = draft.customIdentity ?? ""
+        selectedAvatarKey = draft.avatarKey ?? selectedAvatarKey
         currentUser = AppUser(
             id: localUserID,
-            displayName: "我",
-            avatarInitial: "我",
+            displayName: localDisplayName,
+            avatarInitial: String(localDisplayName.prefix(1)),
             badge: "本机体验"
         )
         currentFamily = FamilySpace(
@@ -2307,7 +2381,7 @@ final class AppViewModel: ObservableObject {
             userId: localUserID,
             familyId: localFamilyID,
             identityLabel: selectedIdentityLabel,
-            customIdentity: nil,
+            customIdentity: draft.customIdentity,
             avatarKey: selectedAvatarKey,
             memberRole: .owner,
             status: .active
@@ -2316,9 +2390,9 @@ final class AppViewModel: ObservableObject {
             FamilyMemberProfile(
                 id: currentMembership?.id ?? "local-membership",
                 userId: localUserID,
-                name: "我",
+                name: localDisplayName,
                 identityLabel: selectedIdentityLabel,
-                customIdentity: nil,
+                customIdentity: draft.customIdentity,
                 avatarKey: selectedAvatarKey,
                 memberRole: .owner,
                 status: .active,
@@ -2350,7 +2424,7 @@ final class AppViewModel: ObservableObject {
             .map { localRecord in
                 ChoreRecord(
                     id: "local-record-\(localRecord.id.uuidString.lowercased())",
-                    memberName: "我",
+                    memberName: localDisplayName,
                     choreName: localRecord.choreName,
                     category: localRecord.category,
                     standardMinutes: localRecord.standardMinutes,
@@ -2362,7 +2436,7 @@ final class AppViewModel: ObservableObject {
                     color: localChoreColor(themeKey: "", icon: localRecord.icon),
                     creatorId: localUserID,
                     identityLabel: selectedIdentityLabel,
-                    customIdentity: nil,
+                    customIdentity: draft.customIdentity,
                     avatarKey: selectedAvatarKey,
                     canDelete: true,
                     canEdit: true,
@@ -2376,7 +2450,7 @@ final class AppViewModel: ObservableObject {
         weekRanking = [
             FamilyMember(
                 id: localUserID,
-                name: "我",
+                name: localDisplayName,
                 monthlyPoints: weekRecords.reduce(0) { $0 + $1.points },
                 badge: "本机体验",
                 color: DSColor.yellow
@@ -2384,6 +2458,7 @@ final class AppViewModel: ObservableObject {
         ]
         monthlyRanking = weekRanking
         familyName = draft.name
+        displayName = localDisplayName
         synchronizeCommonChoreGridOrder()
     }
 
@@ -3259,6 +3334,7 @@ final class AppViewModel: ObservableObject {
     }
 
     private func completeAPILogin(_ response: LoginResponse) async throws {
+        let pendingNickname = displayName.trimmingCharacters(in: .whitespacesAndNewlines)
         do {
             try tokenStore.saveTokens(response.tokens)
             lastSecureStorageErrorMessage = nil
@@ -3272,9 +3348,11 @@ final class AppViewModel: ObservableObject {
         accountHasPremiumAccess = response.user.plan == "premium"
         hasPremiumAccess = accountHasPremiumAccess
         displayName = response.user.displayName
+        userDefaults.set(true, forKey: Self.hasAuthenticatedBeforeDefaultsKey)
         await apiClient.setAuthTokens(response.tokens)
 
         if case let .joinFamily(inviteCode) = pendingAuthAction {
+            displayName = pendingNickname
             joinInviteCode = inviteCode
             pendingAuthAction = nil
             rootScreen = .joinFamily
@@ -3283,6 +3361,15 @@ final class AppViewModel: ObservableObject {
             return
         }
         if pendingAuthAction == .claimLocalDraft {
+            if let draftName = localDraftFamily?.displayName,
+               draftName != response.user.displayName {
+                let user: UserDTO = try await apiClient.patch(
+                    "auth/me",
+                    body: UpdateCurrentUserRequest(displayName: draftName)
+                )
+                currentUser = mapUser(user)
+                displayName = user.displayName
+            }
             let familyId = try await claimLocalDraftWithAPI()
             pendingAuthAction = nil
             localDraftFamily = nil
@@ -3330,6 +3417,7 @@ final class AppViewModel: ObservableObject {
                 draftCreatedAt: draft.createdAt,
                 familyName: draft.name,
                 identityLabel: selectedIdentityLabel,
+                customIdentity: normalizedCustomIdentity,
                 avatarKey: selectedAvatarKey,
                 timezone: TimeZone.current.identifier,
                 chores: draft.selectedChores.map { chore in
@@ -3573,11 +3661,14 @@ final class AppViewModel: ObservableObject {
                             AchievementReward(type: $0.rewardType, value: $0.rewardValue)
                         } ?? []
                         if !unlocked.isEmpty || !rewards.isEmpty {
-                            pendingAchievementCelebration = AchievementCelebration(
-                                id: sync.unlockBatch?.id ?? evaluation.eventId,
-                                achievements: unlocked,
-                                rewards: rewards
-                            )
+                            let celebrationID = sync.unlockBatch?.id ?? evaluation.eventId
+                            if !dismissedAchievementCelebrationIDs.contains(celebrationID) {
+                                pendingAchievementCelebration = AchievementCelebration(
+                                    id: celebrationID,
+                                    achievements: unlocked,
+                                    rewards: rewards
+                                )
+                            }
                         }
                         await syncAPIDebugSnapshot()
                         return
@@ -4706,6 +4797,7 @@ final class AppViewModel: ObservableObject {
     private static let commonChoreGridDefaultsKeyPrefix = "common-chore-grid-order-v1"
     private static let achievementCacheKeyPrefix = "achievement-cache-v1"
     private static let pendingRecordUploadsDefaultsKey = "pending-chore-record-uploads-v1"
+    private static let hasAuthenticatedBeforeDefaultsKey = "has-authenticated-before-v1"
     private static let customChoreSlotPrefix = "custom-chore-slot-"
     private static let mockPremiumRedemptionCode = "241255"
 

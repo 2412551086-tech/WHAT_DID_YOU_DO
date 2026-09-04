@@ -158,7 +158,7 @@ export class FamiliesService {
       }
     }
 
-    const identity = this.normalizeIdentityInput(dto.identityLabel, undefined);
+    const identity = this.normalizeIdentityInput(dto.identityLabel, dto.customIdentity);
     const timezone = this.normalizeTimezoneInput(dto.timezone);
     try {
       return await this.prisma.$transaction(async (transaction) => {

@@ -69,6 +69,7 @@ struct ClaimLocalDraftRequest: Encodable {
     let draftCreatedAt: Date
     let familyName: String
     let identityLabel: String
+    let customIdentity: String?
     let avatarKey: String
     let timezone: String
     let chores: [ClaimLocalDraftChoreRequest]
