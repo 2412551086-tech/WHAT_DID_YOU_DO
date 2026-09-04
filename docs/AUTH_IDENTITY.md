@@ -67,7 +67,7 @@
 
 1. Apple：客户端原生授权、nonce、防重放、服务端验签和注销时撤销授权。
 2. 微信：移动应用审核、Universal Link、客户端授权、服务端换票和稳定标识映射。
-3. 邮箱：选择邮件服务商，完成验证码发送、摘要保存、频控、过期和单次消费。
+3. 邮箱：后端与 iOS 端到端链路已完成；阿里云 `mail.douxiaolang.com` 域名、触发邮件发信地址、SMTP 密码及 QQ 邮箱真实投递验收已完成，待将密钥注入生产服务器并执行 App 端生产联调。
 4. Google：仅海外发行启用，完成客户端授权和服务端 ID Token 验签。
 5. 账号安全页：展示绑定状态、解绑保护和身份冲突引导。
 
@@ -79,3 +79,12 @@
 - 国内与海外构建只显示各自三个正式 Provider。
 - 同一外部身份始终返回同一个 `User.id`，冲突时不自动合并。
 - 多设备登录、当前设备退出、全部设备退出、Rotation 和重放撤销保持有效。
+
+## 9. 邮箱验证码实现
+
+- `POST /auth/email/send-code` 生成 6 位随机验证码，有效期 10 分钟。
+- 验证码只以 HMAC-SHA256 摘要保存在 `EmailOtpChallenge`，服务端不保存明文。
+- 同一邮箱 60 秒内不能重发，最多每小时 5 次、每天 10 次；单个验证码最多尝试 5 次且只能消费一次。
+- 验证成功后使用规范化的小写邮箱作为 `AuthIdentity(EMAIL).providerSubject`，并签发与其他 Provider 相同的 Access/Refresh Token 和设备会话。
+- 本地开发使用 `EMAIL_DELIVERY_MODE=LOG`；生产环境强制使用 `ALIYUN_DM`，且不会向客户端返回开发验证码。
+- 阿里云配置与部署检查见 `docs/EMAIL_OTP_ALIYUN.md`。

@@ -1,16 +1,16 @@
 # Project Status
 
-更新时间：2026-09-03
+更新时间：2026-09-04
 
 ## 当前阶段
 
-项目处于“本地可联调 MVP 正确性收口完成，进入稳定性与发布准备”阶段。
+项目处于“生产后端已上线，MVP 进入真实登录联调与发布准备”阶段。
 
 - iOS：SwiftUI + MVVM，支持 Mock/API 模式切换。
-- 后端：NestJS + Prisma + PostgreSQL，本地端口默认为 `3000`。
+- 后端：NestJS + Prisma + PostgreSQL；生产 API 已部署到 `https://api.douxiaolang.com`。
 - 包管理器：统一使用 `pnpm`，不要与 npm 混用。
 - 当前认证：统一 `User + AuthIdentity`；国内预留 Apple/微信/邮箱，海外预留 Apple/Google/邮箱。DEV 登录仅保留开发使用。
-- 统一身份基础：`AuthIdentity`、多 Provider 映射、绑定冲突、注销级联和会话撤销已完成；真实服务商接口待接入。
+- 统一身份基础：`AuthIdentity`、多 Provider 映射、绑定冲突、注销级联和会话撤销已完成；邮箱 OTP 端到端代码已接入，Apple/微信/Google 仍待接入。
 - 首次使用：首次启动不显示登录页；创建路径支持本地草稿、最多 6 项家务和离线记录，加入路径支持登录前邀请码预览。
 - 会话安全：Access Token 15 分钟，Refresh Token 30 天滑动且单次会话最长 90 天；支持 Rotation、重放撤销、多设备登录、当前设备/全部设备退出和 iOS 提前静默刷新。
 - 当前发布状态：尚未进入 TestFlight。
@@ -69,10 +69,10 @@
 
 - `pnpm run build`：通过
 - `pnpm test --runInBand`：11 个测试套件、39 项测试全部通过
-- `pnpm run test:e2e`：29/29
+- `pnpm run test:e2e`：33/33（含邮箱验证码发送、登录、单次消费、重发频控和生产开发登录禁用）
 - `pnpm run smoke:mvp`：19/19
 - iOS `build-for-testing` 通过
-- iOS XCTest 源码现有 79 项，测试目标已完成编译；本轮因 iOS 26.5 Simulator 启动后卡住而未能进入执行阶段，需在修复运行时后补跑
+- iOS XCTest 源码现有 87 项，测试目标已完成编译；本轮因 iOS 26.5 Simulator 在测试启动时退出而未能进入执行阶段，需在修复运行时后补跑
 
 后续提交前仍应在当前工作区重新执行一次，防止环境或未提交改动引入回归。
 
@@ -82,10 +82,10 @@
 | ---- | ---- | ---- |
 | 首次使用与本地草稿 | 已完成 | 免登录创建、最多 6 项家务、本地记录、跨重启保存、延迟认证和幂等升级已实现 |
 | 统一账号身份 | 已完成（基础层） | APPLE/WECHAT/EMAIL/GOOGLE/DEV 映射到稳定 `User.id`；绑定冲突、解绑保护和注销级联已实现 |
-| 正式登录 | 未开始（入口与身份层已就绪） | 国内需接 Apple/微信/邮箱；海外需接 Apple/Google/邮箱 |
+| 正式登录 | 进行中 | 邮箱 OTP 后端、iOS、阿里云 SMTP、生产密钥和公网 HTTPS API 已完成；生产 API 真实 OTP 发送通过，待 App 内提交验证码和本地草稿认领人工验收；国内仍需 Apple/微信，海外仍需 Apple/Google |
 | Token 安全存储 | 已完成 | iOS Keychain 保存 Access/Refresh Token 对；剩余约 2 分钟自动刷新，并发刷新合并；401、退出或旧凭证升级会清理 |
 | 账户注销 | 已完成（开发账号） | App 内可发起永久注销；多人家庭自动转让 OWNER，单人家庭随账号删除；正式第三方登录 token 撤销待对应登录能力接入 |
-| 环境配置 | 已完成 | Debug 默认模拟器本机地址，可切换局域网联调；Release 禁止使用 `127.0.0.1` |
+| 环境配置 | 已完成 | Debug 默认模拟器本机地址，可切换局域网或生产联调；Release 固定使用 `https://api.douxiaolang.com` 并禁止回环地址 |
 | 图片凭证 | 暂缓 | 后端字段和校验保留；iOS 隐藏/禁用开关并固定创建为 false |
 | 高级会员购买 | 部分完成 | 开发兑换码验证无限常用、自定义产品显示不限（内部 100 项保护）、成员个人布局和记录倍率；StoreKit、收据验证和正式订阅未接入 |
 | 自定义家务 | 已完成 | 免费账号基础 2 项并叠加永久成就奖励、测试高级账号内部上限 100 项；重复计划仍属于后续范围 |

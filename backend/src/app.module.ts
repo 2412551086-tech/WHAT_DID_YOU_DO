@@ -5,6 +5,7 @@ import { AuthModule } from './auth/auth.module';
 import { ChoreRecordsModule } from './chore-records/chore-records.module';
 import { ChoresModule } from './chores/chores.module';
 import { FamiliesModule } from './families/families.module';
+import { HealthController } from './health.controller';
 import { PrismaModule } from './prisma/prisma.module';
 import { ReportsModule } from './reports/reports.module';
 
@@ -19,5 +20,6 @@ import { ReportsModule } from './reports/reports.module';
     ChoreRecordsModule,
     ReportsModule,
   ],
+  controllers: [HealthController],
 })
 export class AppModule {}

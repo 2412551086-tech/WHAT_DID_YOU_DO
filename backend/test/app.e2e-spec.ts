@@ -21,9 +21,13 @@ describe("MVP API (e2e)", () => {
   let prisma: PrismaService;
   let choreId: string;
   const previousAchievementMaxRetries = process.env.ACHIEVEMENT_MAX_RETRIES;
+  const previousEmailDeliveryMode = process.env.EMAIL_DELIVERY_MODE;
+  const previousEmailOtpExposeCode = process.env.EMAIL_OTP_EXPOSE_CODE;
 
   beforeAll(async () => {
     process.env.ACHIEVEMENT_MAX_RETRIES = "5";
+    process.env.EMAIL_DELIVERY_MODE = "LOG";
+    process.env.EMAIL_OTP_EXPOSE_CODE = "true";
     const moduleFixture = await Test.createTestingModule({
       imports: [AppModule],
     }).compile();
@@ -74,6 +78,16 @@ describe("MVP API (e2e)", () => {
     } else {
       process.env.ACHIEVEMENT_MAX_RETRIES = previousAchievementMaxRetries;
     }
+    if (previousEmailDeliveryMode === undefined) {
+      delete process.env.EMAIL_DELIVERY_MODE;
+    } else {
+      process.env.EMAIL_DELIVERY_MODE = previousEmailDeliveryMode;
+    }
+    if (previousEmailOtpExposeCode === undefined) {
+      delete process.env.EMAIL_OTP_EXPOSE_CODE;
+    } else {
+      process.env.EMAIL_OTP_EXPOSE_CODE = previousEmailOtpExposeCode;
+    }
   });
 
   async function login(displayName: string) {
@@ -106,11 +120,87 @@ describe("MVP API (e2e)", () => {
     return request(app.getHttpServer()).get("/").expect(404);
   });
 
+  it("reports API and database health", () => {
+    return request(app.getHttpServer())
+      .get("/health")
+      .expect(200)
+      .expect({ status: "ok" });
+  });
+
   it("publishes the configured authentication providers without requiring a session", async () => {
     await request(app.getHttpServer())
       .get("/auth/config")
       .expect(200)
       .expect({ distributionRegion: "CN", providers: ["APPLE", "WECHAT", "EMAIL"] });
+  });
+
+  it("disables development login in production", async () => {
+    const previousNodeEnv = process.env.NODE_ENV;
+    process.env.NODE_ENV = "production";
+
+    try {
+      await request(app.getHttpServer())
+        .post("/auth/mock-login")
+        .send({ devIdentifier: "production-must-reject" })
+        .expect(403);
+    } finally {
+      process.env.NODE_ENV = previousNodeEnv;
+    }
+  });
+
+  it("logs in with a one-time email code and prevents challenge reuse", async () => {
+    const email = `OTP.${Date.now()}@Example.COM`;
+    const sendResponse = await request(app.getHttpServer())
+      .post("/auth/email/send-code")
+      .send({ email })
+      .expect(201);
+
+    expect(sendResponse.body).toMatchObject({
+      expiresInSeconds: 600,
+      resendAfterSeconds: 60,
+    });
+    expect(sendResponse.body.challengeId).toEqual(expect.any(String));
+    expect(sendResponse.body.developmentCode).toMatch(/^\d{6}$/);
+
+    const verifyBody = {
+      email: email.toLowerCase(),
+      challengeId: sendResponse.body.challengeId,
+      code: sendResponse.body.developmentCode,
+      displayName: "Email E2E User",
+      deviceId: "email-e2e-device",
+      platform: "test",
+    };
+    const loginResponse = await request(app.getHttpServer())
+      .post("/auth/email/verify-code")
+      .send(verifyBody)
+      .expect(201);
+
+    expect(loginResponse.body.user.displayName).toBe("Email E2E User");
+    expect(loginResponse.body.accessToken).toEqual(expect.any(String));
+    const identity = await prisma.authIdentity.findFirstOrThrow({
+      where: { userId: loginResponse.body.user.id, provider: AuthProvider.EMAIL },
+    });
+    expect(identity.providerSubject).toBe(email.toLowerCase());
+    expect(identity.verifiedAt).not.toBeNull();
+
+    await request(app.getHttpServer())
+      .post("/auth/email/verify-code")
+      .send(verifyBody)
+      .expect(400);
+  });
+
+  it("rate limits repeated email code requests", async () => {
+    const email = `rate-limit-${Date.now()}@example.com`;
+    await request(app.getHttpServer())
+      .post("/auth/email/send-code")
+      .send({ email })
+      .expect(201);
+
+    const response = await request(app.getHttpServer())
+      .post("/auth/email/send-code")
+      .send({ email })
+      .expect(429);
+    expect(response.body.retryAfterSeconds).toBeGreaterThan(0);
   });
 
   it("returns the four themed system chore catalogs as free and unlocked", async () => {

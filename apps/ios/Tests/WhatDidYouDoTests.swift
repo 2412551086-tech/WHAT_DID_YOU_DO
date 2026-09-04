@@ -1270,6 +1270,10 @@ final class WhatDidYouDoTests: XCTestCase {
         XCTAssertFalse(APIConfig.isLoopbackURL(environment.baseURL))
     }
 
+    func testAPIConfigProductionUsesPublicAPI() {
+        XCTAssertEqual(APIConfig.productionBaseURL.absoluteString, "https://api.douxiaolang.com")
+    }
+
     func testConnectivityErrorClassificationCoversOfflineFailures() {
         XCTAssertTrue(APIError.isConnectivityError(URLError(.notConnectedToInternet)))
         XCTAssertTrue(APIError.isConnectivityError(URLError(.cannotConnectToHost)))
@@ -1515,6 +1519,103 @@ final class WhatDidYouDoTests: XCTestCase {
         let json = try XCTUnwrap(JSONSerialization.jsonObject(with: requestBody) as? [String: Any])
         XCTAssertEqual(json["devIdentifier"] as? String, "123456")
         XCTAssertNil(json["displayName"])
+    }
+
+    func testEmailOTPLoginSendsCodeAndInstallsRotatingSession() async throws {
+        let fixture = makeDefaultsFixture()
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.suiteName) }
+        var responses = Self.loginResponses
+        responses["POST /auth/email/send-code"] = Data(
+            #"{"challengeId":"F3393B05-5CC9-4F00-90AE-9C3B962ED8D2","maskedEmail":"te***@example.com","expiresInSeconds":600,"resendAfterSeconds":60,"developmentCode":"123456"}"#.utf8
+        )
+        responses["POST /auth/email/verify-code"] = Data(
+            #"{"user":{"id":"email-user","displayName":"新成员"},"accessToken":"email-access-token","refreshToken":"email-refresh-token","accessTokenExpiresAt":"2099-01-01T00:15:00.000Z","refreshTokenExpiresAt":"2099-01-31T00:00:00.000Z"}"#.utf8
+        )
+        let client = StubAPIClient(responses: responses)
+        let tokenStore = MockSecureTokenStore()
+        let viewModel = AppViewModel(
+            apiClient: client,
+            tokenStore: tokenStore,
+            dataMode: .api,
+            userDefaults: fixture.defaults,
+            automaticallyRestoreSession: false
+        )
+
+        let challengeResponse = await viewModel.requestEmailLoginCode(" Test@Example.COM ")
+        let challenge = try XCTUnwrap(challengeResponse)
+        XCTAssertEqual(challenge.developmentCode, "123456")
+        let verified = await viewModel.verifyEmailLoginCode(
+            email: "Test@Example.COM",
+            challengeId: challenge.challengeId,
+            code: "123456"
+        )
+
+        XCTAssertTrue(verified)
+        XCTAssertEqual(viewModel.accessToken, "email-access-token")
+        XCTAssertEqual(tokenStore.tokens?.refreshToken, "email-refresh-token")
+        XCTAssertEqual(viewModel.sessionState, .authenticated)
+        XCTAssertEqual(viewModel.rootScreen, .createFamily)
+        let requestBodies = await client.requestBodies
+        let sendBody = try XCTUnwrap(requestBodies["POST /auth/email/send-code"])
+        let sendJSON = try XCTUnwrap(JSONSerialization.jsonObject(with: sendBody) as? [String: Any])
+        XCTAssertEqual(sendJSON["email"] as? String, "test@example.com")
+    }
+
+    func testEmailOTPLoginDoesNotAppearSuccessfulWhenSecureStorageFails() async throws {
+        let fixture = makeDefaultsFixture()
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.suiteName) }
+        var responses = Self.loginResponses
+        responses["POST /auth/email/verify-code"] = Data(
+            #"{"user":{"id":"email-user","displayName":"新成员"},"accessToken":"email-access-token","refreshToken":"email-refresh-token","accessTokenExpiresAt":"2099-01-01T00:15:00.000Z","refreshTokenExpiresAt":"2099-01-31T00:00:00.000Z"}"#.utf8
+        )
+        let client = StubAPIClient(responses: responses)
+        let tokenStore = MockSecureTokenStore(saveError: TestSecureTokenStoreError.saveFailed)
+        let viewModel = AppViewModel(
+            apiClient: client,
+            tokenStore: tokenStore,
+            dataMode: .api,
+            userDefaults: fixture.defaults,
+            automaticallyRestoreSession: false
+        )
+
+        let verified = await viewModel.verifyEmailLoginCode(
+            email: "test@example.com",
+            challengeId: "challenge-id",
+            code: "123456"
+        )
+
+        XCTAssertFalse(verified)
+        XCTAssertNil(viewModel.accessToken)
+        XCTAssertEqual(viewModel.sessionState, .unauthenticated)
+        XCTAssertEqual(viewModel.errorMessage, "无法安全保存登录状态，请重新打开 App 后再试。")
+        XCTAssertNotNil(viewModel.lastSecureStorageErrorMessage)
+    }
+
+    func testClaimLocalDraftRequestEncodesDatesAsISO8601Strings() throws {
+        let request = ClaimLocalDraftRequest(
+            draftId: "draft-id",
+            draftCreatedAt: Date(timeIntervalSince1970: 1_800_000_000),
+            familyName: "我的家庭",
+            identityLabel: "成员",
+            avatarKey: "avatar-01",
+            timezone: "Asia/Shanghai",
+            chores: [],
+            records: [
+                ClaimLocalDraftRecordRequest(
+                    id: "record-id",
+                    choreLocalId: "chore-id",
+                    actualMinutes: 15,
+                    note: nil,
+                    occurredAt: Date(timeIntervalSince1970: 1_800_000_060)
+                )
+            ]
+        )
+
+        let data = try APIClient.encoder.encode(request)
+        let json = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        XCTAssertEqual(json["draftCreatedAt"] as? String, "2027-01-15T08:00:00Z")
+        let records = try XCTUnwrap(json["records"] as? [[String: Any]])
+        XCTAssertEqual(records.first?["occurredAt"] as? String, "2027-01-15T08:01:00Z")
     }
 
     func testLogoutDeletesStoredToken() async throws {
@@ -2044,9 +2145,11 @@ private final class MockSecureTokenStore: SecureTokenStore, @unchecked Sendable 
     private(set) var saveCount = 0
     private(set) var loadCount = 0
     private(set) var deleteCount = 0
+    private let saveError: Error?
 
-    init(token: String? = nil) {
+    init(token: String? = nil, saveError: Error? = nil) {
         self.token = token
+        self.saveError = saveError
         if let token {
             self.tokens = AuthTokens(
                 accessToken: token,
@@ -2058,6 +2161,7 @@ private final class MockSecureTokenStore: SecureTokenStore, @unchecked Sendable 
     }
 
     func saveAccessToken(_ token: String) throws {
+        if let saveError { throw saveError }
         saveCount += 1
         self.token = token
     }
@@ -2073,6 +2177,7 @@ private final class MockSecureTokenStore: SecureTokenStore, @unchecked Sendable 
     }
 
     func saveTokens(_ tokens: AuthTokens) throws {
+        if let saveError { throw saveError }
         saveCount += 1
         self.tokens = tokens
         token = tokens.accessToken
@@ -2088,6 +2193,10 @@ private final class MockSecureTokenStore: SecureTokenStore, @unchecked Sendable 
         tokens = nil
         token = nil
     }
+}
+
+private enum TestSecureTokenStoreError: Error {
+    case saveFailed
 }
 
 private actor StubAPIClient: APIClientProtocol {
@@ -2133,7 +2242,7 @@ private actor StubAPIClient: APIClientProtocol {
         headers: [String: String]
     ) async throws -> Response {
         let requestKey = "POST /\(path)"
-        requestBodies[requestKey] = try JSONEncoder().encode(body)
+        requestBodies[requestKey] = try APIClient.encoder.encode(body)
         requestHeaders[requestKey, default: []].append(headers)
         return try response(method: "POST", path: path)
     }
@@ -2146,7 +2255,7 @@ private actor StubAPIClient: APIClientProtocol {
         _ path: String,
         body: RequestBody
     ) async throws -> Response {
-        requestBodies["PATCH /\(path)"] = try JSONEncoder().encode(body)
+        requestBodies["PATCH /\(path)"] = try APIClient.encoder.encode(body)
         return try response(method: "PATCH", path: path)
     }
 

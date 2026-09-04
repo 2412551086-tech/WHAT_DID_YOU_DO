@@ -38,6 +38,10 @@ export class AuthService {
   }
 
   async mockLogin(dto: MockLoginDto) {
+    if (process.env.NODE_ENV === 'production') {
+      throw new ForbiddenException('Development login is disabled in production');
+    }
+
     const devIdentifier = dto.devIdentifier?.trim();
     const requestedDisplayName = dto.displayName?.trim();
 

@@ -225,6 +225,20 @@ model AuthRefreshToken {
   @@index([expiresAt])
 }
 
+model EmailOtpChallenge {
+  id           String    @id
+  email        String
+  codeDigest   String
+  expiresAt    DateTime
+  consumedAt   DateTime?
+  attemptCount Int       @default(0)
+  createdAt    DateTime  @default(now())
+
+  @@index([email, createdAt])
+  @@index([expiresAt])
+  @@index([consumedAt])
+}
+
 model Family {
   id                              String                           @id @default(cuid())
   name                            String

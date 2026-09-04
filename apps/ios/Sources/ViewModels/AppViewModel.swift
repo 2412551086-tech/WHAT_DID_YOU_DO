@@ -763,9 +763,59 @@ final class AppViewModel: ObservableObject {
         errorMessage = switch provider {
         case .apple: "Apple 登录接口正在接入，当前开发包可使用开发登录验证流程。"
         case .wechat: "微信登录接口正在接入。"
-        case .email: "邮箱验证码接口正在接入。"
+        case .email: nil
         case .google: "Google 登录接口正在接入。"
         }
+    }
+
+    func requestEmailLoginCode(_ email: String) async -> EmailLoginChallengeResponse? {
+        let normalizedEmail = email.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard Self.looksLikeEmail(normalizedEmail) else {
+            errorMessage = "请输入有效的邮箱地址。"
+            return nil
+        }
+
+        var challenge: EmailLoginChallengeResponse?
+        await performLoading("正在发送验证码") {
+            challenge = try await apiClient.post(
+                "auth/email/send-code",
+                body: SendEmailCodeRequest(email: normalizedEmail)
+            )
+        }
+        return challenge
+    }
+
+    func verifyEmailLoginCode(
+        email: String,
+        challengeId: String,
+        code: String
+    ) async -> Bool {
+        let normalizedEmail = email.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let normalizedCode = code.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard normalizedCode.count == 6, normalizedCode.allSatisfy(\.isNumber) else {
+            errorMessage = "请输入 6 位验证码。"
+            return false
+        }
+
+        var succeeded = false
+        await performLoading("正在登录") {
+            let response: LoginResponse = try await apiClient.post(
+                "auth/email/verify-code",
+                body: VerifyEmailCodeRequest(
+                    email: normalizedEmail,
+                    challengeId: challengeId,
+                    code: normalizedCode,
+                    displayName: normalizedDisplayName,
+                    deviceId: UIDevice.current.identifierForVendor?.uuidString,
+                    deviceName: UIDevice.current.name,
+                    platform: "iOS",
+                    appVersion: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String
+                )
+            )
+            try await completeAPILogin(response)
+            succeeded = true
+        }
+        return succeeded
     }
 
     func returnToOnboarding() {
@@ -3209,19 +3259,20 @@ final class AppViewModel: ObservableObject {
     }
 
     private func completeAPILogin(_ response: LoginResponse) async throws {
+        do {
+            try tokenStore.saveTokens(response.tokens)
+            lastSecureStorageErrorMessage = nil
+        } catch {
+            lastSecureStorageErrorMessage = error.localizedDescription
+            throw AppStateError.secureSessionStorageFailed
+        }
+
         accessToken = response.accessToken
         currentUser = mapUser(response.user)
         accountHasPremiumAccess = response.user.plan == "premium"
         hasPremiumAccess = accountHasPremiumAccess
         displayName = response.user.displayName
         await apiClient.setAuthTokens(response.tokens)
-
-        do {
-            try tokenStore.saveTokens(response.tokens)
-            lastSecureStorageErrorMessage = nil
-        } catch {
-            lastSecureStorageErrorMessage = error.localizedDescription
-        }
 
         if case let .joinFamily(inviteCode) = pendingAuthAction {
             joinInviteCode = inviteCode
@@ -4028,6 +4079,9 @@ final class AppViewModel: ObservableObject {
                 lastSuccessfulSyncAt = Date()
             }
         } catch {
+            #if DEBUG
+            print("[AppViewModel] \(message) failed: \(error.localizedDescription)")
+            #endif
             if APIError.isConnectivityError(error) {
                 isOffline = true
             }
@@ -4074,6 +4128,12 @@ final class AppViewModel: ObservableObject {
 
     private var normalizedDevelopmentIdentifier: String {
         developmentIdentifier.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private static func looksLikeEmail(_ value: String) -> Bool {
+        let parts = value.split(separator: "@", omittingEmptySubsequences: false)
+        guard parts.count == 2, !parts[0].isEmpty, parts[1].contains(".") else { return false }
+        return !value.contains(where: \.isWhitespace)
     }
 
     private var normalizedDisplayName: String? {
@@ -4740,6 +4800,7 @@ private enum AppStateError: LocalizedError {
     case missingCustomIdentity
     case ownerRequired
     case deleteForbidden
+    case secureSessionStorageFailed
 
     var errorDescription: String? {
         switch self {
@@ -4757,6 +4818,8 @@ private enum AppStateError: LocalizedError {
             return "只有一家之主可以执行这个家庭管理操作"
         case .deleteForbidden:
             return "你没有权限删除这条家务记录"
+        case .secureSessionStorageFailed:
+            return "无法安全保存登录状态，请重新打开 App 后再试。"
         }
     }
 }

@@ -62,7 +62,7 @@ enum APIConfig {
     static var productionBaseURL: URL {
         url(
             from: ProcessInfo.processInfo.environment["WDD_PRODUCTION_BASE_URL"],
-            fallback: "https://api.whatdidyoudo.example.com"
+            fallback: "https://api.douxiaolang.com"
         )
     }
 

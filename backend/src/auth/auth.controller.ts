@@ -6,11 +6,17 @@ import { AuthService } from './auth.service';
 import { MockLoginDto } from './dto/mock-login.dto';
 import { RefreshTokenDto } from './dto/refresh-token.dto';
 import { RedeemPremiumDto } from './dto/redeem-premium.dto';
+import { SendEmailCodeDto } from './dto/send-email-code.dto';
 import { UpdateCurrentUserDto } from './dto/update-current-user.dto';
+import { VerifyEmailCodeDto } from './dto/verify-email-code.dto';
+import { EmailOtpService } from './email-otp.service';
 
 @Controller('auth')
 export class AuthController {
-  constructor(private readonly authService: AuthService) {}
+  constructor(
+    private readonly authService: AuthService,
+    private readonly emailOtp: EmailOtpService,
+  ) {}
 
   @Get('config')
   getPublicConfiguration() {
@@ -20,6 +26,16 @@ export class AuthController {
   @Post('mock-login')
   mockLogin(@Body() dto: MockLoginDto) {
     return this.authService.mockLogin(dto);
+  }
+
+  @Post('email/send-code')
+  sendEmailCode(@Body() dto: SendEmailCodeDto) {
+    return this.emailOtp.sendCode(dto);
+  }
+
+  @Post('email/verify-code')
+  verifyEmailCode(@Body() dto: VerifyEmailCodeDto) {
+    return this.emailOtp.verifyCode(dto);
   }
 
   @Post('refresh')

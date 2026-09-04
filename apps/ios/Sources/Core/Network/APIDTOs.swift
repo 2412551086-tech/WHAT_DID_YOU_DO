@@ -9,6 +9,29 @@ struct MockLoginRequest: Encodable {
     let appVersion: String?
 }
 
+struct SendEmailCodeRequest: Encodable {
+    let email: String
+}
+
+struct EmailLoginChallengeResponse: Decodable, Sendable {
+    let challengeId: String
+    let maskedEmail: String
+    let expiresInSeconds: Int
+    let resendAfterSeconds: Int
+    let developmentCode: String?
+}
+
+struct VerifyEmailCodeRequest: Encodable {
+    let email: String
+    let challengeId: String
+    let code: String
+    let displayName: String?
+    let deviceId: String?
+    let deviceName: String?
+    let platform: String?
+    let appVersion: String?
+}
+
 struct RefreshTokenRequest: Encodable, Sendable {
     let refreshToken: String
 }

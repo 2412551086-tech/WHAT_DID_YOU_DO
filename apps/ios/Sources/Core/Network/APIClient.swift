@@ -189,7 +189,7 @@ actor APIClient: APIClientProtocol {
         debugSnapshot = APIDebugSnapshot(lastRequestPath: displayPath)
 
         do {
-            if authTokens != nil && !path.hasPrefix("auth/mock-login") && !path.hasPrefix("auth/refresh") {
+            if authTokens != nil && !Self.isAuthenticationEntryPoint(path) {
                 try await refreshTokensIfNeeded(force: false)
             }
 
@@ -253,7 +253,7 @@ actor APIClient: APIClientProtocol {
             if httpResponse.statusCode == 401,
                allowsAuthRetry,
                authTokens != nil,
-               !path.hasPrefix("auth/refresh") {
+               !Self.isAuthenticationEntryPoint(path) {
                 try await refreshTokensIfNeeded(force: true)
                 return try await request(
                     path,
@@ -300,6 +300,12 @@ actor APIClient: APIClientProtocol {
             debugSnapshot.lastErrorMessage = error.localizedDescription
             throw error
         }
+    }
+
+    private static func isAuthenticationEntryPoint(_ path: String) -> Bool {
+        path.hasPrefix("auth/mock-login")
+            || path.hasPrefix("auth/email/")
+            || path.hasPrefix("auth/refresh")
     }
 
     private func refreshTokensIfNeeded(force: Bool) async throws {
@@ -401,8 +407,10 @@ actor APIClient: APIClientProtocol {
         SHA256.hash(data: Data(value.utf8)).map { String(format: "%02x", $0) }.joined()
     }
 
-    private static let encoder: JSONEncoder = {
-        JSONEncoder()
+    static let encoder: JSONEncoder = {
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        return encoder
     }()
 
     static let decoder: JSONDecoder = {

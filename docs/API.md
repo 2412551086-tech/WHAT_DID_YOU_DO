@@ -20,6 +20,8 @@
 | Method | Path | 鉴权 | 状态 |
 | ---- | ---- | ---- | ---- |
 | POST | `/auth/mock-login` | 否 | 已实现 |
+| POST | `/auth/email/send-code` | 否 | 已实现，生产通过阿里云邮件推送发送 |
+| POST | `/auth/email/verify-code` | 否 | 已实现，创建或复用 EMAIL 身份并签发会话 |
 | GET | `/auth/config` | 否 | 已实现，返回发行区域与可用 Provider |
 | GET | `/auth/me` | 是 | 已实现，恢复当前开发用户 |
 | PATCH | `/auth/me` | 是 | 已实现，修改当前开发用户昵称 |
@@ -114,6 +116,42 @@ Access Token 使用 HS256 签名并绑定 `User.id + AuthSession.id`；生产环
 `JWT_SECRET` 时后端拒绝启动。旧版两段式无过期 Token 不再兼容，升级后需要重新登录一次。
 统一身份数据模型和绑定规则见 `docs/AUTH_IDENTITY.md`。正式 Provider 必须先完成服务端凭证验证，
 再调用内部身份服务；当前没有允许客户端直接指定任意第三方身份标识的公共接口。
+
+### POST `/auth/email/send-code`
+
+```json
+{ "email": "member@example.com" }
+```
+
+返回一次性 challenge。验证码有效期 10 分钟，同一邮箱 60 秒后才可重发；达到频控时返回 `429`。
+`developmentCode` 只可能在非生产 LOG 模式出现，生产环境永远不返回验证码明文。
+
+```json
+{
+  "challengeId": "uuid",
+  "maskedEmail": "me***@example.com",
+  "expiresInSeconds": 600,
+  "resendAfterSeconds": 60
+}
+```
+
+### POST `/auth/email/verify-code`
+
+```json
+{
+  "email": "member@example.com",
+  "challengeId": "uuid",
+  "code": "123456",
+  "displayName": "可选显示名",
+  "deviceId": "设备稳定标识",
+  "deviceName": "小狼的 iPhone",
+  "platform": "iOS",
+  "appVersion": "1.0.0"
+}
+```
+
+验证码最多尝试 5 次且只能使用一次。成功后创建或复用 `AuthIdentity(EMAIL)`，返回格式与开发登录一致的
+`user + accessToken + refreshToken`。邮箱比较不区分大小写。
 
 ### POST `/auth/refresh`
 
