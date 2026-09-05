@@ -48,7 +48,7 @@ enum APIConfig {
         validatedBaseURL(environment.baseURL)
     }
 
-    // Xcode 调试开关：true 使用本地 Mock；false 调用本机 Nest 后端。
+    // Xcode 调试开关：true 使用本地 Mock；false 调用所选 API 环境。
     static let useMockData = false
 
     static var localNetworkBaseURL: URL {
@@ -93,7 +93,7 @@ enum APIConfig {
         #if targetEnvironment(simulator)
         .localSimulator
         #else
-        .localNetwork
+        .production
         #endif
         #else
         .production
