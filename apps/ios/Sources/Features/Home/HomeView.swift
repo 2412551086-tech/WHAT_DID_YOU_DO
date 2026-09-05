@@ -5,6 +5,9 @@ struct HomeView: View {
     @EnvironmentObject private var viewModel: AppViewModel
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @State private var copySeed = Int.random(in: 0..<10_000)
+    @State private var showsAchievements = false
+    @State private var showsFamilyWeeklyInsights = false
+    @State private var showsPersonalWeeklyInsights = false
 
     private let activityPreviewLimit = 5
 
@@ -16,6 +19,7 @@ struct HomeView: View {
                 header.homeListRow(top: 10, bottom: 10)
                 familyScoreCard.homeListRow(top: 4, bottom: 14)
                 personalStatsCard.homeListRow(top: 2, bottom: 16)
+                achievementEntry.homeListRow(top: 0, bottom: 12)
 
                 Section {
                     if viewModel.isLoading {
@@ -59,8 +63,24 @@ struct HomeView: View {
             }
         }
         .navigationBarBackButtonHidden(true)
+        .navigationDestination(isPresented: $showsAchievements) {
+            AchievementsView()
+        }
+        .navigationDestination(isPresented: $showsFamilyWeeklyInsights) {
+            WeeklyInsightsView(scope: .family)
+        }
+        .navigationDestination(isPresented: $showsPersonalWeeklyInsights) {
+            WeeklyInsightsView(
+                scope: .member(
+                    userId: viewModel.currentUser?.id,
+                    name: viewModel.currentUserName,
+                    avatarKey: viewModel.currentMembership?.avatarKey
+                )
+            )
+        }
         .task {
             viewModel.refreshHomeDataIfNeeded()
+            viewModel.refreshAchievementSummaryIfNeeded()
         }
         .onAppear {
             copySeed = Int.random(in: 0..<10_000)
@@ -166,7 +186,10 @@ struct HomeView: View {
     }
 
     private var familyScoreCard: some View {
-        DSFloatingSurface(cornerRadius: 22, padding: 18, elevation: .primary) {
+        Button {
+            showsFamilyWeeklyInsights = true
+        } label: {
+            DSFloatingSurface(cornerRadius: 22, padding: 18, elevation: .primary) {
             VStack(alignment: .leading, spacing: 10) {
                 HStack(spacing: 12) {
                     Text("家庭本周总积分")
@@ -226,6 +249,9 @@ struct HomeView: View {
                 .lineLimit(1)
             }
         }
+        }
+        .buttonStyle(.plain)
+        .accessibilityHint("查看家庭本周贡献、分类和每日走势")
     }
 
     private var familyScore: some View {
@@ -291,7 +317,10 @@ struct HomeView: View {
     }
 
     private var personalStatsCard: some View {
-        DSFloatingSurface(cornerRadius: 18, padding: 11, elevation: .secondary) {
+        Button {
+            showsPersonalWeeklyInsights = true
+        } label: {
+            DSFloatingSurface(cornerRadius: 18, padding: 11, elevation: .secondary) {
             HStack(spacing: 0) {
                 personalMetric(
                     title: "本周积分",
@@ -323,6 +352,18 @@ struct HomeView: View {
                 )
             }
         }
+        }
+        .buttonStyle(.plain)
+        .accessibilityHint("查看我的本周家务动态和个人分析")
+    }
+
+    private var achievementEntry: some View {
+        AchievementNextEntry(
+            achievements: viewModel.upcomingAchievements,
+            syncState: viewModel.achievementSyncState,
+            onSelect: { _ in showsAchievements = true }
+        )
+        .accessibilityHint("打开我的成就和进度")
     }
 
     private func personalMetric(
@@ -403,7 +444,10 @@ struct HomeView: View {
     }
 
     private var offlineCard: some View {
-        DSOfflineStatusView(lastUpdatedAt: viewModel.lastSuccessfulSyncAt)
+        DSOfflineStatusView(
+            lastUpdatedAt: viewModel.lastSuccessfulSyncAt,
+            pendingUploadCount: viewModel.pendingUploadCount
+        )
     }
 
     private var emptyActivityCard: some View {

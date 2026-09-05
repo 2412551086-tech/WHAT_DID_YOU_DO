@@ -634,8 +634,10 @@ enum DSActivityRowPresentation {
 
 struct DSActivityRow: View {
     let record: ChoreRecord
+    var timeZoneIdentifier: String?
     var onQuickReaction: (() -> Void)?
     var onReaction: ((ChoreReaction) -> Void)?
+    var onEdit: (() -> Void)?
     var onDelete: (() -> Void)?
     var isLoading = false
     var presentation: DSActivityRowPresentation = .standalone
@@ -651,6 +653,12 @@ struct DSActivityRow: View {
                     Button(role: .destructive, action: onDelete) {
                         Label("删除", systemImage: "trash.fill")
                     }
+                }
+                if record.canEdit, let onEdit {
+                    Button(action: onEdit) {
+                        Label("编辑", systemImage: "slider.horizontal.3")
+                    }
+                    .tint(DSColor.infoBlue)
                 }
             }
             .accessibilityElement(children: .contain)
@@ -695,10 +703,20 @@ struct DSActivityRow: View {
                     .font(.system(size: 15, weight: .semibold, design: .default))
                     .lineLimit(1)
 
-                Text("\(record.actualMinutes) 分钟 · \(relativeCreatedAt)")
-                    .font(.system(size: 12, weight: .regular, design: .default))
-                    .foregroundStyle(DSColor.floatingSecondaryText)
-                    .lineLimit(1)
+                HStack(spacing: 5) {
+                    Text("\(record.actualMinutes) 分钟 · \(activityTimestamp)")
+                        .lineLimit(1)
+
+                    if record.syncState == .pending {
+                        Label("待同步", systemImage: "arrow.triangle.2.circlepath")
+                            .font(.system(size: 10, weight: .semibold, design: .default))
+                            .foregroundStyle(DSColor.infoBlue)
+                            .labelStyle(.titleAndIcon)
+                            .lineLimit(1)
+                    }
+                }
+                .font(.system(size: 12, weight: .regular, design: .default))
+                .foregroundStyle(DSColor.floatingSecondaryText)
 
                 if !record.likedBy.isEmpty {
                     HStack(spacing: 1) {
@@ -779,12 +797,12 @@ struct DSActivityRow: View {
         return names.min(by: { $0.count < $1.count }) ?? record.choreName
     }
 
-    private var relativeCreatedAt: String {
-        let formatter = RelativeDateTimeFormatter()
+    private var activityTimestamp: String {
+        let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "zh_CN")
-        formatter.dateTimeStyle = .numeric
-        formatter.unitsStyle = .full
-        return formatter.localizedString(for: record.createdAt, relativeTo: Date())
+        formatter.timeZone = timeZoneIdentifier.flatMap(TimeZone.init(identifier:)) ?? .autoupdatingCurrent
+        formatter.dateFormat = "EEEE HH:mm"
+        return formatter.string(from: record.createdAt).replacingOccurrences(of: "星期", with: "周")
     }
 
     private var remainingLikeCount: Int {
@@ -1292,6 +1310,7 @@ struct DSRequestFailureView: View {
 
 struct DSOfflineStatusView: View {
     let lastUpdatedAt: Date?
+    var pendingUploadCount = 0
 
     var body: some View {
         HStack(spacing: 14) {
@@ -1300,7 +1319,7 @@ struct DSOfflineStatusView: View {
                 .foregroundStyle(DSColor.infoBlue)
                 .accessibilityHidden(true)
 
-            Text("当前离线，正在展示上次更新的数据")
+            Text(statusMessage)
                 .font(.system(size: 14, weight: .regular))
                 .foregroundStyle(DSColor.ink)
                 .fixedSize(horizontal: false, vertical: true)
@@ -1326,6 +1345,13 @@ struct DSOfflineStatusView: View {
     private var updateLabel: String {
         guard let lastUpdatedAt else { return "尚未同步" }
         return lastUpdatedAt.formatted(date: .omitted, time: .shortened) + " 更新"
+    }
+
+    private var statusMessage: String {
+        guard pendingUploadCount > 0 else {
+            return "当前离线，正在展示上次更新的数据"
+        }
+        return "当前离线，\(pendingUploadCount) 条记录将在联网后同步"
     }
 }
 

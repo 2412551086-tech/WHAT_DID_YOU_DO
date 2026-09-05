@@ -1,21 +1,19 @@
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { MemberRole, MemberStatus, Prisma } from '@prisma/client';
 import { AuthUser } from '../auth/auth-user';
+import { AchievementRewardsService } from '../achievements/achievement-rewards.service';
 import { FamiliesService } from '../families/families.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateCustomChoreDto } from './dto/create-custom-chore.dto';
 import { UpdateChoreLayoutDto } from './dto/update-chore-layout.dto';
 import { UpdateCustomChoreDto } from './dto/update-custom-chore.dto';
 
-const FREE_COMMON_CHORE_LIMIT = 6;
-const FREE_CUSTOM_CHORE_LIMIT = 2;
-const PREMIUM_CUSTOM_CHORE_LIMIT = 10;
-
 @Injectable()
 export class ChoresService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly familiesService: FamiliesService,
+    private readonly achievementRewards: AchievementRewardsService,
   ) {}
 
   async listChores() {
@@ -33,6 +31,7 @@ export class ChoresService {
 
     return systemChores.map((chore) => ({
       id: chore.id,
+      catalogKey: chore.catalogKey,
       name: chore.name,
       themeKey: chore.themeKey,
       category: chore.category,
@@ -194,6 +193,7 @@ export class ChoresService {
     if (!family) {
       throw new NotFoundException('Family not found');
     }
+    const capacity = await this.achievementRewards.getFamilyCapacity(familyId, hasPremiumAccess);
 
     const followsFamilyLayout = membership.memberRole === MemberRole.OWNER
       ? true
@@ -217,8 +217,9 @@ export class ChoresService {
       isConfigured: source.choreSetupCompleted && saved.length > 0,
       scope: usesPersonalLayout ? 'member' : 'family',
       canEdit: hasPremiumAccess || membership.memberRole === MemberRole.OWNER,
-      selectionLimit: hasPremiumAccess ? null : FREE_COMMON_CHORE_LIMIT,
-      customChoreLimit: hasPremiumAccess ? PREMIUM_CUSTOM_CHORE_LIMIT : FREE_CUSTOM_CHORE_LIMIT,
+      selectionLimit: capacity.common.limit,
+      customChoreLimit: capacity.custom.limit,
+      capacity,
       isPersonalized: usesPersonalLayout,
       followFamilyLayout: followsFamilyLayout,
     };
@@ -227,13 +228,14 @@ export class ChoresService {
   async updateChoreLayout(user: AuthUser, familyId: string, dto: UpdateChoreLayoutDto) {
     const membership = await this.familiesService.assertActiveMember(familyId, user.id);
     const hasPremiumAccess = await this.familiesService.hasPremiumAccess(familyId);
+    const capacity = await this.achievementRewards.getFamilyCapacity(familyId, hasPremiumAccess);
 
     if (!hasPremiumAccess && membership.memberRole !== MemberRole.OWNER) {
       throw new ForbiddenException('Premium membership is required for a personal chore layout');
     }
 
     const availableIds = new Set(await this.getAvailableChoreIds(familyId));
-    const selectionLimit = hasPremiumAccess ? null : FREE_COMMON_CHORE_LIMIT;
+    const selectionLimit = capacity.common.limit;
 
     if (selectionLimit && dto.choreIds.length > selectionLimit) {
       throw new BadRequestException(`Free plan supports up to ${selectionLimit} common chores`);
@@ -275,7 +277,8 @@ export class ChoresService {
         scope: 'family',
         canEdit: true,
         selectionLimit,
-        customChoreLimit: PREMIUM_CUSTOM_CHORE_LIMIT,
+        customChoreLimit: capacity.custom.limit,
+        capacity,
         isPersonalized: false,
         followFamilyLayout: true,
       };
@@ -316,7 +319,8 @@ export class ChoresService {
       scope: hasPremiumAccess ? 'member' : 'family',
       canEdit: true,
       selectionLimit,
-      customChoreLimit: hasPremiumAccess ? PREMIUM_CUSTOM_CHORE_LIMIT : FREE_CUSTOM_CHORE_LIMIT,
+      customChoreLimit: capacity.custom.limit,
+      capacity,
       isPersonalized: hasPremiumAccess && membership.memberRole !== MemberRole.OWNER,
       followFamilyLayout: membership.memberRole === MemberRole.OWNER
         ? true
@@ -361,9 +365,9 @@ export class ChoresService {
   }
 
   private async getCustomChoreLimit(familyId: string) {
-    return (await this.familiesService.hasPremiumAccess(familyId))
-      ? PREMIUM_CUSTOM_CHORE_LIMIT
-      : FREE_CUSTOM_CHORE_LIMIT;
+    const hasPremiumAccess = await this.familiesService.hasPremiumAccess(familyId);
+    const capacity = await this.achievementRewards.getFamilyCapacity(familyId, hasPremiumAccess);
+    return capacity.custom.limit;
   }
 
   private async getAvailableChoreIds(familyId: string) {

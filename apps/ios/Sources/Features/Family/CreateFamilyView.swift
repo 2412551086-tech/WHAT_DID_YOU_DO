@@ -9,12 +9,21 @@ struct CreateFamilyView: View {
             DSColor.quietBackground.ignoresSafeArea()
 
             VStack(spacing: 0) {
-                FamilyFlowTopBar(title: "创建家庭") {
-                    viewModel.logout()
+                FamilyFlowTopBar(title: viewModel.isGuestWorkspace ? "设置家庭资料" : "创建家庭") {
+                    if viewModel.isGuestWorkspace {
+                        viewModel.cancelLocalFamilyOnboarding()
+                    } else {
+                        viewModel.logout()
+                    }
                 }
 
                 ScrollView {
                     VStack(alignment: .leading, spacing: 22) {
+                        if viewModel.isGuestWorkspace {
+                            Text("这些资料会保存在本机，稍后登录时会原样升级到正式家庭。")
+                                .font(.system(size: 13))
+                                .foregroundStyle(DSColor.mutedInk)
+                        }
                         familyNameSection
                         nicknameSection
 
@@ -28,19 +37,21 @@ struct CreateFamilyView: View {
                         statusBanner
 
                         FamilyFlowPrimaryButton(
-                            title: "创建家庭",
+                            title: viewModel.isGuestWorkspace ? "下一步，选择家务" : "创建家庭",
                             isEnabled: !viewModel.isLoading
                         ) {
                             viewModel.createFamily()
                         }
 
-                        Button("已有家庭？申请加入") {
-                            viewModel.showJoinFamily()
+                        if !viewModel.isGuestWorkspace {
+                            Button("已有家庭？申请加入") {
+                                viewModel.showJoinFamily()
+                            }
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundStyle(DSColor.mutedInk)
+                            .frame(maxWidth: .infinity)
+                            .disabled(viewModel.isLoading)
                         }
-                        .font(.system(size: 14, weight: .medium))
-                        .foregroundStyle(DSColor.mutedInk)
-                        .frame(maxWidth: .infinity)
-                        .disabled(viewModel.isLoading)
                     }
                     .padding(.horizontal, 20)
                     .padding(.top, 22)

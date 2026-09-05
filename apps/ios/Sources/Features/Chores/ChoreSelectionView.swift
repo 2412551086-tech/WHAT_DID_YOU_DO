@@ -18,6 +18,8 @@ struct ChoreSelectionView: View {
     @State private var bottomPickerArmed = true
     @State private var bottomSentinelMinY = CGFloat.greatestFiniteMagnitude
     @State private var scrollViewportHeight: CGFloat = 0
+    @State private var bottomPullStartedAtBottom = false
+    @State private var bottomOverscrollDistance: CGFloat = 0
     @State private var scrollResetID = UUID()
     @State private var commonChoreFrames: [String: CGRect] = [:]
     @State private var commonChoreContainerGlobalFrame: CGRect = .zero
@@ -35,6 +37,7 @@ struct ChoreSelectionView: View {
     // near the last row does not unexpectedly open the chore library.
     private static let bottomTriggerThreshold: CGFloat = -60
     private static let bottomRearmDistance: CGFloat = 180
+    private static let bottomPullActivationDistance: CGFloat = 44
     private static let reorderCooldown: TimeInterval = 0.08
     private static let reorderTravelThreshold: CGFloat = 18
 
@@ -55,8 +58,15 @@ struct ChoreSelectionView: View {
 
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
-                    ChoreScrollActivityObserver {
+                    ChoreScrollActivityObserver { activity in
                         userHasScrolled = true
+                        bottomPullStartedAtBottom = activity.startedAtBottom
+                        bottomOverscrollDistance = activity.bottomOverscroll
+                        evaluateBottomSentinel(
+                            userDidScroll: true,
+                            pullStartedAtBottom: activity.startedAtBottom,
+                            overscrollDistance: activity.bottomOverscroll
+                        )
                     }
                     .frame(width: 0, height: 0)
                     pageHeader
@@ -393,7 +403,11 @@ struct ChoreSelectionView: View {
             .accessibilityHidden(true)
     }
 
-    private func evaluateBottomSentinel(userDidScroll: Bool = false) {
+    private func evaluateBottomSentinel(
+        userDidScroll: Bool = false,
+        pullStartedAtBottom: Bool? = nil,
+        overscrollDistance: CGFloat? = nil
+    ) {
         guard bottomSentinelMinY.isFinite,
               scrollViewportHeight > 0
         else { return }
@@ -407,7 +421,10 @@ struct ChoreSelectionView: View {
             distanceToBottom: distanceToViewportBottom,
             threshold: Self.bottomTriggerThreshold,
             userHasScrolled: userHasScrolled || userDidScroll,
-            isArmed: bottomPickerArmed
+            isArmed: bottomPickerArmed,
+            pullStartedAtBottom: pullStartedAtBottom ?? bottomPullStartedAtBottom,
+            overscrollDistance: overscrollDistance ?? bottomOverscrollDistance,
+            minimumPullDistance: Self.bottomPullActivationDistance
         ),
               !isLayoutEditing,
               !isReordering,
@@ -654,6 +671,8 @@ struct ChoreSelectionView: View {
         userHasScrolled = false
         bottomPickerArmed = true
         bottomSentinelMinY = .greatestFiniteMagnitude
+        bottomPullStartedAtBottom = false
+        bottomOverscrollDistance = 0
     }
 
     private func requestPremiumUpgrade(for trigger: PremiumUpgradeTrigger) {
@@ -1108,8 +1127,13 @@ private struct ChoreScrollViewportPreferenceKey: PreferenceKey {
     }
 }
 
+private struct ChoreScrollActivity {
+    let startedAtBottom: Bool
+    let bottomOverscroll: CGFloat
+}
+
 private struct ChoreScrollActivityObserver: UIViewRepresentable {
-    let onScroll: () -> Void
+    let onScroll: (ChoreScrollActivity) -> Void
 
     func makeCoordinator() -> Coordinator {
         Coordinator()
@@ -1139,7 +1163,11 @@ private struct ChoreScrollActivityObserver: UIViewRepresentable {
     @MainActor
     final class Coordinator: NSObject {
         weak var observedPanRecognizer: UIPanGestureRecognizer?
-        var onScroll: (() -> Void)?
+        weak var observedScrollView: UIScrollView?
+        var onScroll: ((ChoreScrollActivity) -> Void)?
+        private var gestureStartedAtBottom = false
+
+        private static let bottomStartTolerance: CGFloat = 8
 
         func attach(from view: UIView) {
             guard observedPanRecognizer == nil else { return }
@@ -1150,6 +1178,7 @@ private struct ChoreScrollActivityObserver: UIViewRepresentable {
             }
             guard let scrollView = ancestor as? UIScrollView else { return }
 
+            observedScrollView = scrollView
             observedPanRecognizer = scrollView.panGestureRecognizer
             scrollView.panGestureRecognizer.addTarget(
                 self,
@@ -1163,11 +1192,42 @@ private struct ChoreScrollActivityObserver: UIViewRepresentable {
                 action: #selector(handleScrollPan(_:))
             )
             observedPanRecognizer = nil
+            observedScrollView = nil
+            gestureStartedAtBottom = false
         }
 
         @objc private func handleScrollPan(_ recognizer: UIPanGestureRecognizer) {
-            guard recognizer.state == .began || recognizer.state == .changed else { return }
-            onScroll?()
+            guard let scrollView = observedScrollView else { return }
+
+            let maximumOffset = max(
+                -scrollView.adjustedContentInset.top,
+                scrollView.contentSize.height
+                    - scrollView.bounds.height
+                    + scrollView.adjustedContentInset.bottom
+            )
+
+            if recognizer.state == .began {
+                let remainingDistance = maximumOffset - scrollView.contentOffset.y
+                gestureStartedAtBottom = remainingDistance <= Self.bottomStartTolerance
+            }
+
+            guard recognizer.state == .began || recognizer.state == .changed else {
+                gestureStartedAtBottom = false
+                onScroll?(
+                    ChoreScrollActivity(
+                        startedAtBottom: false,
+                        bottomOverscroll: 0
+                    )
+                )
+                return
+            }
+
+            onScroll?(
+                ChoreScrollActivity(
+                    startedAtBottom: gestureStartedAtBottom,
+                    bottomOverscroll: max(0, scrollView.contentOffset.y - maximumOffset)
+                )
+            )
         }
     }
 }
@@ -1188,9 +1248,16 @@ enum ChoreLibraryRevealPolicy {
         distanceToBottom: CGFloat,
         threshold: CGFloat,
         userHasScrolled: Bool,
-        isArmed: Bool
+        isArmed: Bool,
+        pullStartedAtBottom: Bool,
+        overscrollDistance: CGFloat,
+        minimumPullDistance: CGFloat
     ) -> Bool {
-        distanceToBottom <= threshold && userHasScrolled && isArmed
+        distanceToBottom <= threshold
+            && userHasScrolled
+            && isArmed
+            && pullStartedAtBottom
+            && overscrollDistance >= minimumPullDistance
     }
 }
 
@@ -1297,7 +1364,9 @@ struct ChoreRoutineEditorView: View {
 
             Text(viewModel.hasPremiumAccess
                 ? "高级版常用家务不限数量，并可创建 10 项自定义家务。"
-                : "可少选，免费版最多 6 项；一家之主的设置会同步给全家。")
+                : (viewModel.isGuestWorkspace
+                    ? "先选最多 6 项家务，开始使用不需要登录。"
+                    : "可少选，免费版最多 6 项；一家之主的设置会同步给全家。"))
                 .font(.system(size: 13))
                 .foregroundStyle(DSColor.mutedInk)
                 .fixedSize(horizontal: false, vertical: true)
@@ -1352,13 +1421,13 @@ struct ChoreRoutineEditorView: View {
             Image(systemName: selectedIDs.isEmpty ? "hand.tap" : "checkmark.circle.fill")
                 .foregroundStyle(selectedIDs.isEmpty ? DSColor.mutedInk : DSColor.mint)
 
-            Text(selectedIDs.isEmpty ? "点卡片开始选择" : "已选择 \(selectedIDs.count) 项")
+            Text(selectionCount == 0 ? "点卡片开始选择" : "已选 \(selectionCount) / \(selectionMaximum)")
                 .font(.system(size: 14, weight: .semibold))
                 .foregroundStyle(DSColor.ink)
 
             Spacer()
 
-            Text(selectionLimit.map { "最多 \($0) 项" } ?? "不限数量")
+            Text(viewModel.isGuestWorkspace ? "含自定义家务" : (selectionLimit.map { "最多 \($0) 项" } ?? "不限数量"))
                 .font(.system(size: 12, weight: .medium))
                 .foregroundStyle(DSColor.mutedInk)
         }
@@ -1418,6 +1487,14 @@ struct ChoreRoutineEditorView: View {
 
     private var selectionLimit: Int? {
         viewModel.commonChoreSelectionLimit
+    }
+
+    private var selectionCount: Int {
+        selectedIDs.count + (viewModel.isGuestWorkspace ? viewModel.customChores.count : 0)
+    }
+
+    private var selectionMaximum: Int {
+        viewModel.isGuestWorkspace ? 6 : (selectionLimit ?? selectionCount)
     }
 
     private func themeAccent(_ theme: ChoreTheme) -> Color {
@@ -1635,10 +1712,11 @@ struct ChoreRoutineEditorView: View {
                 .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
             }
 
-            if viewModel.availableCustomChoreSlots > 0 || !viewModel.hasPremiumAccess {
+            if (viewModel.availableCustomChoreSlots > 0 || !viewModel.hasPremiumAccess)
+                && (!viewModel.isGuestWorkspace || selectionCount < 6) {
                 Button {
                     let context = CustomChoreEditorContext(id: "new-\(UUID().uuidString)", chore: nil)
-                    if viewModel.hasPremiumAccess {
+                    if viewModel.hasPremiumAccess || viewModel.isGuestWorkspace {
                         customEditorContext = context
                     } else {
                         pendingCustomEditorContext = context
@@ -1688,16 +1766,16 @@ struct ChoreRoutineEditorView: View {
                 } label: {
                     Group {
                         if isSaving { ProgressView().tint(DSColor.ink) }
-                        else { Label(isInitialSetup ? "保存并开始记录" : "保存常用家务", systemImage: "checkmark.circle.fill") }
+                        else { Label(isInitialSetup ? "开始使用" : "保存常用家务", systemImage: "checkmark.circle.fill") }
                     }
                     .font(.system(size: 16, weight: .semibold))
                     .frame(maxWidth: .infinity, minHeight: 50)
-                    .background(selectedIDs.isEmpty ? DSColor.surface : DSColor.yellow)
+                    .background(selectionCount == 0 ? DSColor.surface : DSColor.yellow)
                     .foregroundStyle(DSColor.ink)
                     .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
                 }
                 .buttonStyle(.plain)
-                .disabled(isSaving || selectedIDs.isEmpty)
+                .disabled(isSaving || selectionCount == 0)
             }
         }
         .padding(.horizontal, 20)
@@ -1983,7 +2061,7 @@ struct PremiumUpgradeSheet: View {
         VStack(spacing: 0) {
             comparisonHeader
             comparisonRow(label: "常用家务", free: "最多 6 项", premium: "不限数量")
-            comparisonRow(label: "自定义家务", free: "最多 2 项", premium: "最多 10 项")
+            comparisonRow(label: "自定义家务", free: "最多 2 项", premium: "不限（保护上限 100）")
             comparisonRow(label: "成员常用区", free: "全家共享", premium: "每人定制")
             comparisonRow(label: "积分倍率", free: "系统固定", premium: "0.5–2.0x")
             comparisonRow(label: "家庭共享", free: "不共享", premium: "全家可用")

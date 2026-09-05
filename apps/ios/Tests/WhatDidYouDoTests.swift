@@ -5,6 +5,231 @@ import XCTest
 
 @MainActor
 final class WhatDidYouDoTests: XCTestCase {
+    private func configureLocalFamilyProfile(
+        _ viewModel: AppViewModel,
+        familyName: String = "本机体验家庭",
+        displayName: String = "体验成员"
+    ) {
+        viewModel.familyName = familyName
+        viewModel.displayName = displayName
+        viewModel.selectedIdentityLabel = "家庭成员"
+        viewModel.selectedAvatarKey = "avatar_01"
+        viewModel.createFamily()
+        XCTAssertEqual(viewModel.rootScreen, .choreSetup)
+    }
+
+    func testLocalWorkspaceStorePersistsDraftAcrossLaunches() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("local-workspace-test-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = FileLocalWorkspaceStore(fileURL: directory.appendingPathComponent("draft.json"))
+        let chore = LocalDraftChore(chore: MockData.chores[0])
+        let draft = LocalDraftFamily(
+            createdAt: Date(timeIntervalSince1970: 1_800_000_000),
+            name: "本机体验家庭",
+            selectedChores: [chore]
+        )
+
+        try store.save(draft)
+
+        XCTAssertEqual(try store.load(), draft)
+        try store.delete()
+        XCTAssertNil(try store.load())
+    }
+
+    func testFirstLaunchStartsAtOnboardingWithoutAuthentication() {
+        let fixture = makeDefaultsFixture()
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.suiteName) }
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("first-launch-test-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let viewModel = AppViewModel(
+            tokenStore: MockSecureTokenStore(),
+            dataMode: .api,
+            userDefaults: fixture.defaults,
+            localWorkspaceStore: FileLocalWorkspaceStore(fileURL: directory.appendingPathComponent("draft.json")),
+            automaticallyRestoreSession: true
+        )
+
+        XCTAssertEqual(viewModel.sessionState, .unauthenticated)
+        XCTAssertEqual(viewModel.rootScreen, .onboarding)
+        XCTAssertNil(viewModel.localDraftFamily)
+    }
+
+    func testReturningUserWithoutStoredTokensStartsAtLogin() {
+        let fixture = makeDefaultsFixture()
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.suiteName) }
+        fixture.defaults.set(true, forKey: "has-authenticated-before-v1")
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("returning-login-test-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let viewModel = AppViewModel(
+            tokenStore: MockSecureTokenStore(),
+            dataMode: .api,
+            userDefaults: fixture.defaults,
+            localWorkspaceStore: FileLocalWorkspaceStore(fileURL: directory.appendingPathComponent("draft.json")),
+            automaticallyRestoreSession: true
+        )
+
+        XCTAssertEqual(viewModel.sessionState, .unauthenticated)
+        XCTAssertEqual(viewModel.rootScreen, .login)
+    }
+
+    func testLocalFamilyOnboardingPersistsAndRestoresSelectedChores() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("draft-restore-test-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let fileURL = directory.appendingPathComponent("draft.json")
+        let first = AppViewModel(
+            tokenStore: MockSecureTokenStore(),
+            dataMode: .api,
+            localWorkspaceStore: FileLocalWorkspaceStore(fileURL: fileURL),
+            automaticallyRestoreSession: true
+        )
+        first.beginLocalFamilyOnboarding()
+        configureLocalFamilyProfile(first, familyName: "温暖小家", displayName: "小明")
+        let selectedIDs = Array(first.routineCatalogChores.prefix(4).map(\.id))
+
+        let didSave = await first.saveChoreLayout(choreIDs: selectedIDs, pinnedIDs: [])
+        XCTAssertTrue(didSave)
+        XCTAssertEqual(first.rootScreen, .home)
+        XCTAssertTrue(first.isGuestWorkspace)
+
+        let restored = AppViewModel(
+            tokenStore: MockSecureTokenStore(),
+            dataMode: .api,
+            localWorkspaceStore: FileLocalWorkspaceStore(fileURL: fileURL),
+            automaticallyRestoreSession: true
+        )
+        XCTAssertEqual(restored.rootScreen, .home)
+        XCTAssertEqual(restored.choreOrder, selectedIDs)
+        XCTAssertTrue(restored.isGuestWorkspace)
+        XCTAssertEqual(restored.familyDisplayName, "温暖小家")
+        XCTAssertEqual(restored.currentUserName, "小明")
+    }
+
+    func testDistributionRegionsExposeOnlyTheirConfiguredProviders() {
+        XCTAssertEqual(DistributionRegion.cn.providers, [.apple, .wechat, .email])
+        XCTAssertEqual(DistributionRegion.global.providers, [.apple, .google, .email])
+    }
+
+    func testLocalOnboardingCanStartWithOnlyACustomChore() async {
+        let viewModel = AppViewModel(
+            tokenStore: MockSecureTokenStore(),
+            dataMode: .api,
+            automaticallyRestoreSession: false
+        )
+        viewModel.beginLocalFamilyOnboarding()
+        configureLocalFamilyProfile(viewModel)
+        let customSaved = await viewModel.saveCustomChore(
+            CustomChoreDraft(
+                name: "擦琴",
+                iconKey: "chore_custom_generic_01",
+                category: .cleaning,
+                standardMinutes: 15,
+                difficultyMultiplier: 1
+            )
+        )
+        let layoutSaved = await viewModel.saveChoreLayout(choreIDs: [], pinnedIDs: [])
+
+        XCTAssertTrue(customSaved)
+        XCTAssertTrue(layoutSaved)
+        XCTAssertEqual(viewModel.rootScreen, .home)
+        XCTAssertEqual(viewModel.localOnboardingSelectionCount, 1)
+    }
+
+    func testGuestWorkspacePersistsRecordedChoreAcrossLaunches() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("guest-record-test-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let fileURL = directory.appendingPathComponent("draft.json")
+        let first = AppViewModel(
+            tokenStore: MockSecureTokenStore(),
+            dataMode: .api,
+            localWorkspaceStore: FileLocalWorkspaceStore(fileURL: fileURL),
+            automaticallyRestoreSession: true
+        )
+        first.beginLocalFamilyOnboarding()
+        configureLocalFamilyProfile(first)
+        let chore = try XCTUnwrap(first.routineCatalogChores.first)
+        let savedLayout = await first.saveChoreLayout(choreIDs: [chore.id], pinnedIDs: [])
+        XCTAssertTrue(savedLayout)
+
+        first.record(chore, actualMinutes: 17, calculatedPoints: 23)
+
+        let restored = AppViewModel(
+            tokenStore: MockSecureTokenStore(),
+            dataMode: .api,
+            localWorkspaceStore: FileLocalWorkspaceStore(fileURL: fileURL),
+            automaticallyRestoreSession: true
+        )
+        XCTAssertEqual(restored.recentRecords.count, 1)
+        XCTAssertEqual(restored.recentRecords.first?.choreName, chore.name)
+        XCTAssertEqual(restored.recentRecords.first?.actualMinutes, 17)
+        XCTAssertEqual(restored.recentRecords.first?.points, 23)
+        XCTAssertEqual(restored.sessionState, .unauthenticated)
+        XCTAssertEqual(restored.rootScreen, .home)
+    }
+
+    func testGuestWorkspaceSixItemLimitIncludesCustomChores() async {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("guest-limit-test-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let viewModel = AppViewModel(
+            tokenStore: MockSecureTokenStore(),
+            dataMode: .api,
+            localWorkspaceStore: FileLocalWorkspaceStore(fileURL: directory.appendingPathComponent("draft.json")),
+            automaticallyRestoreSession: true
+        )
+        viewModel.beginLocalFamilyOnboarding()
+        configureLocalFamilyProfile(viewModel)
+        let custom = CustomChoreDraft(
+            name: "擦琴",
+            iconKey: "chore_custom_generic_01",
+            category: .cleaning,
+            standardMinutes: 10,
+            difficultyMultiplier: 1
+        )
+        let savedCustomChore = await viewModel.saveCustomChore(custom)
+        XCTAssertTrue(savedCustomChore)
+        let catalogIDs = Array(viewModel.routineCatalogChores.prefix(6).map(\.id))
+
+        let savedOverLimitLayout = await viewModel.saveChoreLayout(choreIDs: catalogIDs, pinnedIDs: [])
+        XCTAssertFalse(savedOverLimitLayout)
+        let savedAllowedLayout = await viewModel.saveChoreLayout(
+            choreIDs: Array(catalogIDs.prefix(5)),
+            pinnedIDs: []
+        )
+        XCTAssertTrue(savedAllowedLayout)
+        XCTAssertEqual(viewModel.localOnboardingSelectionCount, 6)
+    }
+
+    func testAchievementArtworkMapsAllCurrentAchievementThemes() {
+        let expectedMappings = [
+            "FIRST_RECORD": "achievement_first_record",
+            "ACTIVE_DAYS_3": "achievement_active_days_3",
+            "HABIT_30": "achievement_habit_25_30",
+            "MASTERY_DISHES": "achievement_mastery_dishes",
+            "REACTION_FIRST": "achievement_reaction_first",
+            "FAMILY_FORMED": "achievement_family_formed",
+            "PAIR_COOK_AND_CLEAN": "achievement_pair_cook_and_clean",
+            "FAMILY_ACTIVE_DAYS": "achievement_family_visible_4w",
+            "FAMILY_RECORD_COUNT": "achievement_family_all_in",
+            "FAMILY_ANNIVERSARY": "achievement_family_formed",
+            "HIDDEN_DISHES_3": "achievement_mastery_dishes",
+            "HIDDEN_SHINY_FLOOR": "achievement_mastery_floor",
+            "HIDDEN_GUESTS": "achievement_mastery_all_rounder",
+            "HIDDEN_NIGHT_SHIFT": "achievement_streak_14",
+            "HIDDEN_ENDURANCE": "achievement_mastery_organize",
+        ]
+
+        for (key, assetName) in expectedMappings {
+            XCTAssertEqual(AchievementCopy.artworkAssetName(for: key), assetName)
+        }
+        XCTAssertNil(AchievementCopy.artworkAssetName(for: "UNKNOWN_ACHIEVEMENT"))
+    }
+
     func testAppAppearanceProvidesThreeStableOptions() {
         XCTAssertEqual(AppAppearance.allCases, [.system, .light, .dark])
         XCTAssertEqual(AppAppearance.system.title, "跟随系统")
@@ -193,7 +418,7 @@ final class WhatDidYouDoTests: XCTestCase {
         )
         XCTAssertFalse(overFreeLimit)
 
-        viewModel.phoneNumber = "layout-premium"
+        viewModel.developmentIdentifier = "layout-premium"
         viewModel.mockLogin()
         let redeemed = await viewModel.redeemPremium(code: "241255")
         XCTAssertTrue(redeemed)
@@ -306,37 +531,60 @@ final class WhatDidYouDoTests: XCTestCase {
         XCTAssertEqual(coordinator.trashFrame, .zero)
     }
 
-    func testChoreLibraryRevealRequiresARealUserScrollAndAnArmedTrigger() {
+    func testChoreLibraryRevealRequiresASecondDeliberatePullFromTheBottom() {
         XCTAssertFalse(
             ChoreLibraryRevealPolicy.shouldOpen(
-                distanceToBottom: 0,
+                distanceToBottom: -80,
                 threshold: -60,
                 userHasScrolled: false,
-                isArmed: true
+                isArmed: true,
+                pullStartedAtBottom: true,
+                overscrollDistance: 48,
+                minimumPullDistance: 44
             )
         )
         XCTAssertFalse(
             ChoreLibraryRevealPolicy.shouldOpen(
-                distanceToBottom: 0,
+                distanceToBottom: -80,
                 threshold: -60,
                 userHasScrolled: true,
-                isArmed: false
+                isArmed: false,
+                pullStartedAtBottom: true,
+                overscrollDistance: 48,
+                minimumPullDistance: 44
             )
         )
         XCTAssertFalse(
             ChoreLibraryRevealPolicy.shouldOpen(
-                distanceToBottom: -40,
+                distanceToBottom: -80,
                 threshold: -60,
                 userHasScrolled: true,
-                isArmed: true
+                isArmed: true,
+                pullStartedAtBottom: false,
+                overscrollDistance: 48,
+                minimumPullDistance: 44
+            )
+        )
+        XCTAssertFalse(
+            ChoreLibraryRevealPolicy.shouldOpen(
+                distanceToBottom: -80,
+                threshold: -60,
+                userHasScrolled: true,
+                isArmed: true,
+                pullStartedAtBottom: true,
+                overscrollDistance: 30,
+                minimumPullDistance: 44
             )
         )
         XCTAssertTrue(
             ChoreLibraryRevealPolicy.shouldOpen(
-                distanceToBottom: -64,
+                distanceToBottom: -80,
                 threshold: -60,
                 userHasScrolled: true,
-                isArmed: true
+                isArmed: true,
+                pullStartedAtBottom: true,
+                overscrollDistance: 48,
+                minimumPullDistance: 44
             )
         )
     }
@@ -440,7 +688,7 @@ final class WhatDidYouDoTests: XCTestCase {
         let fixture = makeDefaultsFixture()
         defer { fixture.defaults.removePersistentDomain(forName: fixture.suiteName) }
         let viewModel = makeViewModel(defaults: fixture.defaults)
-        viewModel.phoneNumber = "premium-placeholder-removal"
+        viewModel.developmentIdentifier = "premium-placeholder-removal"
         viewModel.mockLogin()
         let redeemed = await viewModel.redeemPremium(code: "241255")
         XCTAssertTrue(redeemed)
@@ -547,7 +795,7 @@ final class WhatDidYouDoTests: XCTestCase {
         let fixture = makeDefaultsFixture()
         defer { fixture.defaults.removePersistentDomain(forName: fixture.suiteName) }
         let viewModel = makeViewModel(defaults: fixture.defaults)
-        viewModel.phoneNumber = "premium-grid"
+        viewModel.developmentIdentifier = "premium-grid"
         viewModel.mockLogin()
         let redeemed = await viewModel.redeemPremium(code: "241255")
         XCTAssertTrue(redeemed)
@@ -613,7 +861,7 @@ final class WhatDidYouDoTests: XCTestCase {
         defer { fixture.defaults.removePersistentDomain(forName: fixture.suiteName) }
 
         let viewModel = makeViewModel(defaults: fixture.defaults)
-        viewModel.phoneNumber = "123456"
+        viewModel.developmentIdentifier = "123456"
         viewModel.mockLogin()
 
         let wrongCodeSucceeded = await viewModel.redeemPremium(code: "000000")
@@ -623,14 +871,14 @@ final class WhatDidYouDoTests: XCTestCase {
         let correctCodeSucceeded = await viewModel.redeemPremium(code: "241255")
         XCTAssertTrue(correctCodeSucceeded)
         XCTAssertTrue(viewModel.hasPremiumAccess)
-        XCTAssertEqual(viewModel.customChoreLimit, 10)
-        XCTAssertEqual(viewModel.availableCustomChoreSlots, 10)
+        XCTAssertEqual(viewModel.customChoreLimit, 100)
+        XCTAssertEqual(viewModel.availableCustomChoreSlots, 100)
 
         let restoredViewModel = makeViewModel(defaults: fixture.defaults)
-        restoredViewModel.phoneNumber = "123456"
+        restoredViewModel.developmentIdentifier = "123456"
         restoredViewModel.mockLogin()
         XCTAssertTrue(restoredViewModel.hasPremiumAccess)
-        XCTAssertEqual(restoredViewModel.customChoreLimit, 10)
+        XCTAssertEqual(restoredViewModel.customChoreLimit, 100)
     }
 
     func testAPIPremiumRedemptionUsesBackendAndUnlocksAccount() async throws {
@@ -681,12 +929,16 @@ final class WhatDidYouDoTests: XCTestCase {
                 "id": "chore-1",
                 "name": "洗碗",
                 "category": "厨房类",
-                "icon": "fork.knife"
+                "icon": "fork.knife",
+                "standardMinutes": 15,
+                "defaultPoints": 20,
+                "difficultyMultiplier": 1.3
               },
               "choreName": "洗碗",
               "minutes": 15,
               "actualMinutes": 20,
               "points": 28,
+              "pointsMultiplier": 1.4,
               "note": null,
               "imageUrls": [],
               "likeCount": 1,
@@ -709,6 +961,7 @@ final class WhatDidYouDoTests: XCTestCase {
                 "tease": 0
               },
               "canDelete": true,
+              "canEdit": true,
               "createdAt": "2026-06-22T08:00:00.000Z"
             }
             """#.utf8
@@ -719,6 +972,9 @@ final class WhatDidYouDoTests: XCTestCase {
         XCTAssertEqual(dto.likeCount, 1)
         XCTAssertEqual(dto.likedByMe, true)
         XCTAssertEqual(dto.canDelete, true)
+        XCTAssertEqual(dto.canEdit, true)
+        XCTAssertEqual(dto.pointsMultiplier, 1.4)
+        XCTAssertEqual(dto.chore.defaultPoints, 20)
         XCTAssertEqual(dto.createdBy?.identityLabel, "老妈")
         XCTAssertEqual(dto.createdBy?.avatarKey, "avatar_01")
         XCTAssertEqual(dto.likedBy?.first?.identityLabel, "室友")
@@ -727,6 +983,23 @@ final class WhatDidYouDoTests: XCTestCase {
         XCTAssertEqual(dto.myReaction, "laugh_cry")
         XCTAssertEqual(dto.reactionCounts?["high_five"], 1)
         XCTAssertEqual(dto.reactionCounts?["laugh_cry"], 1)
+    }
+
+    func testMockRecordEditUpdatesOnlyOwnedRecord() throws {
+        let viewModel = AppViewModel.previewLoggedIn()
+        let ownedRecord = try XCTUnwrap(viewModel.recentRecords.first { $0.canEdit })
+        let untouchedIDs = viewModel.recentRecords.filter { $0.id != ownedRecord.id }.map(\.id)
+
+        viewModel.updateRecord(ownedRecord, actualMinutes: 30, pointsMultiplier: nil)
+
+        let updated = try XCTUnwrap(viewModel.recentRecords.first { $0.id == ownedRecord.id })
+        XCTAssertEqual(updated.actualMinutes, 30)
+        XCTAssertEqual(updated.points, 42)
+        XCTAssertNil(updated.pointsMultiplier)
+        XCTAssertEqual(
+            viewModel.recentRecords.filter { $0.id != ownedRecord.id }.map(\.id),
+            untouchedIDs
+        )
     }
 
     func testMockReactionCanBeSelectedChangedAndRemovedWithoutDoubleCounting() throws {
@@ -799,16 +1072,88 @@ final class WhatDidYouDoTests: XCTestCase {
 
     func testMonthlyReportDecodesThemeAndCategoryStats() throws {
         let data = Data(
-            #"{"familyId":"family-1","month":"2026-08","totalPoints":41,"totalRecords":2,"totalMinutes":35,"headline":"本月家务宇宙稳定运转","leaderboard":[],"themeStats":[{"themeKey":"daily","points":41,"recordCount":2}],"categoryStats":[{"category":"厨房类","points":41,"recordCount":2}],"recentRecords":[]}"#.utf8
+            #"{"familyId":"family-1","month":"2026-08","totalPoints":41,"totalRecords":2,"totalMinutes":35,"headline":"本月家务宇宙稳定运转","monthlyTrend":[{"month":"2026-07","points":30,"recordCount":1,"totalMinutes":20},{"month":"2026-08","points":41,"recordCount":2,"totalMinutes":35}],"leaderboard":[],"themeStats":[{"themeKey":"daily","points":41,"recordCount":2}],"categoryStats":[{"category":"厨房类","points":41,"recordCount":2,"memberContributions":[{"userId":"user-1","displayName":"来财","points":31,"recordCount":1,"totalMinutes":20},{"userId":"user-2","displayName":"来钱","points":10,"recordCount":1,"totalMinutes":15}]}],"recentRecords":[]}"#.utf8
         )
 
         let report = try APIClient.decoder.decode(MonthlyReportDTO.self, from: data)
 
         XCTAssertEqual(report.totalMinutes, 35)
+        XCTAssertEqual(report.monthlyTrend?.count, 2)
+        XCTAssertEqual(report.monthlyTrend?.last?.points, 41)
         XCTAssertEqual(report.themeStats?.first?.themeKey, "daily")
         XCTAssertEqual(report.themeStats?.first?.points, 41)
         XCTAssertEqual(report.categoryStats.first?.category, "厨房类")
         XCTAssertEqual(report.categoryStats.first?.recordCount, 2)
+        XCTAssertEqual(report.categoryStats.first?.memberContributions?.first?.userId, "user-1")
+        XCTAssertEqual(report.categoryStats.first?.memberContributions?.first?.points, 31)
+    }
+
+    func testAchievementSummaryDTOIncludesProgressRewardAndCapacity() throws {
+        let summary = try APIClient.decoder.decode(
+            AchievementSummaryDTO.self,
+            from: Self.achievementSummaryData
+        )
+
+        XCTAssertEqual(summary.unlockedCount, 1)
+        XCTAssertEqual(summary.totalCount, 7)
+        XCTAssertEqual(summary.nextAchievement?.key, "ACTIVE_DAYS_3")
+        XCTAssertEqual(summary.nextAchievement?.currentValue, 2)
+        XCTAssertEqual(summary.nextAchievement?.reward?.type, "COMMON_CHORE_SLOT")
+        XCTAssertEqual(summary.capacity.common.limit, 6)
+        XCTAssertEqual(summary.capacity.custom.limit, 2)
+    }
+
+    func testMockAchievementsLoadAndUpdateSharingWithoutNetwork() async throws {
+        let viewModel = AppViewModel.previewLoggedIn()
+
+        await viewModel.refreshAchievements()
+
+        XCTAssertEqual(viewModel.achievementDataState, .loaded)
+        XCTAssertEqual(viewModel.achievementItems.count, 7)
+        XCTAssertEqual(viewModel.nextAchievement?.key, "ACTIVE_DAYS_3")
+        XCTAssertEqual(viewModel.upcomingAchievements.count, 3)
+        XCTAssertEqual(viewModel.upcomingAchievements.map(\.key), [
+            "ACTIVE_DAYS_3",
+            "ACTIVE_DAYS_5",
+            "ACTIVE_DAYS_7",
+        ])
+        XCTAssertEqual(viewModel.orderedAchievements.first?.key, "FIRST_RECORD")
+        XCTAssertTrue(
+            viewModel.orderedAchievements
+                .drop(while: \.isUnlocked)
+                .prefix(3)
+                .allSatisfy { $0.reward != nil }
+        )
+        await viewModel.updateAchievementSharing(showToFamily: false)
+
+        XCTAssertFalse(viewModel.showAchievementsToFamily)
+        XCTAssertTrue(viewModel.unlockedAchievements.allSatisfy { $0.visibility == .privateOnly })
+    }
+
+    func testAPIModeLoadsAchievementSummaryAndCollection() async throws {
+        let fixture = makeDefaultsFixture()
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.suiteName) }
+        var responses = Self.restoreResponses
+        responses["GET /families/family-1/achievements/summary"] = Self.achievementSummaryData
+        responses["GET /families/family-1/achievements/me"] = Self.achievementCollectionData
+        let client = StubAPIClient(responses: responses)
+        let viewModel = AppViewModel(
+            apiClient: client,
+            tokenStore: MockSecureTokenStore(token: "stored-token"),
+            dataMode: .api,
+            userDefaults: fixture.defaults
+        )
+        try await waitUntil { viewModel.sessionState == .authenticated }
+
+        await viewModel.refreshAchievements()
+
+        XCTAssertEqual(viewModel.achievementDataState, .loaded)
+        XCTAssertEqual(viewModel.achievementSummary?.unlockedCount, 1)
+        XCTAssertEqual(viewModel.achievementItems.count, 2)
+        XCTAssertEqual(viewModel.nextAchievement?.key, "ACTIVE_DAYS_3")
+        let paths = await client.requestPaths
+        XCTAssertTrue(paths.contains("GET /families/family-1/achievements/summary"))
+        XCTAssertTrue(paths.contains("GET /families/family-1/achievements/me"))
     }
 
     func testMonthlyReportCanMoveToPreviousMonthAndBack() {
@@ -903,11 +1248,11 @@ final class WhatDidYouDoTests: XCTestCase {
         XCTAssertTrue(records.allSatisfy { $0.createdAt >= Date().addingTimeInterval(-30 * 24 * 60 * 60) })
     }
 
-    func testMockAppearanceUpdatesCurrentProfileWithoutRewritingExistingActivity() async {
+    func testMockAppearanceUpdatesCurrentProfileAndHistoricalActivity() async {
         let viewModel = AppViewModel.previewLoggedIn()
-        let originalActivityAvatars = viewModel.weekRecords
-            .filter { $0.creatorId == viewModel.currentUser?.id }
-            .map(\.avatarKey)
+        let currentUserID = viewModel.currentUser?.id
+
+        XCTAssertFalse(viewModel.weekRecords.filter { $0.creatorId == currentUserID }.isEmpty)
 
         XCTAssertEqual(viewModel.monthlyLeaderIllustrationAsset, "family_avatar_action_01")
 
@@ -921,9 +1266,14 @@ final class WhatDidYouDoTests: XCTestCase {
         )
         XCTAssertEqual(
             viewModel.weekRecords
-                .filter { $0.creatorId == viewModel.currentUser?.id }
+                .filter { $0.creatorId == currentUserID }
                 .map(\.avatarKey),
-            originalActivityAvatars
+            Array(repeating: "avatar_13", count: viewModel.weekRecords.filter { $0.creatorId == currentUserID }.count)
+        )
+        XCTAssertTrue(
+            viewModel.recentRecords
+                .filter { $0.creatorId == currentUserID }
+                .allSatisfy { $0.avatarKey == "avatar_13" }
         )
         XCTAssertEqual(FamilyIdentityOptions.actionAsset(for: "avatar_13"), "family_avatar_action_13")
         XCTAssertEqual(viewModel.monthlyLeaderIllustrationAsset, "family_avatar_action_13")
@@ -962,6 +1312,10 @@ final class WhatDidYouDoTests: XCTestCase {
         XCTAssertFalse(APIConfig.isLoopbackURL(environment.baseURL))
     }
 
+    func testAPIConfigProductionUsesPublicAPI() {
+        XCTAssertEqual(APIConfig.productionBaseURL.absoluteString, "https://api.douxiaolang.com")
+    }
+
     func testConnectivityErrorClassificationCoversOfflineFailures() {
         XCTAssertTrue(APIError.isConnectivityError(URLError(.notConnectedToInternet)))
         XCTAssertTrue(APIError.isConnectivityError(URLError(.cannotConnectToHost)))
@@ -985,6 +1339,54 @@ final class WhatDidYouDoTests: XCTestCase {
         XCTAssertEqual(viewModel.selectedTab, .record)
     }
 
+    func testDeleteResponseDecodesBackendUndoContract() throws {
+        let data = Data(
+            #"{"recordId":"record-1","deletedAt":"2026-08-13T10:00:00.000Z","deletedById":"user-1","undoExpiresAt":"2026-08-13T10:00:10.000Z"}"#.utf8
+        )
+
+        let response = try APIClient.decoder.decode(DeleteRecordResponseDTO.self, from: data)
+
+        XCTAssertEqual(response.recordId, "record-1")
+        XCTAssertNotNil(response.deletedAt)
+        XCTAssertNotNil(response.undoExpiresAt)
+    }
+
+    func testDeleteUndoWindowUsesServerDurationInsteadOfAbsoluteServerClock() {
+        let serverDeletedAt = Date(timeIntervalSince1970: 1_000)
+        let serverUndoExpiresAt = serverDeletedAt.addingTimeInterval(10)
+        let deviceNow = Date(timeIntervalSince1970: 5_000)
+
+        let localExpiration = AppViewModel.localRecordDeletionUndoExpiration(
+            deletedAt: serverDeletedAt,
+            undoExpiresAt: serverUndoExpiresAt,
+            now: deviceNow
+        )
+
+        XCTAssertGreaterThan(localExpiration, deviceNow)
+        XCTAssertEqual(localExpiration.timeIntervalSince(deviceNow), 9.75, accuracy: 0.001)
+    }
+
+    func testMockDeleteCanBeUndoneWithinWindow() {
+        let fixture = makeDefaultsFixture()
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.suiteName) }
+        let viewModel = AppViewModel(
+            forceMockData: true,
+            userDefaults: fixture.defaults,
+            automaticallyRestoreSession: false
+        )
+        let record = try! XCTUnwrap(viewModel.weekRecords.first(where: { $0.canDelete }))
+
+        viewModel.deleteRecord(record)
+
+        XCTAssertFalse(viewModel.weekRecords.contains(where: { $0.id == record.id }))
+        XCTAssertEqual(viewModel.pendingRecordDeletion?.record.id, record.id)
+
+        viewModel.undoLastRecordDeletion()
+
+        XCTAssertTrue(viewModel.weekRecords.contains(where: { $0.id == record.id }))
+        XCTAssertNil(viewModel.pendingRecordDeletion)
+    }
+
     func testMockModeDoesNotCallNetwork() async {
         let fixture = makeDefaultsFixture()
         defer { fixture.defaults.removePersistentDomain(forName: fixture.suiteName) }
@@ -994,7 +1396,7 @@ final class WhatDidYouDoTests: XCTestCase {
             dataMode: .mock,
             userDefaults: fixture.defaults
         )
-        viewModel.phoneNumber = "123456"
+        viewModel.developmentIdentifier = "123456"
 
         viewModel.mockLogin()
 
@@ -1013,7 +1415,7 @@ final class WhatDidYouDoTests: XCTestCase {
             userDefaults: fixture.defaults,
             automaticallyRestoreSession: false
         )
-        viewModel.phoneNumber = "123456"
+        viewModel.developmentIdentifier = "123456"
         viewModel.displayName = "小明"
 
         viewModel.mockLogin()
@@ -1030,7 +1432,7 @@ final class WhatDidYouDoTests: XCTestCase {
             userDefaults: fixture.defaults,
             automaticallyRestoreSession: false
         )
-        viewModel.phoneNumber = "123456"
+        viewModel.developmentIdentifier = "123456"
         viewModel.mockLogin()
 
         let updated = await viewModel.updateDisplayName("新的昵称")
@@ -1047,7 +1449,7 @@ final class WhatDidYouDoTests: XCTestCase {
             userDefaults: fixture.defaults,
             automaticallyRestoreSession: false
         )
-        viewModel.phoneNumber = "123456"
+        viewModel.developmentIdentifier = "123456"
         viewModel.mockLogin()
         viewModel.displayName = "创建家庭昵称"
         viewModel.familyName = "昵称测试家庭"
@@ -1067,7 +1469,7 @@ final class WhatDidYouDoTests: XCTestCase {
             userDefaults: fixture.defaults,
             automaticallyRestoreSession: false
         )
-        viewModel.phoneNumber = "654321"
+        viewModel.developmentIdentifier = "654321"
         viewModel.mockLogin()
         viewModel.showJoinFamily()
         viewModel.displayName = "加入家庭昵称"
@@ -1093,7 +1495,7 @@ final class WhatDidYouDoTests: XCTestCase {
             userDefaults: fixture.defaults,
             automaticallyRestoreSession: false
         )
-        viewModel.phoneNumber = "654321"
+        viewModel.developmentIdentifier = "654321"
 
         viewModel.mockLogin()
 
@@ -1109,22 +1511,25 @@ final class WhatDidYouDoTests: XCTestCase {
         XCTAssertEqual(paths, ["POST /auth/mock-login"])
     }
 
-    func testKeychainStoreSavesLoadsAndDeletesToken() throws {
+    func testKeychainStoreSavesLoadsAndDeletesRotatingTokenPair() throws {
         let store = KeychainStore(
             service: "com.whatdidyoudo.tests.\(UUID().uuidString)",
             account: "access-token"
         )
-        defer { try? store.deleteAccessToken() }
+        defer { try? store.deleteTokens() }
 
         do {
-            let initialToken = try store.loadAccessToken()
-            XCTAssertNil(initialToken)
-            try store.saveAccessToken("keychain-test-token")
-            let savedToken = try store.loadAccessToken()
-            XCTAssertEqual(savedToken, "keychain-test-token")
-            try store.deleteAccessToken()
-            let deletedToken = try store.loadAccessToken()
-            XCTAssertNil(deletedToken)
+            let tokens = AuthTokens(
+                accessToken: "keychain-access-token",
+                refreshToken: "keychain-refresh-token",
+                accessTokenExpiresAt: Date(timeIntervalSince1970: 1_800_000_000),
+                refreshTokenExpiresAt: Date(timeIntervalSince1970: 1_802_592_000)
+            )
+            XCTAssertNil(try store.loadTokens())
+            try store.saveTokens(tokens)
+            XCTAssertEqual(try store.loadTokens(), tokens)
+            try store.deleteTokens()
+            XCTAssertNil(try store.loadTokens())
         } catch KeychainStoreError.unhandledStatus(errSecMissingEntitlement) {
             throw XCTSkip("Unsigned CI test hosts cannot access Keychain")
         }
@@ -1142,7 +1547,7 @@ final class WhatDidYouDoTests: XCTestCase {
             userDefaults: fixture.defaults,
             automaticallyRestoreSession: false
         )
-        viewModel.phoneNumber = "123456"
+        viewModel.developmentIdentifier = "123456"
 
         viewModel.mockLogin()
         try await waitUntil { tokenStore.token == "api-token" && !viewModel.isLoading }
@@ -1154,11 +1559,109 @@ final class WhatDidYouDoTests: XCTestCase {
         let requestBodies = await client.requestBodies
         let requestBody = try XCTUnwrap(requestBodies["POST /auth/mock-login"])
         let json = try XCTUnwrap(JSONSerialization.jsonObject(with: requestBody) as? [String: Any])
-        XCTAssertEqual(json["phoneNumber"] as? String, "123456")
+        XCTAssertEqual(json["devIdentifier"] as? String, "123456")
         XCTAssertNil(json["displayName"])
     }
 
-    func testLogoutDeletesStoredToken() {
+    func testEmailOTPLoginSendsCodeAndInstallsRotatingSession() async throws {
+        let fixture = makeDefaultsFixture()
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.suiteName) }
+        var responses = Self.loginResponses
+        responses["POST /auth/email/send-code"] = Data(
+            #"{"challengeId":"F3393B05-5CC9-4F00-90AE-9C3B962ED8D2","maskedEmail":"te***@example.com","expiresInSeconds":600,"resendAfterSeconds":60,"developmentCode":"123456"}"#.utf8
+        )
+        responses["POST /auth/email/verify-code"] = Data(
+            #"{"user":{"id":"email-user","displayName":"新成员"},"accessToken":"email-access-token","refreshToken":"email-refresh-token","accessTokenExpiresAt":"2099-01-01T00:15:00.000Z","refreshTokenExpiresAt":"2099-01-31T00:00:00.000Z"}"#.utf8
+        )
+        let client = StubAPIClient(responses: responses)
+        let tokenStore = MockSecureTokenStore()
+        let viewModel = AppViewModel(
+            apiClient: client,
+            tokenStore: tokenStore,
+            dataMode: .api,
+            userDefaults: fixture.defaults,
+            automaticallyRestoreSession: false
+        )
+
+        let challengeResponse = await viewModel.requestEmailLoginCode(" Test@Example.COM ")
+        let challenge = try XCTUnwrap(challengeResponse)
+        XCTAssertEqual(challenge.developmentCode, "123456")
+        let verified = await viewModel.verifyEmailLoginCode(
+            email: "Test@Example.COM",
+            challengeId: challenge.challengeId,
+            code: "123456"
+        )
+
+        XCTAssertTrue(verified)
+        XCTAssertEqual(viewModel.accessToken, "email-access-token")
+        XCTAssertEqual(tokenStore.tokens?.refreshToken, "email-refresh-token")
+        XCTAssertEqual(viewModel.sessionState, .authenticated)
+        XCTAssertEqual(viewModel.rootScreen, .createFamily)
+        let requestBodies = await client.requestBodies
+        let sendBody = try XCTUnwrap(requestBodies["POST /auth/email/send-code"])
+        let sendJSON = try XCTUnwrap(JSONSerialization.jsonObject(with: sendBody) as? [String: Any])
+        XCTAssertEqual(sendJSON["email"] as? String, "test@example.com")
+    }
+
+    func testEmailOTPLoginDoesNotAppearSuccessfulWhenSecureStorageFails() async throws {
+        let fixture = makeDefaultsFixture()
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.suiteName) }
+        var responses = Self.loginResponses
+        responses["POST /auth/email/verify-code"] = Data(
+            #"{"user":{"id":"email-user","displayName":"新成员"},"accessToken":"email-access-token","refreshToken":"email-refresh-token","accessTokenExpiresAt":"2099-01-01T00:15:00.000Z","refreshTokenExpiresAt":"2099-01-31T00:00:00.000Z"}"#.utf8
+        )
+        let client = StubAPIClient(responses: responses)
+        let tokenStore = MockSecureTokenStore(saveError: TestSecureTokenStoreError.saveFailed)
+        let viewModel = AppViewModel(
+            apiClient: client,
+            tokenStore: tokenStore,
+            dataMode: .api,
+            userDefaults: fixture.defaults,
+            automaticallyRestoreSession: false
+        )
+
+        let verified = await viewModel.verifyEmailLoginCode(
+            email: "test@example.com",
+            challengeId: "challenge-id",
+            code: "123456"
+        )
+
+        XCTAssertFalse(verified)
+        XCTAssertNil(viewModel.accessToken)
+        XCTAssertEqual(viewModel.sessionState, .unauthenticated)
+        XCTAssertEqual(viewModel.errorMessage, "无法安全保存登录状态，请重新打开 App 后再试。")
+        XCTAssertNotNil(viewModel.lastSecureStorageErrorMessage)
+    }
+
+    func testClaimLocalDraftRequestEncodesDatesAsISO8601Strings() throws {
+        let request = ClaimLocalDraftRequest(
+            draftId: "draft-id",
+            draftCreatedAt: Date(timeIntervalSince1970: 1_800_000_000),
+            familyName: "我的家庭",
+            identityLabel: "成员",
+            customIdentity: nil,
+            avatarKey: "avatar-01",
+            timezone: "Asia/Shanghai",
+            chores: [],
+            records: [
+                ClaimLocalDraftRecordRequest(
+                    id: "record-id",
+                    choreLocalId: "chore-id",
+                    actualMinutes: 15,
+                    note: nil,
+                    occurredAt: Date(timeIntervalSince1970: 1_800_000_060)
+                )
+            ]
+        )
+
+        let data = try APIClient.encoder.encode(request)
+        let json = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        XCTAssertEqual(json["draftCreatedAt"] as? String, "2027-01-15T08:00:00Z")
+        let records = try XCTUnwrap(json["records"] as? [[String: Any]])
+        XCTAssertEqual(records.first?["occurredAt"] as? String, "2027-01-15T08:01:00Z")
+    }
+
+    func testLogoutDeletesStoredToken() async throws {
         let fixture = makeDefaultsFixture()
         defer { fixture.defaults.removePersistentDomain(forName: fixture.suiteName) }
         let tokenStore = MockSecureTokenStore(token: "stored-token")
@@ -1170,12 +1673,76 @@ final class WhatDidYouDoTests: XCTestCase {
         )
 
         viewModel.logout()
+        try await waitUntil { tokenStore.token == nil }
 
         XCTAssertNil(tokenStore.token)
         XCTAssertEqual(tokenStore.deleteCount, 1)
         XCTAssertNil(viewModel.accessToken)
         XCTAssertEqual(viewModel.sessionState, .unauthenticated)
-        XCTAssertEqual(viewModel.rootScreen, .login)
+        XCTAssertEqual(viewModel.rootScreen, .onboarding)
+    }
+
+    func testDeleteAccountClearsTokenCachePendingDataAndSession() async throws {
+        let fixture = makeDefaultsFixture()
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.suiteName) }
+        fixture.defaults.set(Data("pending".utf8), forKey: "pending-chore-record-uploads-v1")
+        var responses = Self.restoreResponses
+        responses["DELETE /auth/me"] = Data(
+            #"{"deleted":true,"deletedAt":"2026-08-14T11:00:00.000Z"}"#.utf8
+        )
+        let client = StubAPIClient(responses: responses)
+        let tokenStore = MockSecureTokenStore(token: "delete-token")
+        let viewModel = AppViewModel(
+            apiClient: client,
+            tokenStore: tokenStore,
+            dataMode: .api,
+            userDefaults: fixture.defaults,
+            automaticallyRestoreSession: true
+        )
+        try await waitUntil { viewModel.sessionState == .authenticated && !viewModel.isLoading }
+
+        let deleted = await viewModel.deleteAccount()
+
+        XCTAssertTrue(deleted)
+        XCTAssertNil(tokenStore.token)
+        XCTAssertEqual(tokenStore.deleteCount, 1)
+        XCTAssertNil(viewModel.accessToken)
+        XCTAssertNil(viewModel.currentUser)
+        XCTAssertNil(viewModel.currentFamily)
+        XCTAssertEqual(viewModel.sessionState, .unauthenticated)
+        XCTAssertEqual(viewModel.rootScreen, .onboarding)
+        XCTAssertNil(fixture.defaults.data(forKey: "pending-chore-record-uploads-v1"))
+        let clearCacheCount = await client.clearCacheCount
+        let requestPaths = await client.requestPaths
+        XCTAssertEqual(clearCacheCount, 1)
+        XCTAssertTrue(requestPaths.contains("DELETE /auth/me"))
+    }
+
+    func testDeleteAccountFailureKeepsAuthenticatedSession() async throws {
+        let fixture = makeDefaultsFixture()
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.suiteName) }
+        let client = StubAPIClient(
+            responses: Self.restoreResponses,
+            errors: ["DELETE /auth/me": URLError(.notConnectedToInternet)]
+        )
+        let tokenStore = MockSecureTokenStore(token: "kept-token")
+        let viewModel = AppViewModel(
+            apiClient: client,
+            tokenStore: tokenStore,
+            dataMode: .api,
+            userDefaults: fixture.defaults,
+            automaticallyRestoreSession: true
+        )
+        try await waitUntil { viewModel.sessionState == .authenticated && !viewModel.isLoading }
+
+        let deleted = await viewModel.deleteAccount()
+
+        XCTAssertFalse(deleted)
+        XCTAssertEqual(tokenStore.token, "kept-token")
+        XCTAssertEqual(tokenStore.deleteCount, 0)
+        XCTAssertEqual(viewModel.sessionState, .authenticated)
+        XCTAssertNotNil(viewModel.currentUser)
+        XCTAssertEqual(viewModel.errorMessage, "永久注销需要连接服务器，请联网后重试。")
     }
 
     func testStoredTokenStartsInRestoringSessionState() {
@@ -1231,7 +1798,7 @@ final class WhatDidYouDoTests: XCTestCase {
         try await waitUntil { viewModel.rootScreen == .home && !viewModel.isLoading }
 
         XCTAssertEqual(viewModel.accessToken, "restored-token")
-        XCTAssertEqual(viewModel.currentUser?.displayName, "用户123456")
+        XCTAssertEqual(viewModel.currentUser?.displayName, "开发用户")
         XCTAssertEqual(viewModel.currentFamily?.id, "family-1")
         XCTAssertEqual(viewModel.sessionState, .authenticated)
         XCTAssertEqual(viewModel.rootScreen, .home)
@@ -1291,8 +1858,185 @@ final class WhatDidYouDoTests: XCTestCase {
         XCTAssertNil(tokenStore.token)
         XCTAssertEqual(tokenStore.deleteCount, 1)
         XCTAssertEqual(viewModel.sessionState, .unauthenticated)
-        XCTAssertEqual(viewModel.rootScreen, .login)
+        XCTAssertEqual(viewModel.rootScreen, .onboarding)
         XCTAssertEqual(viewModel.errorMessage, "登录已失效，请重新登录。")
+    }
+
+    func testAPIResponseCachePersistsResponseData() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("WhatDidYouDoTests-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let cache = APIResponseCache(directoryURL: directory)
+        let payload = Data(#"{"value":"cached"}"#.utf8)
+
+        await cache.save(payload, for: "GET /families/me")
+        let cached = await cache.load(for: "GET /families/me")
+
+        XCTAssertEqual(cached?.data, payload)
+        XCTAssertNotNil(cached?.savedAt)
+    }
+
+    func testAPIClientCoalescesProactiveRefreshAndUsesRotatedAccessToken() async throws {
+        let tokenStore = MockSecureTokenStore()
+        let initialTokens = AuthTokens(
+            accessToken: "nearly-expired-access",
+            refreshToken: "initial-refresh-token",
+            accessTokenExpiresAt: Date().addingTimeInterval(60),
+            refreshTokenExpiresAt: Date().addingTimeInterval(30 * 24 * 60 * 60)
+        )
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [AuthURLProtocolStub.self]
+        let urlSession = URLSession(configuration: configuration)
+        let recorder = AuthRequestRecorder()
+        AuthURLProtocolStub.handler = { request in
+            let count = recorder.record(request)
+            let path = request.url?.path ?? ""
+            if path == "/auth/refresh" {
+                try await Task.sleep(for: .milliseconds(30))
+                XCTAssertEqual(count, 1)
+                return (
+                    201,
+                    Data(
+                        #"{"accessToken":"rotated-access","refreshToken":"rotated-refresh","accessTokenExpiresAt":"2099-01-01T00:15:00.000Z","refreshTokenExpiresAt":"2099-01-31T00:00:00.000Z"}"#.utf8
+                    )
+                )
+            }
+            XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer rotated-access")
+            return (
+                200,
+                Data(#"{"id":"user-1","displayName":"测试用户"}"#.utf8)
+            )
+        }
+        defer { AuthURLProtocolStub.handler = nil }
+
+        let client = APIClient(
+            baseURL: URL(string: "https://auth.test")!,
+            responseCache: APIResponseCache(
+                directoryURL: FileManager.default.temporaryDirectory
+                    .appendingPathComponent("AuthRefreshTests-\(UUID().uuidString)")
+            ),
+            tokenStore: tokenStore,
+            urlSession: urlSession
+        )
+        await client.setAuthTokens(initialTokens)
+
+        async let first: UserDTO = client.get("auth/me")
+        async let second: UserDTO = client.get("auth/me")
+        let users = try await [first, second]
+
+        XCTAssertEqual(users.map(\.id), ["user-1", "user-1"])
+        XCTAssertEqual(recorder.refreshCount, 1)
+        XCTAssertEqual(tokenStore.tokens?.accessToken, "rotated-access")
+        XCTAssertEqual(tokenStore.tokens?.refreshToken, "rotated-refresh")
+    }
+
+    func testOfflineRecordIsPersistedAndShownAsPending() async throws {
+        let fixture = makeDefaultsFixture()
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.suiteName) }
+        let client = StubAPIClient(
+            responses: Self.restoreResponses,
+            errors: ["POST /chore-records": URLError(.notConnectedToInternet)]
+        )
+        let viewModel = AppViewModel(
+            apiClient: client,
+            tokenStore: MockSecureTokenStore(token: "offline-token"),
+            dataMode: .api,
+            userDefaults: fixture.defaults,
+            automaticallyRestoreSession: true
+        )
+        try await waitUntil { viewModel.sessionState == .authenticated && !viewModel.isLoading }
+
+        viewModel.record(makeChore(minutes: 15, points: 15), actualMinutes: 20, calculatedPoints: 20)
+        try await waitUntil { viewModel.pendingUploadCount == 1 && !viewModel.isLoading }
+
+        XCTAssertTrue(viewModel.isOffline)
+        XCTAssertEqual(viewModel.weekRecords.first?.actualMinutes, 20)
+        XCTAssertEqual(viewModel.weekRecords.first?.points, 20)
+        XCTAssertEqual(viewModel.weekRecords.first?.syncState, .pending)
+
+        let relaunched = AppViewModel(
+            apiClient: client,
+            tokenStore: MockSecureTokenStore(token: "offline-token"),
+            dataMode: .api,
+            userDefaults: fixture.defaults,
+            automaticallyRestoreSession: false
+        )
+        XCTAssertEqual(relaunched.pendingUploadCount, 1)
+    }
+
+    func testPendingOfflineRecordUploadsAfterConnectionReturns() async throws {
+        let fixture = makeDefaultsFixture()
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.suiteName) }
+        let offlineClient = StubAPIClient(
+            responses: Self.restoreResponses,
+            errors: ["POST /chore-records": URLError(.cannotConnectToHost)]
+        )
+        let tokenStore = MockSecureTokenStore(token: "offline-token")
+        let offlineViewModel = AppViewModel(
+            apiClient: offlineClient,
+            tokenStore: tokenStore,
+            dataMode: .api,
+            userDefaults: fixture.defaults,
+            automaticallyRestoreSession: true
+        )
+        try await waitUntil { offlineViewModel.sessionState == .authenticated && !offlineViewModel.isLoading }
+        offlineViewModel.record(makeChore(minutes: 15, points: 15), actualMinutes: 18, calculatedPoints: 18)
+        try await waitUntil { offlineViewModel.pendingUploadCount == 1 && !offlineViewModel.isLoading }
+
+        var responses = Self.restoreResponses
+        responses["POST /chore-records"] = Self.syncedRecordData
+        let onlineClient = StubAPIClient(responses: responses)
+        let onlineViewModel = AppViewModel(
+            apiClient: onlineClient,
+            tokenStore: tokenStore,
+            dataMode: .api,
+            userDefaults: fixture.defaults,
+            automaticallyRestoreSession: true
+        )
+        try await waitUntil(timeoutIterations: 300) {
+            onlineViewModel.sessionState == .authenticated
+                && onlineViewModel.pendingUploadCount == 0
+                && !onlineViewModel.isSyncingPendingRecords
+        }
+
+        XCTAssertFalse(onlineViewModel.isOffline)
+        XCTAssertFalse(onlineViewModel.recentRecords.contains { $0.syncState == .pending })
+        let failedHeaders = await offlineClient.requestHeaders["POST /chore-records"]
+        let retryHeaders = await onlineClient.requestHeaders["POST /chore-records"]
+        XCTAssertEqual(failedHeaders?.count, 1)
+        XCTAssertEqual(retryHeaders?.count, 1)
+        XCTAssertEqual(
+            failedHeaders?.first?["Idempotency-Key"],
+            retryHeaders?.first?["Idempotency-Key"]
+        )
+        XCTAssertNotNil(retryHeaders?.first?["Idempotency-Key"])
+    }
+
+    func testSeparateRecordAttemptsUseDifferentIdempotencyKeys() async throws {
+        let fixture = makeDefaultsFixture()
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.suiteName) }
+        let client = StubAPIClient(
+            responses: Self.restoreResponses,
+            errors: ["POST /chore-records": URLError(.notConnectedToInternet)]
+        )
+        let viewModel = AppViewModel(
+            apiClient: client,
+            tokenStore: MockSecureTokenStore(token: "offline-token"),
+            dataMode: .api,
+            userDefaults: fixture.defaults,
+            automaticallyRestoreSession: true
+        )
+        try await waitUntil { viewModel.sessionState == .authenticated && !viewModel.isLoading }
+
+        viewModel.record(makeChore(minutes: 15, points: 15), actualMinutes: 18, calculatedPoints: 18)
+        try await waitUntil { viewModel.pendingUploadCount == 1 && !viewModel.isLoading }
+        viewModel.record(makeChore(minutes: 15, points: 15), actualMinutes: 19, calculatedPoints: 19)
+        try await waitUntil { viewModel.pendingUploadCount == 2 && !viewModel.isLoading }
+
+        let headers = await client.requestHeaders["POST /chore-records"]
+        let keys = headers?.compactMap { $0["Idempotency-Key"] } ?? []
+        XCTAssertEqual(keys.count, 2)
+        XCTAssertEqual(Set(keys).count, 2)
     }
 
     private func makeViewModel(defaults: UserDefaults) -> AppViewModel {
@@ -1337,7 +2081,7 @@ final class WhatDidYouDoTests: XCTestCase {
 
     private static let loginResponses: [String: Data] = [
         "POST /auth/mock-login": Data(
-            #"{"user":{"id":"user-1","phoneNumber":"123456","displayName":"用户123456"},"accessToken":"api-token"}"#.utf8
+            #"{"user":{"id":"user-1","displayName":"开发用户"},"accessToken":"api-token","refreshToken":"refresh-token","accessTokenExpiresAt":"2099-01-01T00:15:00.000Z","refreshTokenExpiresAt":"2099-01-31T00:00:00.000Z"}"#.utf8
         ),
         "GET /chores": Data("[]".utf8),
         "GET /families/me": Data("[]".utf8),
@@ -1346,10 +2090,10 @@ final class WhatDidYouDoTests: XCTestCase {
 
     private static let restoreResponses: [String: Data] = [
         "GET /auth/me": Data(
-            #"{"id":"user-1","phoneNumber":"123456","displayName":"用户123456"}"#.utf8
+            #"{"id":"user-1","displayName":"开发用户"}"#.utf8
         ),
         "GET /families/me": Data(
-            #"[{"id":"family-1","name":"测试家庭","requirePhotoProof":false,"timezone":"Asia/Shanghai","inviteCode":"ABC12345","memberRole":"OWNER","status":"ACTIVE","hasPremiumAccess":true,"myMembership":{"id":"member-1","userId":"user-1","familyId":"family-1","identityLabel":"男主人","avatarKey":"avatar_01","memberRole":"OWNER","status":"ACTIVE","user":{"id":"user-1","phoneNumber":"123456","displayName":"用户123456"}}}]"#.utf8
+            #"[{"id":"family-1","name":"测试家庭","requirePhotoProof":false,"timezone":"Asia/Shanghai","inviteCode":"ABC12345","memberRole":"OWNER","status":"ACTIVE","hasPremiumAccess":true,"myMembership":{"id":"member-1","userId":"user-1","familyId":"family-1","identityLabel":"男主人","avatarKey":"avatar_01","memberRole":"OWNER","status":"ACTIVE","user":{"id":"user-1","displayName":"开发用户"}}}]"#.utf8
         ),
         "GET /chores": Data("[]".utf8),
         "GET /families/family-1/custom-chores": Data("[]".utf8),
@@ -1367,7 +2111,7 @@ final class WhatDidYouDoTests: XCTestCase {
 
     private static let pendingRestoreResponses: [String: Data] = [
         "GET /auth/me": Data(
-            #"{"id":"user-2","phoneNumber":"654321","displayName":"用户654321"}"#.utf8
+            #"{"id":"user-2","displayName":"开发用户"}"#.utf8
         ),
         "GET /families/me": Data("[]".utf8),
         "GET /chores": Data("[]".utf8),
@@ -1375,6 +2119,18 @@ final class WhatDidYouDoTests: XCTestCase {
             #"{"id":"member-2","userId":"user-2","familyId":"family-1","identityLabel":"室友","customIdentity":null,"avatarKey":"avatar_08","memberRole":"MEMBER","status":"PENDING","approvedAt":null,"approvedById":null,"createdAt":"2026-08-01T02:00:00.000Z","user":{"id":"user-2","displayName":"用户 654321"},"family":{"id":"family-1","name":"今日劳动观察站","inviteCode":"A5F637F7","memberCount":4,"owner":{"id":"owner-1","displayName":"用户 123456","identityLabel":"女主人","avatarKey":"avatar_01"},"currentStatus":"PENDING"}}"#.utf8
         ),
     ]
+
+    private static let syncedRecordData = Data(
+        #"{"id":"record-synced","familyId":"family-1","user":{"id":"user-1","displayName":"用户123456","identityLabel":"男主人","avatarKey":"avatar_01"},"createdBy":{"id":"user-1","displayName":"用户123456","identityLabel":"男主人","avatarKey":"avatar_01"},"chore":{"id":"test-chore","name":"测试家务","category":"家庭事务","minutes":15,"defaultPoints":15},"minutes":15,"actualMinutes":18,"points":18,"pointsMultiplier":null,"note":"已收录","imageUrls":[],"likeCount":0,"likedBy":[],"likedByMe":false,"canDelete":true,"canEdit":true,"createdAt":"2026-08-14T04:00:00.000Z"}"#.utf8
+    )
+
+    private static let achievementSummaryData = Data(
+        #"{"familyId":"family-1","userId":"user-1","showAchievementsToFamily":true,"unlockedCount":1,"totalCount":7,"nextAchievement":{"definitionId":"definition-active-3","key":"ACTIVE_DAYS_3","nameKey":"achievement.active_days_3.none.name","descriptionKey":"achievement.active_days_3.none.description","unlockCopyKey":"achievement.active_days_3.none.unlock","track":"JOURNEY","tier":"NONE","targetValue":3,"currentValue":2,"rawCurrentValue":2,"progressStatus":"ACTIVE","isUnlocked":false,"memberAchievementId":null,"unlockedAt":null,"visibility":"FAMILY","reward":{"type":"COMMON_CHORE_SLOT","value":1}},"recentUnlocks":[],"capacity":{"common":{"base":6,"earned":0,"limit":6},"custom":{"base":2,"earned":0,"limit":2}}}"#.utf8
+    )
+
+    private static let achievementCollectionData = Data(
+        #"{"familyId":"family-1","userId":"user-1","showAchievementsToFamily":true,"achievements":[{"definitionId":"definition-first","key":"FIRST_RECORD","nameKey":"achievement.first_record.none.name","descriptionKey":"achievement.first_record.none.description","unlockCopyKey":"achievement.first_record.none.unlock","track":"JOURNEY","tier":"NONE","targetValue":1,"currentValue":1,"rawCurrentValue":1,"progressStatus":"COMPLETED","isUnlocked":true,"memberAchievementId":"member-achievement-first","unlockedAt":"2026-08-11T01:00:00.000Z","visibility":"FAMILY","reward":null},{"definitionId":"definition-active-3","key":"ACTIVE_DAYS_3","nameKey":"achievement.active_days_3.none.name","descriptionKey":"achievement.active_days_3.none.description","unlockCopyKey":"achievement.active_days_3.none.unlock","track":"JOURNEY","tier":"NONE","targetValue":3,"currentValue":2,"rawCurrentValue":2,"progressStatus":"ACTIVE","isUnlocked":false,"memberAchievementId":null,"unlockedAt":null,"visibility":"FAMILY","reward":{"type":"COMMON_CHORE_SLOT","value":1}}],"capacity":{"common":{"base":6,"earned":0,"limit":6},"custom":{"base":2,"earned":0,"limit":2}},"updatedAt":"2026-08-11T01:00:00.000Z"}"#.utf8
+    )
 }
 
 private actor SpyAPIClient: APIClientProtocol {
@@ -1400,7 +2156,8 @@ private actor SpyAPIClient: APIClientProtocol {
 
     func post<RequestBody: Encodable & Sendable, Response: Decodable & Sendable>(
         _ path: String,
-        body: RequestBody
+        body: RequestBody,
+        headers: [String: String]
     ) async throws -> Response {
         requestPaths.append("POST /\(path)")
         throw SpyError.expectedRequest
@@ -1425,17 +2182,29 @@ private actor SpyAPIClient: APIClientProtocol {
     }
 }
 
-private final class MockSecureTokenStore: SecureTokenStore {
+private final class MockSecureTokenStore: SecureTokenStore, @unchecked Sendable {
     var token: String?
+    var tokens: AuthTokens?
     private(set) var saveCount = 0
     private(set) var loadCount = 0
     private(set) var deleteCount = 0
+    private let saveError: Error?
 
-    init(token: String? = nil) {
+    init(token: String? = nil, saveError: Error? = nil) {
         self.token = token
+        self.saveError = saveError
+        if let token {
+            self.tokens = AuthTokens(
+                accessToken: token,
+                refreshToken: "refresh-\(token)",
+                accessTokenExpiresAt: Date().addingTimeInterval(900),
+                refreshTokenExpiresAt: Date().addingTimeInterval(30 * 24 * 60 * 60)
+            )
+        }
     }
 
     func saveAccessToken(_ token: String) throws {
+        if let saveError { throw saveError }
         saveCount += 1
         self.token = token
     }
@@ -1449,6 +2218,28 @@ private final class MockSecureTokenStore: SecureTokenStore {
         deleteCount += 1
         token = nil
     }
+
+    func saveTokens(_ tokens: AuthTokens) throws {
+        if let saveError { throw saveError }
+        saveCount += 1
+        self.tokens = tokens
+        token = tokens.accessToken
+    }
+
+    func loadTokens() throws -> AuthTokens? {
+        loadCount += 1
+        return tokens
+    }
+
+    func deleteTokens() throws {
+        deleteCount += 1
+        tokens = nil
+        token = nil
+    }
+}
+
+private enum TestSecureTokenStoreError: Error {
+    case saveFailed
 }
 
 private actor StubAPIClient: APIClientProtocol {
@@ -1456,6 +2247,8 @@ private actor StubAPIClient: APIClientProtocol {
     private let errors: [String: Error]
     private(set) var requestPaths: [String] = []
     private(set) var requestBodies: [String: Data] = [:]
+    private(set) var requestHeaders: [String: [[String: String]]] = [:]
+    private(set) var clearCacheCount = 0
     private var accessToken: String?
 
     init(responses: [String: Data], errors: [String: Error] = [:]) {
@@ -1465,6 +2258,10 @@ private actor StubAPIClient: APIClientProtocol {
 
     func setAccessToken(_ token: String?) {
         accessToken = token
+    }
+
+    func clearCachedResponses() {
+        clearCacheCount += 1
     }
 
     func didSetToken(_ token: String) -> Bool {
@@ -1484,9 +2281,12 @@ private actor StubAPIClient: APIClientProtocol {
 
     func post<RequestBody: Encodable & Sendable, Response: Decodable & Sendable>(
         _ path: String,
-        body: RequestBody
+        body: RequestBody,
+        headers: [String: String]
     ) async throws -> Response {
-        requestBodies["POST /\(path)"] = try JSONEncoder().encode(body)
+        let requestKey = "POST /\(path)"
+        requestBodies[requestKey] = try APIClient.encoder.encode(body)
+        requestHeaders[requestKey, default: []].append(headers)
         return try response(method: "POST", path: path)
     }
 
@@ -1498,7 +2298,7 @@ private actor StubAPIClient: APIClientProtocol {
         _ path: String,
         body: RequestBody
     ) async throws -> Response {
-        requestBodies["PATCH /\(path)"] = try JSONEncoder().encode(body)
+        requestBodies["PATCH /\(path)"] = try APIClient.encoder.encode(body)
         return try response(method: "PATCH", path: path)
     }
 
@@ -1546,4 +2346,55 @@ private enum SpyError: LocalizedError {
     var errorDescription: String? {
         "Expected test request"
     }
+}
+
+private final class AuthRequestRecorder: @unchecked Sendable {
+    private let lock = NSLock()
+    private var refreshRequests = 0
+
+    var refreshCount: Int {
+        lock.withLock { refreshRequests }
+    }
+
+    func record(_ request: URLRequest) -> Int {
+        lock.withLock {
+            if request.url?.path == "/auth/refresh" {
+                refreshRequests += 1
+            }
+            return refreshRequests
+        }
+    }
+}
+
+private final class AuthURLProtocolStub: URLProtocol, @unchecked Sendable {
+    typealias Handler = @Sendable (URLRequest) async throws -> (statusCode: Int, data: Data)
+    nonisolated(unsafe) static var handler: Handler?
+
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+
+    override func startLoading() {
+        guard let handler = Self.handler else {
+            client?.urlProtocol(self, didFailWithError: SpyError.expectedRequest)
+            return
+        }
+        Task {
+            do {
+                let result = try await handler(request)
+                let response = HTTPURLResponse(
+                    url: request.url!,
+                    statusCode: result.statusCode,
+                    httpVersion: nil,
+                    headerFields: ["Content-Type": "application/json"]
+                )!
+                client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+                client?.urlProtocol(self, didLoad: result.data)
+                client?.urlProtocolDidFinishLoading(self)
+            } catch {
+                client?.urlProtocol(self, didFailWithError: error)
+            }
+        }
+    }
+
+    override func stopLoading() {}
 }

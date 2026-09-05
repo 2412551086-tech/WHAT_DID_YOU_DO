@@ -18,6 +18,104 @@ enum MemberStatus {
   LEFT
 }
 
+enum AuthProvider {
+  APPLE
+  WECHAT
+  EMAIL
+  GOOGLE
+  DEV
+}
+
+enum AchievementOwnerType {
+  MEMBER
+  FAMILY
+  PAIR
+}
+
+enum AchievementTrack {
+  JOURNEY
+  MASTERY
+  BOND
+  HIDDEN
+}
+
+enum AchievementTier {
+  NONE
+  BRONZE
+  SILVER
+  GOLD
+}
+
+enum AchievementRuleType {
+  FIRST_EVENT
+  ACTIVE_DAYS
+  STREAK
+  COUNT
+  DURATION
+  CATEGORY_COVERAGE
+  ALL_MEMBERS
+  PAIR_COMBINATION
+  ANNIVERSARY
+}
+
+enum AchievementWindowType {
+  LIFETIME
+  DAY
+  WEEK
+  MONTH
+  ROLLING_DAYS
+}
+
+enum AchievementVisibility {
+  FAMILY
+  PRIVATE
+}
+
+enum AchievementEventSourceType {
+  CHORE
+  REACTION
+  MEMBERSHIP
+  FAMILY
+  PLAN
+}
+
+enum AchievementEventStatus {
+  PENDING
+  PROCESSING
+  SUCCEEDED
+  FAILED
+}
+
+enum AchievementProgressStatus {
+  ACTIVE
+  COMPLETED
+  DIRTY
+  REBUILDING
+}
+
+enum AchievementArchiveStatus {
+  ACTIVE
+  HISTORICAL
+  HIDDEN
+}
+
+enum AchievementPeriodType {
+  WEEK
+  MONTH
+}
+
+enum AchievementParticipantDisplayRole {
+  ACTIVE
+  FORMER
+  ANONYMIZED
+}
+
+enum AchievementRewardType {
+  COMMON_CHORE_SLOT
+  CUSTOM_CHORE_SLOT
+  COSMETIC
+}
+
 model Chore {
   id                   String    @id @default(cuid())
   catalogKey           String?   @unique
@@ -50,57 +148,159 @@ model Chore {
 }
 
 model User {
-  id                  String            @id @default(cuid())
-  phoneNumber         String?           @unique
-  displayName         String
-  plan                String            @default("free")
-  premiumRedeemedAt   DateTime?
-  createdAt           DateTime          @default(now())
-  updatedAt           DateTime          @updatedAt
-  memberships         FamilyMember[]
-  approvedMemberships FamilyMember[]    @relation("MembershipApprover")
-  records             ChoreRecord[]     @relation("RecordCreator")
-  deletedRecords      ChoreRecord[]     @relation("RecordDeletedBy")
-  recordLikes         ChoreRecordLike[]
-  createdCustomChores Chore[]           @relation("CustomChoreCreator")
+  id                          String                         @id @default(cuid())
+  displayName                 String
+  plan                        String                         @default("free")
+  premiumRedeemedAt           DateTime?
+  anonymizedAt                DateTime?
+  createdAt                   DateTime                       @default(now())
+  updatedAt                   DateTime                       @updatedAt
+  memberships                 FamilyMember[]
+  approvedMemberships         FamilyMember[]                 @relation("MembershipApprover")
+  records                     ChoreRecord[]                  @relation("RecordCreator")
+  deletedRecords              ChoreRecord[]                  @relation("RecordDeletedBy")
+  recordLikes                 ChoreRecordLike[]
+  createdCustomChores         Chore[]                        @relation("CustomChoreCreator")
+  achievementEvents           AchievementEvent[]             @relation("AchievementEventActor")
+  memberAchievements          MemberAchievement[]
+  triggeredFamilyAchievements FamilyAchievement[]            @relation("FamilyAchievementTriggerUser")
+  pairAchievementsAsA         PairAchievement[]              @relation("PairAchievementMemberA")
+  pairAchievementsAsB         PairAchievement[]              @relation("PairAchievementMemberB")
+  achievementParticipants     FamilyAchievementParticipant[]
+  grantedAchievementRewards   FamilyRewardGrant[]            @relation("AchievementRewardGrantUser")
+  achievementAuditLogs        AchievementAuditLog[]          @relation("AchievementAuditActor")
+  authIdentities              AuthIdentity[]
+  authSessions                AuthSession[]
+  localDraftClaims            LocalDraftClaim[]
+}
+
+model AuthIdentity {
+  id              String       @id @default(cuid())
+  userId          String
+  provider        AuthProvider
+  providerSubject String
+  verifiedAt      DateTime?
+  lastUsedAt      DateTime?
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+  user            User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerSubject])
+  @@unique([userId, provider])
+  @@index([userId])
+}
+
+model AuthSession {
+  id                String             @id @default(cuid())
+  userId            String
+  deviceId          String?
+  deviceName        String?
+  platform          String?
+  appVersion        String?
+  lastUsedAt        DateTime           @default(now())
+  idleExpiresAt     DateTime
+  absoluteExpiresAt DateTime
+  revokedAt         DateTime?
+  revokedReason     String?
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+  user              User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  refreshTokens     AuthRefreshToken[]
+
+  @@index([userId, revokedAt])
+  @@index([idleExpiresAt])
+  @@index([absoluteExpiresAt])
+}
+
+model AuthRefreshToken {
+  id        String      @id @default(cuid())
+  sessionId String
+  tokenHash String      @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime    @default(now())
+  session   AuthSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@index([sessionId, usedAt])
+  @@index([expiresAt])
+}
+
+model EmailOtpChallenge {
+  id           String    @id
+  email        String
+  codeDigest   String
+  expiresAt    DateTime
+  consumedAt   DateTime?
+  attemptCount Int       @default(0)
+  createdAt    DateTime  @default(now())
+
+  @@index([email, createdAt])
+  @@index([expiresAt])
+  @@index([consumedAt])
 }
 
 model Family {
-  id                  String         @id @default(cuid())
-  name                String
-  requirePhotoProof   Boolean        @default(false)
-  timezone            String         @default("Asia/Shanghai")
-  inviteCode          String         @unique
-  choreOrder          String[]       @default([])
-  pinnedChoreIds      String[]       @default([])
-  choreSetupCompleted Boolean        @default(false)
-  createdAt           DateTime       @default(now())
-  updatedAt           DateTime       @updatedAt
-  members             FamilyMember[]
-  records             ChoreRecord[]
-  customChores        Chore[]        @relation("FamilyCustomChores")
+  id                              String                           @id @default(cuid())
+  name                            String
+  requirePhotoProof               Boolean                          @default(false)
+  timezone                        String                           @default("Asia/Shanghai")
+  inviteCode                      String                           @unique
+  choreOrder                      String[]                         @default([])
+  pinnedChoreIds                  String[]                         @default([])
+  choreSetupCompleted             Boolean                          @default(false)
+  archivedAt                      DateTime?
+  createdAt                       DateTime                         @default(now())
+  updatedAt                       DateTime                         @updatedAt
+  members                         FamilyMember[]
+  records                         ChoreRecord[]
+  customChores                    Chore[]                          @relation("FamilyCustomChores")
+  achievementEvents               AchievementEvent[]
+  achievementProgress             AchievementProgress[]
+  achievementUnlockBatches        AchievementUnlockBatch[]
+  memberAchievements              MemberAchievement[]
+  familyAchievements              FamilyAchievement[]
+  pairAchievements                PairAchievement[]
+  achievementEligibilitySnapshots AchievementEligibilitySnapshot[]
+  achievementRewardGrants         FamilyRewardGrant[]
+  achievementAuditLogs            AchievementAuditLog[]
+  localDraftClaim                 LocalDraftClaim?
+
+  @@index([archivedAt])
+}
+
+model LocalDraftClaim {
+  draftId       String   @id
+  payloadDigest String
+  userId        String
+  familyId      String   @unique
+  claimedAt     DateTime @default(now())
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  family        Family   @relation(fields: [familyId], references: [id], onDelete: Cascade)
+
+  @@index([userId, claimedAt])
 }
 
 model FamilyMember {
-  id                  String       @id @default(cuid())
-  userId              String
-  familyId            String
-  identityLabel       String       @default("家庭成员")
-  customIdentity      String?
-  avatarKey           String?
-  memberRole          MemberRole   @default(MEMBER)
-  status              MemberStatus @default(ACTIVE)
-  choreOrder          String[]     @default([])
-  pinnedChoreIds      String[]     @default([])
-  choreSetupCompleted Boolean      @default(false)
-  followFamilyLayout  Boolean      @default(false)
-  approvedAt          DateTime?
-  approvedById        String?
-  leftAt              DateTime?
-  createdAt           DateTime     @default(now())
-  family              Family       @relation(fields: [familyId], references: [id], onDelete: Cascade)
-  user                User         @relation(fields: [userId], references: [id], onDelete: Cascade)
-  approvedBy          User?        @relation("MembershipApprover", fields: [approvedById], references: [id], onDelete: SetNull)
+  id                       String       @id @default(cuid())
+  userId                   String
+  familyId                 String
+  identityLabel            String       @default("家庭成员")
+  customIdentity           String?
+  avatarKey                String?
+  memberRole               MemberRole   @default(MEMBER)
+  status                   MemberStatus @default(ACTIVE)
+  choreOrder               String[]     @default([])
+  pinnedChoreIds           String[]     @default([])
+  choreSetupCompleted      Boolean      @default(false)
+  followFamilyLayout       Boolean      @default(false)
+  showAchievementsToFamily Boolean      @default(true)
+  approvedAt               DateTime?
+  approvedById             String?
+  leftAt                   DateTime?
+  createdAt                DateTime     @default(now())
+  family                   Family       @relation(fields: [familyId], references: [id], onDelete: Cascade)
+  user                     User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  approvedBy               User?        @relation("MembershipApprover", fields: [approvedById], references: [id], onDelete: SetNull)
 
   @@unique([userId, familyId])
   @@index([familyId, status])
@@ -117,10 +317,13 @@ model ChoreRecord {
   minutes                       Int
   actualMinutes                 Int
   points                        Int
+  pointsMultiplier              Float?
   creatorDisplayNameSnapshot    String
   creatorIdentityLabelSnapshot  String
   creatorCustomIdentitySnapshot String?
   creatorAvatarKeySnapshot      String?
+  clientRequestId               String?
+  occurredAt                    DateTime          @default(now())
   createdAt                     DateTime          @default(now())
   deletedAt                     DateTime?
   deletedById                   String?
@@ -130,8 +333,11 @@ model ChoreRecord {
   deletedBy                     User?             @relation("RecordDeletedBy", fields: [deletedById], references: [id], onDelete: SetNull)
   likes                         ChoreRecordLike[]
 
+  @@unique([familyId, userId, clientRequestId])
   @@index([familyId, createdAt])
+  @@index([familyId, occurredAt])
   @@index([familyId, userId, createdAt])
+  @@index([familyId, userId, occurredAt])
   @@index([deletedById])
 }
 
@@ -146,4 +352,255 @@ model ChoreRecordLike {
 
   @@unique([recordId, userId])
   @@index([userId])
+}
+
+model AchievementDefinition {
+  id                   String                @id @default(cuid())
+  key                  String
+  nameKey              String
+  descriptionKey       String
+  unlockCopyKey        String
+  ownerType            AchievementOwnerType
+  track                AchievementTrack
+  tier                 AchievementTier       @default(NONE)
+  ruleType             AchievementRuleType
+  ruleConfigJson       Json
+  targetValue          Int
+  windowType           AchievementWindowType @default(LIFETIME)
+  windowSize           Int?
+  maxDailyContribution Int?
+  minimumMemberCount   Int?
+  rewardConfigJson     Json?
+  defaultVisibility    AchievementVisibility @default(FAMILY)
+  definitionVersion    Int                   @default(1)
+  validFrom            DateTime?
+  validUntil           DateTime?
+  campaignId           String?
+  isHidden             Boolean               @default(false)
+  isActive             Boolean               @default(true)
+  createdAt            DateTime              @default(now())
+  updatedAt            DateTime              @updatedAt
+  progressRecords      AchievementProgress[]
+  memberAchievements   MemberAchievement[]
+  familyAchievements   FamilyAchievement[]
+  pairAchievements     PairAchievement[]
+
+  @@unique([key, tier, definitionVersion])
+  @@index([track, isActive])
+  @@index([ownerType, isActive])
+}
+
+model AchievementEvent {
+  id                     String                     @id @default(uuid())
+  familyId               String
+  actorUserId            String?
+  eventType              String
+  sourceType             AchievementEventSourceType
+  sourceId               String
+  sourceVersion          Int                        @default(1)
+  idempotencyKey         String                     @unique
+  occurredAt             DateTime
+  receivedAt             DateTime                   @default(now())
+  familyTimezoneSnapshot String
+  payloadJson            Json
+  processStatus          AchievementEventStatus     @default(PENDING)
+  retryCount             Int                        @default(0)
+  nextAttemptAt          DateTime                   @default(now())
+  processedAt            DateTime?
+  lastErrorCode          String?
+  family                 Family                     @relation(fields: [familyId], references: [id], onDelete: Cascade)
+  actor                  User?                      @relation("AchievementEventActor", fields: [actorUserId], references: [id], onDelete: SetNull)
+  progressUpdates        AchievementProgress[]      @relation("AchievementProgressLastEvent")
+  unlockBatch            AchievementUnlockBatch?    @relation("UnlockBatchTriggerEvent")
+  memberUnlocks          MemberAchievement[]        @relation("MemberAchievementTriggerEvent")
+  familyUnlocks          FamilyAchievement[]        @relation("FamilyAchievementTriggerEvent")
+  pairUnlocks            PairAchievement[]          @relation("PairAchievementTriggerEvent")
+  rewardGrants           FamilyRewardGrant[]        @relation("AchievementRewardTriggerEvent")
+
+  @@unique([eventType, sourceType, sourceId, sourceVersion])
+  @@index([processStatus, nextAttemptAt])
+  @@index([familyId, occurredAt])
+  @@index([actorUserId, occurredAt])
+}
+
+model AchievementProgress {
+  id                  String                    @id @default(cuid())
+  ownerType           AchievementOwnerType
+  ownerKey            String
+  familyId            String
+  definitionId        String
+  achievementKey      String
+  tier                AchievementTier
+  definitionVersion   Int
+  rawCurrentValue     Int                       @default(0)
+  displayCurrentValue Int                       @default(0)
+  targetValue         Int
+  progressStatus      AchievementProgressStatus @default(ACTIVE)
+  lastEventId         String?
+  lastUpdatedAt       DateTime                  @updatedAt
+  family              Family                    @relation(fields: [familyId], references: [id], onDelete: Cascade)
+  definition          AchievementDefinition     @relation(fields: [definitionId], references: [id], onDelete: Restrict)
+  lastEvent           AchievementEvent?         @relation("AchievementProgressLastEvent", fields: [lastEventId], references: [id], onDelete: SetNull)
+
+  @@unique([ownerType, ownerKey, achievementKey, tier, definitionVersion])
+  @@index([familyId, progressStatus])
+  @@index([definitionId])
+  @@index([lastEventId])
+}
+
+model AchievementUnlockBatch {
+  id              String              @id @default(cuid())
+  familyId        String
+  triggerEventId  String              @unique
+  primaryUnlockId String?
+  unlockCount     Int                 @default(0)
+  createdAt       DateTime            @default(now())
+  family          Family              @relation(fields: [familyId], references: [id], onDelete: Cascade)
+  triggerEvent    AchievementEvent    @relation("UnlockBatchTriggerEvent", fields: [triggerEventId], references: [id], onDelete: Restrict)
+  memberUnlocks   MemberAchievement[]
+  familyUnlocks   FamilyAchievement[]
+  pairUnlocks     PairAchievement[]
+
+  @@index([familyId, createdAt])
+}
+
+model MemberAchievement {
+  id                String                 @id @default(cuid())
+  userId            String
+  familyId          String
+  definitionId      String
+  achievementKey    String
+  tier              AchievementTier
+  definitionVersion Int
+  visibility        AchievementVisibility  @default(FAMILY)
+  unlockBatchId     String
+  triggerEventId    String
+  unlockedAt        DateTime               @default(now())
+  user              User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  family            Family                 @relation(fields: [familyId], references: [id], onDelete: Cascade)
+  definition        AchievementDefinition  @relation(fields: [definitionId], references: [id], onDelete: Restrict)
+  unlockBatch       AchievementUnlockBatch @relation(fields: [unlockBatchId], references: [id], onDelete: Restrict)
+  triggerEvent      AchievementEvent       @relation("MemberAchievementTriggerEvent", fields: [triggerEventId], references: [id], onDelete: Restrict)
+
+  @@unique([userId, familyId, achievementKey, tier, definitionVersion])
+  @@index([familyId, unlockedAt])
+  @@index([definitionId])
+  @@index([unlockBatchId])
+  @@index([triggerEventId])
+}
+
+model FamilyAchievement {
+  id                String                         @id @default(cuid())
+  familyId          String
+  definitionId      String
+  achievementKey    String
+  tier              AchievementTier
+  definitionVersion Int
+  triggeredByUserId String?
+  unlockBatchId     String
+  triggerEventId    String
+  unlockedAt        DateTime                       @default(now())
+  family            Family                         @relation(fields: [familyId], references: [id], onDelete: Cascade)
+  definition        AchievementDefinition          @relation(fields: [definitionId], references: [id], onDelete: Restrict)
+  triggeredBy       User?                          @relation("FamilyAchievementTriggerUser", fields: [triggeredByUserId], references: [id], onDelete: SetNull)
+  unlockBatch       AchievementUnlockBatch         @relation(fields: [unlockBatchId], references: [id], onDelete: Restrict)
+  triggerEvent      AchievementEvent               @relation("FamilyAchievementTriggerEvent", fields: [triggerEventId], references: [id], onDelete: Restrict)
+  participants      FamilyAchievementParticipant[]
+
+  @@unique([familyId, achievementKey, tier, definitionVersion])
+  @@index([definitionId])
+  @@index([unlockBatchId])
+  @@index([triggerEventId])
+  @@index([triggeredByUserId])
+}
+
+model PairAchievement {
+  id                String                   @id @default(cuid())
+  familyId          String
+  memberAId         String
+  memberBId         String
+  definitionId      String
+  achievementKey    String
+  tier              AchievementTier
+  definitionVersion Int
+  unlockBatchId     String
+  triggerEventId    String
+  unlockedAt        DateTime                 @default(now())
+  archiveStatus     AchievementArchiveStatus @default(ACTIVE)
+  family            Family                   @relation(fields: [familyId], references: [id], onDelete: Cascade)
+  memberA           User                     @relation("PairAchievementMemberA", fields: [memberAId], references: [id], onDelete: Cascade)
+  memberB           User                     @relation("PairAchievementMemberB", fields: [memberBId], references: [id], onDelete: Cascade)
+  definition        AchievementDefinition    @relation(fields: [definitionId], references: [id], onDelete: Restrict)
+  unlockBatch       AchievementUnlockBatch   @relation(fields: [unlockBatchId], references: [id], onDelete: Restrict)
+  triggerEvent      AchievementEvent         @relation("PairAchievementTriggerEvent", fields: [triggerEventId], references: [id], onDelete: Restrict)
+
+  @@unique([familyId, memberAId, memberBId, achievementKey, tier, definitionVersion])
+  @@index([definitionId])
+  @@index([unlockBatchId])
+  @@index([triggerEventId])
+  @@index([memberAId, memberBId])
+}
+
+model FamilyAchievementParticipant {
+  id                      String                            @id @default(cuid())
+  familyAchievementId     String
+  userId                  String?
+  displayRole             AchievementParticipantDisplayRole @default(ACTIVE)
+  contributionSummaryJson Json?
+  familyAchievement       FamilyAchievement                 @relation(fields: [familyAchievementId], references: [id], onDelete: Cascade)
+  user                    User?                             @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@unique([familyAchievementId, userId])
+  @@index([userId])
+}
+
+model AchievementEligibilitySnapshot {
+  id                    String                @id @default(cuid())
+  familyId              String
+  periodType            AchievementPeriodType
+  periodStart           DateTime
+  periodEnd             DateTime
+  timezone              String
+  eligibleMemberIdsJson Json
+  createdAt             DateTime              @default(now())
+  family                Family                @relation(fields: [familyId], references: [id], onDelete: Cascade)
+
+  @@unique([familyId, periodType, periodStart])
+  @@index([familyId, periodEnd])
+}
+
+model FamilyRewardGrant {
+  id              String                @id @default(cuid())
+  familyId        String
+  achievementKey  String
+  rewardType      AchievementRewardType
+  rewardValue     Int
+  grantedByUserId String?
+  triggerEventId  String
+  grantedAt       DateTime              @default(now())
+  family          Family                @relation(fields: [familyId], references: [id], onDelete: Cascade)
+  grantedBy       User?                 @relation("AchievementRewardGrantUser", fields: [grantedByUserId], references: [id], onDelete: SetNull)
+  triggerEvent    AchievementEvent      @relation("AchievementRewardTriggerEvent", fields: [triggerEventId], references: [id], onDelete: Restrict)
+
+  @@unique([familyId, achievementKey, rewardType])
+  @@index([triggerEventId])
+  @@index([grantedByUserId])
+}
+
+model AchievementAuditLog {
+  id          String   @id @default(cuid())
+  familyId    String?
+  actorUserId String?
+  actionType  String
+  entityType  String
+  entityId    String
+  beforeJson  Json?
+  afterJson   Json?
+  createdAt   DateTime @default(now())
+  family      Family?  @relation(fields: [familyId], references: [id], onDelete: SetNull)
+  actor       User?    @relation("AchievementAuditActor", fields: [actorUserId], references: [id], onDelete: SetNull)
+
+  @@index([familyId, createdAt])
+  @@index([actorUserId, createdAt])
+  @@index([entityType, entityId])
 }

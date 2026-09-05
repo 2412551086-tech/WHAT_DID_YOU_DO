@@ -8,6 +8,7 @@ struct FamilyDashboardView: View {
     @ScaledMetric(relativeTo: .largeTitle) private var leaderPointSize: CGFloat = 52
     @ScaledMetric(relativeTo: .body) private var leaderIllustrationWidth: CGFloat = 166
     @State private var copySeed = Int.random(in: 0..<10_000)
+    @State private var selectedBattleIndex = 0
 
     var body: some View {
         ZStack {
@@ -22,7 +23,10 @@ struct FamilyDashboardView: View {
                     }
 
                     if viewModel.isOffline {
-                        DSOfflineStatusView(lastUpdatedAt: viewModel.lastSuccessfulSyncAt)
+                        DSOfflineStatusView(
+                            lastUpdatedAt: viewModel.lastSuccessfulSyncAt,
+                            pendingUploadCount: viewModel.pendingUploadCount
+                        )
                     }
 
                     if let errorMessage = viewModel.errorMessage {
@@ -33,14 +37,20 @@ struct FamilyDashboardView: View {
                         reportLoadingState
                     } else {
                         leaderCard
-                        summaryMetrics
-                        reportHeadline
 
                         if showsFamilyRanking {
                             leaderboardSection
                         }
 
+                        if !monthlyTrend.isEmpty {
+                            sixMonthTrendCard
+                        }
+
                         distributionSection
+
+                        if monthlyRecordCount > 0, !battleCategories.isEmpty {
+                            battleReportSection
+                        }
                     }
                 }
                 .padding(.horizontal, 20)
@@ -131,26 +141,63 @@ struct FamilyDashboardView: View {
             padding: 16,
             elevation: .primary
         ) {
-            Group {
+            VStack(spacing: 12) {
+                Group {
+                    if dynamicTypeSize.isAccessibilitySize {
+                        VStack(alignment: .leading, spacing: 14) {
+                            leaderCopy
+                            leaderIllustration
+                                .frame(maxWidth: .infinity, alignment: .center)
+                        }
+                    } else {
+                        HStack(alignment: .bottom, spacing: 4) {
+                            leaderCopy
+                                .frame(maxWidth: 156, alignment: .leading)
+
+                            Spacer(minLength: 0)
+
+                            leaderIllustration
+                        }
+                    }
+                }
+                .frame(maxWidth: .infinity, minHeight: 174, alignment: .leading)
+
+                Divider()
+                    .overlay(DSColor.floatingDivider)
+
                 if dynamicTypeSize.isAccessibilitySize {
-                    VStack(alignment: .leading, spacing: 14) {
-                        leaderCopy
-                        leaderIllustration
-                            .frame(maxWidth: .infinity, alignment: .center)
+                    VStack(alignment: .leading, spacing: 8) {
+                        heroSummaryItem(title: "家庭总积分", value: "\(monthlyTotalPoints) 分")
+                        heroSummaryItem(title: "本月完成", value: "\(monthlyRecordCount) 次")
+                        heroSummaryItem(title: "总耗时", value: "\(monthlyTotalMinutes) 分钟")
                     }
                 } else {
-                    HStack(alignment: .bottom, spacing: 4) {
-                        leaderCopy
-                            .frame(maxWidth: 156, alignment: .leading)
-
-                        Spacer(minLength: 0)
-
-                        leaderIllustration
+                    HStack(spacing: 0) {
+                        heroSummaryItem(title: "家庭总积分", value: "\(monthlyTotalPoints) 分")
+                        Divider().frame(height: 30)
+                        heroSummaryItem(title: "完成", value: "\(monthlyRecordCount) 次")
+                        Divider().frame(height: 30)
+                        heroSummaryItem(title: "总耗时", value: "\(monthlyTotalMinutes) 分钟")
                     }
                 }
             }
-            .frame(maxWidth: .infinity, minHeight: 184, alignment: .leading)
         }
+    }
+
+    private func heroSummaryItem(title: String, value: String) -> some View {
+        VStack(alignment: dynamicTypeSize.isAccessibilitySize ? .leading : .center, spacing: 2) {
+            Text(title)
+                .font(.caption2)
+                .foregroundStyle(DSColor.mutedInk)
+            Text(value)
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(DSColor.ink)
+                .monospacedDigit()
+                .lineLimit(1)
+                .minimumScaleFactor(0.72)
+        }
+        .frame(maxWidth: .infinity, alignment: dynamicTypeSize.isAccessibilitySize ? .leading : .center)
+        .accessibilityElement(children: .combine)
     }
 
     private var leaderCopy: some View {
@@ -265,7 +312,7 @@ struct FamilyDashboardView: View {
     private var leaderboardSection: some View {
         DSFloatingSurface(cornerRadius: 18, padding: 0, elevation: .none) {
             VStack(alignment: .leading, spacing: 0) {
-                Text("成员排行榜")
+                Text("成员贡献排行榜")
                     .font(.title3.weight(.semibold))
                     .foregroundStyle(DSColor.ink)
                     .padding(.horizontal, 14)
@@ -381,64 +428,65 @@ struct FamilyDashboardView: View {
     }
 
     private var distributionSection: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            VStack(alignment: .leading, spacing: 3) {
-                Text("本月洞察")
-                    .font(.title3.weight(.semibold))
-                    .foregroundStyle(DSColor.ink)
-                    .accessibilityAddTraits(.isHeader)
-                Text("按积分占比查看家庭精力去向")
-                    .font(.caption)
-                    .foregroundStyle(DSColor.mutedInk)
-            }
-
-            if themeRows.isEmpty && categoryRows.isEmpty {
-                Label(categoryEmptyMessage, systemImage: "chart.bar.xaxis")
-                    .font(.body)
-                    .foregroundStyle(DSColor.mutedInk)
-                    .symbolRenderingMode(.hierarchical)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .padding(.vertical, 10)
-            } else {
-                if !themeRows.isEmpty {
-                    themeDistribution
+        DSFloatingSurface(cornerRadius: 18, padding: 16, elevation: .secondary) {
+            VStack(alignment: .leading, spacing: 16) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("家务类型结构")
+                        .font(.title3.weight(.semibold))
+                        .foregroundStyle(DSColor.ink)
+                        .accessibilityAddTraits(.isHeader)
+                    Text("按积分占比查看家庭精力去向")
+                        .font(.caption)
+                        .foregroundStyle(DSColor.mutedInk)
                 }
 
-                if !themeRows.isEmpty && !categoryRows.isEmpty {
-                    Divider()
-                        .overlay(DSColor.floatingDivider)
-                }
+                if themeRows.isEmpty && categoryRows.isEmpty {
+                    Label(categoryEmptyMessage, systemImage: "chart.bar.xaxis")
+                        .font(.body)
+                        .foregroundStyle(DSColor.mutedInk)
+                        .symbolRenderingMode(.hierarchical)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .padding(.vertical, 10)
+                } else {
+                    if !themeRows.isEmpty {
+                        themeDistribution
+                    }
 
-                if !categoryRows.isEmpty {
-                    categoryDistribution
+                    if !themeRows.isEmpty && !categoryRows.isEmpty {
+                        Divider()
+                            .overlay(DSColor.floatingDivider)
+                    }
+
+                    if !categoryRows.isEmpty {
+                        categoryDistribution
+                    }
                 }
             }
         }
-        .padding(.horizontal, 2)
-        .padding(.vertical, 8)
     }
 
     private var themeDistribution: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("主题分布")
-                .font(.headline)
+        VStack(alignment: .leading, spacing: 9) {
+            Text("主题投入")
+                .font(.subheadline.weight(.semibold))
                 .foregroundStyle(DSColor.ink)
 
-            if themeRows.count == 1, let theme = themeRows.first {
-                singleThemeSummary(theme)
-            } else {
-                Group {
-                    if dynamicTypeSize.isAccessibilitySize {
-                        VStack(alignment: .leading, spacing: 14) {
-                            themeDonut
-                                .frame(maxWidth: .infinity, alignment: .center)
-                            themeLegend
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 14) {
+                    ForEach(themeRows) { item in
+                        HStack(spacing: 6) {
+                            Circle()
+                                .fill(themeColor(item.themeKey))
+                                .frame(width: 8, height: 8)
+                            Text(themeTitle(item.themeKey))
+                                .font(.caption)
+                                .foregroundStyle(DSColor.mutedInk)
+                            Text("\(themePercentage(item))%")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(DSColor.ink)
+                                .monospacedDigit()
                         }
-                    } else {
-                        HStack(spacing: 20) {
-                            themeDonut
-                            themeLegend
-                        }
+                        .accessibilityElement(children: .combine)
                     }
                 }
             }
@@ -638,6 +686,388 @@ struct FamilyDashboardView: View {
         .accessibilityElement(children: .combine)
     }
 
+    private func monthComparisonCard(_ comparison: MonthlyReportComparison) -> some View {
+        DSFloatingSurface(cornerRadius: 18, padding: 14, elevation: .none) {
+            VStack(alignment: .leading, spacing: 13) {
+                HStack {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("较上月")
+                            .font(.headline)
+                            .foregroundStyle(DSColor.ink)
+                        Text(monthDisplayName(comparison.previousMonth))
+                            .font(.caption)
+                            .foregroundStyle(DSColor.mutedInk)
+                    }
+                    Spacer()
+                    Image(systemName: "arrow.left.arrow.right")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(DSColor.infoBlue)
+                        .accessibilityHidden(true)
+                }
+
+                HStack(spacing: 0) {
+                    comparisonMetric(
+                        title: "积分",
+                        current: monthlyTotalPoints,
+                        previous: comparison.totalPoints
+                    )
+                    Divider().frame(height: 44)
+                    comparisonMetric(
+                        title: "完成",
+                        current: monthlyRecordCount,
+                        previous: comparison.totalRecords
+                    )
+                    Divider().frame(height: 44)
+                    comparisonMetric(
+                        title: "投入",
+                        current: monthlyTotalMinutes,
+                        previous: comparison.totalMinutes
+                    )
+                }
+            }
+        }
+    }
+
+    private func comparisonMetric(title: String, current: Int, previous: Int) -> some View {
+        let change = comparisonChange(current: current, previous: previous)
+
+        return VStack(spacing: 4) {
+            Text(title)
+                .font(.caption)
+                .foregroundStyle(DSColor.mutedInk)
+            HStack(spacing: 4) {
+                Image(systemName: change.systemImage)
+                    .font(.system(size: 10, weight: .bold))
+                Text(change.text)
+                    .font(.subheadline.weight(.semibold))
+                    .monospacedDigit()
+            }
+            .foregroundStyle(change.color)
+            .lineLimit(1)
+            .minimumScaleFactor(0.72)
+        }
+        .frame(maxWidth: .infinity)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(title)较上月\(change.accessibilityText)")
+    }
+
+    private var sixMonthTrendCard: some View {
+        DSFloatingSurface(cornerRadius: 18, padding: 16, elevation: .secondary) {
+            VStack(alignment: .leading, spacing: 12) {
+                HStack(alignment: .firstTextBaseline) {
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("近 6 个月趋势")
+                            .font(.headline)
+                            .foregroundStyle(DSColor.ink)
+                        Text("按整月比较，不再拆分残缺周")
+                            .font(.caption)
+                            .foregroundStyle(DSColor.mutedInk)
+                    }
+
+                    Spacer()
+
+                    Text(monthOverMonthText)
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(monthOverMonthColor)
+                        .padding(.horizontal, 9)
+                        .padding(.vertical, 5)
+                        .background(monthOverMonthColor.opacity(0.09))
+                        .clipShape(Capsule())
+                }
+
+                Chart(monthlyTrend) { item in
+                    AreaMark(
+                        x: .value("月份", item.month),
+                        y: .value("积分", item.points)
+                    )
+                    .foregroundStyle(
+                        LinearGradient(
+                            colors: [MonthlyReportPalette.gold.opacity(0.18), .clear],
+                            startPoint: .top,
+                            endPoint: .bottom
+                        )
+                    )
+
+                    LineMark(
+                        x: .value("月份", item.month),
+                        y: .value("积分", item.points)
+                    )
+                    .foregroundStyle(MonthlyReportPalette.gold)
+                    .lineStyle(StrokeStyle(lineWidth: 2.5, lineCap: .round, lineJoin: .round))
+
+                    PointMark(
+                        x: .value("月份", item.month),
+                        y: .value("积分", item.points)
+                    )
+                    .foregroundStyle(item.month == viewModel.selectedReportMonth ? MonthlyReportPalette.gold : DSColor.pureSurface)
+                    .symbolSize(item.month == viewModel.selectedReportMonth ? 72 : 42)
+                    .annotation(position: .top, spacing: 4) {
+                        if item.month == viewModel.selectedReportMonth {
+                            Text("\(item.points)")
+                                .font(.caption2.weight(.semibold))
+                                .foregroundStyle(MonthlyReportPalette.deepGold)
+                                .monospacedDigit()
+                        }
+                    }
+                }
+                .chartLegend(.hidden)
+                .chartYAxis {
+                    AxisMarks(position: .leading, values: .automatic(desiredCount: 3)) { _ in
+                        AxisGridLine().foregroundStyle(DSColor.floatingDivider)
+                        AxisValueLabel()
+                            .font(.system(size: 9))
+                            .foregroundStyle(DSColor.mutedInk)
+                    }
+                }
+                .chartXAxis {
+                    AxisMarks(values: monthlyTrend.map(\.month)) { value in
+                        AxisValueLabel {
+                            if let month = value.as(String.self) {
+                                Text(shortMonthLabel(month))
+                                    .font(.caption2)
+                                    .foregroundStyle(
+                                        month == viewModel.selectedReportMonth
+                                            ? MonthlyReportPalette.deepGold
+                                            : DSColor.mutedInk
+                                    )
+                            }
+                        }
+                    }
+                }
+                .frame(height: 166)
+                .accessibilityLabel(monthlyTrendAccessibilityLabel)
+            }
+        }
+    }
+
+    private var monthlyMemberContributionCard: some View {
+        DSFloatingSurface(cornerRadius: 18, padding: 16, elevation: .none) {
+            VStack(alignment: .leading, spacing: 14) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("成员贡献构成")
+                        .font(.headline)
+                        .foregroundStyle(DSColor.ink)
+                    Text("积分占比之外，也看看每个人投入了多少时间")
+                        .font(.caption)
+                        .foregroundStyle(DSColor.mutedInk)
+                }
+
+                monthlyMemberShareBar
+
+                VStack(spacing: 11) {
+                    ForEach(Array(monthlyMemberContributions.enumerated()), id: \.element.id) { index, member in
+                        monthlyMemberContributionRow(member, index: index)
+                    }
+                }
+            }
+        }
+    }
+
+    private var monthlyMemberShareBar: some View {
+        GeometryReader { proxy in
+            let gaps = CGFloat(max(monthlyMemberContributions.count - 1, 0)) * 3
+            let availableWidth = max(proxy.size.width - gaps, 0)
+            let total = max(monthlyMemberContributions.reduce(0) { $0 + $1.points }, 1)
+
+            HStack(spacing: 3) {
+                ForEach(Array(monthlyMemberContributions.enumerated()), id: \.element.id) { index, member in
+                    RoundedRectangle(cornerRadius: 4, style: .continuous)
+                        .fill(monthlyMemberColor(member, index: index))
+                        .frame(width: availableWidth * CGFloat(member.points) / CGFloat(total))
+                }
+            }
+        }
+        .frame(height: 11)
+        .background(DSColor.floatingDivider)
+        .clipShape(Capsule())
+        .accessibilityHidden(true)
+    }
+
+    private func monthlyMemberContributionRow(
+        _ member: MonthlyMemberContribution,
+        index: Int
+    ) -> some View {
+        let profile = viewModel.familyMembers.first { $0.userId == member.userId }
+        let total = max(monthlyMemberContributions.reduce(0) { $0 + $1.points }, 1)
+        let percentage = Int((Double(member.points) * 100 / Double(total)).rounded())
+
+        return HStack(spacing: 10) {
+            AvatarView(
+                avatarKey: profile?.avatarKey,
+                fallbackText: member.displayName,
+                size: 34,
+                presentation: .flat
+            )
+
+            Circle()
+                .fill(monthlyMemberColor(member, index: index))
+                .frame(width: 8, height: 8)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(member.displayName)
+                    .font(.subheadline.weight(.medium))
+                    .foregroundStyle(DSColor.ink)
+                    .lineLimit(1)
+                Text("\(member.recordCount) 次 · \(member.totalMinutes) 分钟")
+                    .font(.caption)
+                    .foregroundStyle(DSColor.mutedInk)
+                    .monospacedDigit()
+            }
+
+            Spacer(minLength: 6)
+
+            VStack(alignment: .trailing, spacing: 2) {
+                Text("\(member.points) 分")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(DSColor.ink)
+                    .monospacedDigit()
+                Text("\(percentage)%")
+                    .font(.caption)
+                    .foregroundStyle(DSColor.mutedInk)
+                    .monospacedDigit()
+            }
+        }
+        .accessibilityElement(children: .combine)
+    }
+
+    private var battleReportSection: some View {
+        DSFloatingSurface(cornerRadius: 18, padding: 0, elevation: .secondary) {
+            VStack(alignment: .leading, spacing: 2) {
+                HStack {
+                    Text("战报解读")
+                        .font(.title3.weight(.semibold))
+                        .foregroundStyle(DSColor.ink)
+
+                    Spacer()
+
+                    Text("\(min(selectedBattleIndex + 1, battleCategories.count))/\(battleCategories.count)")
+                        .font(.caption.monospacedDigit())
+                        .foregroundStyle(DSColor.mutedInk)
+                }
+                .padding(.horizontal, 16)
+                .padding(.top, 16)
+
+                TabView(selection: $selectedBattleIndex) {
+                    ForEach(Array(battleCategories.enumerated()), id: \.element.category) { index, category in
+                        battleReportPage(category)
+                            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                            .tag(index)
+                            .padding(.horizontal, 12)
+                    }
+                }
+                .tabViewStyle(.page(indexDisplayMode: battleCategories.count > 1 ? .always : .never))
+                .frame(height: 206)
+                .onChange(of: battleCategories.count) {
+                    selectedBattleIndex = 0
+                }
+            }
+        }
+    }
+
+    private func battleReportPage(_ category: MonthlyReportCategory) -> some View {
+        let resolvedCategory = ChoreCategory.resolve(category.category)
+        let enemy = HouseholdBattleNarrative.profile(for: resolvedCategory)
+        let contributor = battleContributor(for: category)
+        let categoryTitle = category.category.replacingOccurrences(of: "类", with: "")
+
+        return VStack(spacing: 4) {
+            HStack(alignment: .bottom, spacing: 2) {
+                neutralPortrait(for: contributor)
+
+                VStack(spacing: 7) {
+                    MonthlySpeechBubble(side: .leading) {
+                        Text("这个月\(categoryTitle)阵地，我守住了。")
+                    }
+
+                    MonthlySpeechBubble(side: .trailing) {
+                        Text(enemyRetreatLine(enemy: enemy, category: category))
+                    }
+                }
+                .font(.caption)
+                .foregroundStyle(DSColor.ink)
+                .frame(maxWidth: .infinity)
+
+                Image(enemy.assetName)
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: 82, height: 126, alignment: .bottom)
+                    .accessibilityHidden(true)
+            }
+            .frame(maxWidth: .infinity, minHeight: 148, alignment: .bottom)
+
+            HStack(spacing: 6) {
+                Image(systemName: "sparkles")
+                    .foregroundStyle(battleColor(for: resolvedCategory))
+                Text(battleResultLine(contributor: contributor, enemy: enemy, category: category))
+                    .font(.caption.weight(.medium))
+                    .foregroundStyle(DSColor.mutedInk)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.78)
+            }
+            .frame(maxWidth: .infinity, alignment: .center)
+            .accessibilityElement(children: .combine)
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(monthlyBattleSummary(enemy: enemy, category: category))
+    }
+
+    private func neutralPortrait(for contributor: MonthlyMemberContribution?) -> some View {
+        let avatarKey = battleAvatarKey(for: contributor)
+
+        return Image(FamilyIdentityOptions.neutralAsset(for: avatarKey))
+            .resizable()
+            .scaledToFit()
+            .scaleEffect(1.58, anchor: .top)
+            .offset(y: -2)
+            .frame(width: 82, height: 142, alignment: .top)
+            .clipped()
+            .accessibilityHidden(true)
+    }
+
+    private func battleContributor(for category: MonthlyReportCategory) -> MonthlyMemberContribution? {
+        category.memberContributions
+            .filter { $0.points > 0 }
+            .sorted {
+                $0.points == $1.points
+                    ? $0.displayName.localizedStandardCompare($1.displayName) == .orderedAscending
+                    : $0.points > $1.points
+            }
+            .first
+            ?? monthlyMemberContributions.first
+    }
+
+    private func battleAvatarKey(for contributor: MonthlyMemberContribution?) -> String {
+        guard let contributor else { return FamilyIdentityOptions.avatarKeys[0] }
+        if let key = viewModel.familyMembers.first(where: { $0.userId == contributor.userId })?.avatarKey {
+            return key
+        }
+        if contributor.userId == viewModel.currentUser?.id {
+            return viewModel.currentMembership?.avatarKey ?? FamilyIdentityOptions.avatarKeys[0]
+        }
+        return FamilyIdentityOptions.avatarKeys[0]
+    }
+
+    private func enemyRetreatLine(
+        enemy: HouseholdEnemyProfile,
+        category: MonthlyReportCategory
+    ) -> String {
+        switch HouseholdBattleNarrative.status(for: category.recordCount) {
+        case "大获全胜": "可恶，这次被你们清得太彻底了。"
+        case "基本肃清": "先撤一步，我还会悄悄回来。"
+        default: "这局还没结束，下个月再见。"
+        }
+    }
+
+    private func battleResultLine(
+        contributor: MonthlyMemberContribution?,
+        enemy: HouseholdEnemyProfile,
+        category: MonthlyReportCategory
+    ) -> String {
+        let name = contributor?.displayName ?? "全家"
+        let points = contributor?.points ?? category.points
+        return "\(name)在这条战线贡献 \(points) 分，击退\(enemy.name)。"
+    }
+
     private var reportLoadingState: some View {
         VStack(spacing: 14) {
             ProgressView()
@@ -746,6 +1176,24 @@ struct FamilyDashboardView: View {
         return viewModel.monthlyReport?.headline ?? "本月家庭战况持续更新。"
     }
 
+    private func monthlyBattleSummary(
+        enemy: HouseholdEnemyProfile,
+        category: MonthlyReportCategory
+    ) -> String {
+        "本月\(enemy.name)发动了 \(category.recordCount) 次进攻。全家携手投入 \(monthlyTotalMinutes) 分钟，拿下 \(monthlyTotalPoints) 分，守住了\(enemy.territory)。"
+    }
+
+    private func battleColor(for category: ChoreCategory) -> Color {
+        switch category {
+        case .cooking: DSColor.yellow
+        case .cleaning: DSColor.mint
+        case .laundryCare: DSColor.infoBlue
+        case .organizing: DSColor.lavender
+        case .caregiving: DSColor.coral
+        case .household: DSColor.accentOrange
+        }
+    }
+
     private var monthlyTotalPoints: Int {
         viewModel.monthlyReport?.totalPoints
             ?? rankedMembers.reduce(0) { $0 + $1.monthlyPoints }
@@ -757,6 +1205,199 @@ struct FamilyDashboardView: View {
 
     private var monthlyTotalMinutes: Int {
         viewModel.monthlyReport?.totalMinutes ?? 0
+    }
+
+    private var monthlyWeeklyTrend: [MonthlyReportWeek] {
+        viewModel.monthlyReport?.weeklyTrend ?? []
+    }
+
+    private var monthlyTrend: [MonthlyReportMonth] {
+        if let trend = viewModel.monthlyReport?.monthlyTrend, !trend.isEmpty {
+            return trend
+        }
+
+        guard let report = viewModel.monthlyReport else { return [] }
+        var knownMonths: [String: MonthlyReportMonth] = [:]
+        if let comparison = report.comparison {
+            knownMonths[comparison.previousMonth] = MonthlyReportMonth(
+                month: comparison.previousMonth,
+                points: comparison.totalPoints,
+                recordCount: comparison.totalRecords,
+                totalMinutes: comparison.totalMinutes
+            )
+        }
+        knownMonths[report.month] = MonthlyReportMonth(
+            month: report.month,
+            points: report.totalPoints,
+            recordCount: report.totalRecords,
+            totalMinutes: report.totalMinutes
+        )
+
+        return (-5...0).compactMap { offset in
+            guard let month = monthIdentifier(report.month, offsetBy: offset) else { return nil }
+            return knownMonths[month] ?? MonthlyReportMonth(
+                month: month,
+                points: 0,
+                recordCount: 0,
+                totalMinutes: 0
+            )
+        }
+    }
+
+    private func monthIdentifier(_ month: String, offsetBy offset: Int) -> String? {
+        let parts = month.split(separator: "-")
+        guard parts.count == 2,
+              let year = Int(parts[0]),
+              let monthNumber = Int(parts[1]),
+              let date = Calendar(identifier: .gregorian).date(
+                from: DateComponents(year: year, month: monthNumber, day: 1)
+              ),
+              let shifted = Calendar(identifier: .gregorian).date(
+                byAdding: .month,
+                value: offset,
+                to: date
+              ) else {
+            return nil
+        }
+
+        let components = Calendar(identifier: .gregorian).dateComponents([.year, .month], from: shifted)
+        guard let shiftedYear = components.year, let shiftedMonth = components.month else { return nil }
+        return String(format: "%04d-%02d", shiftedYear, shiftedMonth)
+    }
+
+    private var monthOverMonthText: String {
+        guard monthlyTrend.count >= 2 else { return "本月新开张" }
+        let previous = monthlyTrend[monthlyTrend.count - 2].points
+        let current = monthlyTrend.last?.points ?? 0
+        return comparisonChange(current: current, previous: previous).text
+    }
+
+    private var monthOverMonthColor: Color {
+        guard monthlyTrend.count >= 2 else { return DSColor.infoBlue }
+        let previous = monthlyTrend[monthlyTrend.count - 2].points
+        let current = monthlyTrend.last?.points ?? 0
+        return comparisonChange(current: current, previous: previous).color
+    }
+
+    private var monthlyTrendAccessibilityLabel: String {
+        monthlyTrend
+            .map { "\(shortMonthLabel($0.month))，\($0.points) 分，\($0.recordCount) 次" }
+            .joined(separator: "；")
+    }
+
+    private func shortMonthLabel(_ month: String) -> String {
+        guard let number = Int(month.split(separator: "-").last ?? "") else { return month }
+        return "\(number)月"
+    }
+
+    private var displayedWeeklyTrend: [MonthlyReportWeek] {
+        guard let lastRecordedIndex = monthlyWeeklyTrend.lastIndex(where: {
+            $0.points > 0 || $0.recordCount > 0
+        }) else {
+            return Array(monthlyWeeklyTrend.prefix(4))
+        }
+        return Array(monthlyWeeklyTrend[...lastRecordedIndex].suffix(4))
+    }
+
+    private var latestWeekPoints: Int {
+        monthlyWeeklyTrend.last?.points ?? 0
+    }
+
+    private var latestWeekRecordCount: Int {
+        monthlyWeeklyTrend.last?.recordCount ?? 0
+    }
+
+    private var weekOverWeekText: String {
+        guard monthlyWeeklyTrend.count >= 2 else { return "本月新开张" }
+        let previous = monthlyWeeklyTrend[monthlyWeeklyTrend.count - 2].points
+        let current = latestWeekPoints
+        guard previous > 0 else { return current > 0 ? "较上周新开张" : "较上周持平" }
+        let delta = current - previous
+        return delta == 0 ? "较上周持平" : "较上周 \(delta > 0 ? "+" : "")\(delta) 分"
+    }
+
+    private var weekOverWeekColor: Color {
+        guard monthlyWeeklyTrend.count >= 2 else { return DSColor.infoBlue }
+        let previous = monthlyWeeklyTrend[monthlyWeeklyTrend.count - 2].points
+        if latestWeekPoints > previous { return MonthlyReportPalette.deepGold }
+        if latestWeekPoints < previous { return DSColor.mutedInk }
+        return DSColor.infoBlue
+    }
+
+    private var battleCategories: [MonthlyReportCategory] {
+        Array(categoryRows.prefix(3))
+    }
+
+    private var monthlyMemberContributions: [MonthlyMemberContribution] {
+        viewModel.monthlyReport?.memberContributions
+            .filter { $0.points > 0 }
+            .sorted {
+                $0.points == $1.points
+                    ? $0.displayName.localizedStandardCompare($1.displayName) == .orderedAscending
+                    : $0.points > $1.points
+            } ?? []
+    }
+
+    private var weeklyTrendSummary: String {
+        guard let strongestWeek = monthlyWeeklyTrend.max(by: { $0.points < $1.points }), strongestWeek.points > 0 else {
+            return "本月各周的投入会在这里排成战线"
+        }
+        return "\(strongestWeek.label)火力最旺，拿下 \(strongestWeek.points) 分"
+    }
+
+    private var weeklyTrendAccessibilityLabel: String {
+        monthlyWeeklyTrend
+            .map { "\($0.label)，\($0.points) 分，\($0.recordCount) 次" }
+            .joined(separator: "；")
+    }
+
+    private func shortWeekLabel(_ label: String) -> String {
+        let compact = label.replacingOccurrences(of: "–", with: "-")
+        let parts = compact.split(separator: "-")
+        guard parts.count == 2 else { return label }
+        let start = parts[0].split(separator: "/")
+        let end = parts[1].split(separator: "/")
+        guard start.count == 2, end.count == 2 else { return label }
+        if start[0] == end[0] {
+            return "\(start[0])/\(start[1])–\(end[1])"
+        }
+        return "\(start[0])/\(start[1])–\(end[0])/\(end[1])"
+    }
+
+    private func monthlyMemberColor(_ member: MonthlyMemberContribution, index: Int) -> Color {
+        if let avatarKey = viewModel.familyMembers.first(where: { $0.userId == member.userId })?.avatarKey {
+            return FamilyIdentityOptions.accentColor(for: avatarKey)
+        }
+        return Self.memberContributionPalette[index % Self.memberContributionPalette.count]
+    }
+
+    private func comparisonChange(current: Int, previous: Int) -> (
+        text: String,
+        accessibilityText: String,
+        systemImage: String,
+        color: Color
+    ) {
+        guard previous > 0 else {
+            if current > 0 {
+                return ("新开张", "新增记录", "sparkles", DSColor.infoBlue)
+            }
+            return ("持平", "持平", "minus", DSColor.mutedInk)
+        }
+
+        let percent = Int((Double(current - previous) * 100 / Double(previous)).rounded())
+        if percent > 0 {
+            return ("+\(percent)%", "增加 \(percent)%", "arrow.up.right", DSColor.mint)
+        }
+        if percent < 0 {
+            return ("\(percent)%", "减少 \(abs(percent))%", "arrow.down.right", DSColor.accentOrange)
+        }
+        return ("持平", "持平", "minus", DSColor.mutedInk)
+    }
+
+    private func monthDisplayName(_ month: String) -> String {
+        let parts = month.split(separator: "-")
+        guard parts.count == 2, let monthNumber = Int(parts[1]) else { return month }
+        return "\(monthNumber) 月数据"
     }
 
     private var categoryRows: [MonthlyReportCategory] {
@@ -843,6 +1484,77 @@ struct FamilyDashboardView: View {
         case nil: DSColor.mutedInk.opacity(0.55)
         }
     }
+}
+
+private enum MonthlyBubbleSide {
+    case leading
+    case trailing
+}
+
+private struct MonthlySpeechBubble<Content: View>: View {
+    let side: MonthlyBubbleSide
+    @ViewBuilder let content: () -> Content
+
+    var body: some View {
+        content()
+            .multilineTextAlignment(.leading)
+            .fixedSize(horizontal: false, vertical: true)
+            .padding(.horizontal, 13)
+            .padding(.vertical, 10)
+            .padding(side == .leading ? .leading : .trailing, 6)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(
+                MonthlyBubbleShape(side: side)
+                    .fill(DSColor.pureSurface.opacity(0.94))
+            )
+            .overlay(
+                MonthlyBubbleShape(side: side)
+                    .stroke(DSColor.ink.opacity(0.18), lineWidth: 0.8)
+            )
+            .overlay(
+                MonthlyBubbleShape(side: side)
+                    .stroke(Color.white.opacity(0.72), lineWidth: 0.55)
+                    .padding(1)
+            )
+            .shadow(color: Color.black.opacity(0.07), radius: 10, y: 5)
+    }
+}
+
+private struct MonthlyBubbleShape: Shape {
+    let side: MonthlyBubbleSide
+
+    func path(in rect: CGRect) -> Path {
+        let tailWidth: CGFloat = 9
+        let bodyRect = side == .leading
+            ? CGRect(x: tailWidth, y: 0, width: rect.width - tailWidth, height: rect.height)
+            : CGRect(x: 0, y: 0, width: rect.width - tailWidth, height: rect.height)
+        let tailY = rect.height * 0.70
+
+        var path = Path()
+        path.addRoundedRect(in: bodyRect, cornerSize: CGSize(width: 15, height: 15))
+
+        if side == .leading {
+            path.move(to: CGPoint(x: bodyRect.minX + 1, y: tailY - 8))
+            path.addLine(to: CGPoint(x: 0, y: tailY + 2))
+            path.addLine(to: CGPoint(x: bodyRect.minX + 2, y: tailY + 6))
+        } else {
+            path.move(to: CGPoint(x: bodyRect.maxX - 1, y: tailY - 8))
+            path.addLine(to: CGPoint(x: rect.maxX, y: tailY + 2))
+            path.addLine(to: CGPoint(x: bodyRect.maxX - 2, y: tailY + 6))
+        }
+        path.closeSubpath()
+        return path
+    }
+}
+
+private extension FamilyDashboardView {
+    static let memberContributionPalette: [Color] = [
+        Color(red: 0.84, green: 0.64, blue: 0.38),
+        Color(red: 0.48, green: 0.68, blue: 0.43),
+        DSColor.infoBlue,
+        DSColor.coral,
+        DSColor.lavender,
+    ]
 }
 
 private enum MonthlyReportPalette {

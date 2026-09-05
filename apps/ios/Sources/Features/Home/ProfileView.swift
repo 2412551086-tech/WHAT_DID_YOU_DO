@@ -4,12 +4,10 @@ import UIKit
 struct ProfileView: View {
     @EnvironmentObject private var viewModel: AppViewModel
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @Environment(\.colorScheme) private var colorScheme
     @AppStorage(AppAppearance.storageKey) private var appearanceRawValue = AppAppearance.system.rawValue
     @State private var didCopyInviteCode = false
     @State private var isDebugExpanded = false
-    @State private var isShowingLogoutConfirmation = false
-    @State private var isShowingLeaveFamilyConfirmation = false
-    @State private var isShowingOwnerLeaveGuidance = false
     @State private var isShowingPremiumRedemption = false
     @State private var isEditingFamilyName = false
     @State private var familyNameDraft = ""
@@ -35,8 +33,6 @@ struct ProfileView: View {
                     debugSection
                     #endif
 
-                    leaveFamilyButton
-                    logoutButton
                 }
                 .padding(.horizontal, 20)
                 .padding(.top, 12)
@@ -48,35 +44,6 @@ struct ProfileView: View {
         }
         .toolbar(.hidden, for: .navigationBar)
         .navigationBarBackButtonHidden(true)
-        .confirmationDialog(
-            "确认退出登录？",
-            isPresented: $isShowingLogoutConfirmation,
-            titleVisibility: .visible
-        ) {
-            Button("退出登录", role: .destructive) {
-                viewModel.logout()
-            }
-            Button("取消", role: .cancel) {}
-        } message: {
-            Text("退出后会清除本机登录状态，不会删除家庭数据。")
-        }
-        .confirmationDialog(
-            "确认退出当前家庭？",
-            isPresented: $isShowingLeaveFamilyConfirmation,
-            titleVisibility: .visible
-        ) {
-            Button("退出当前家庭", role: .destructive) {
-                Task { _ = await viewModel.leaveCurrentFamily() }
-            }
-            Button("取消", role: .cancel) {}
-        } message: {
-            Text("退出后将看不到该家庭的战况；已经创建的家务记录仍会保留。")
-        }
-        .alert("暂时不能退出家庭", isPresented: $isShowingOwnerLeaveGuidance) {
-            Button("知道了", role: .cancel) {}
-        } message: {
-            Text("一家之主需要先在家庭成员详情中把身份转让给另一位成员，然后才能退出当前家庭。")
-        }
         .sheet(isPresented: $isShowingPremiumRedemption) {
             PremiumUpgradeSheet(trigger: .profile)
                 .environmentObject(viewModel)
@@ -126,10 +93,11 @@ struct ProfileView: View {
     }
 
     private var identityCardBackground: some View {
-        RoundedRectangle(cornerRadius: 24, style: .continuous)
-            .fill(ProfilePalette.identitySurface)
+        let accent = FamilyIdentityOptions.accentColor(for: viewModel.currentMembership?.avatarKey)
+        return RoundedRectangle(cornerRadius: 24, style: .continuous)
+            .fill(accent.opacity(colorScheme == .dark ? 0.34 : 0.52))
             .overlay(alignment: .bottomTrailing) {
-                ProfilePetalDecoration()
+                ProfilePetalDecoration(color: accent)
                     .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
             }
             .shadow(color: DSColor.shadow.opacity(0.10), radius: 13, x: 0, y: 7)
@@ -220,7 +188,17 @@ struct ProfileView: View {
 
     private var familySection: some View {
         ProfileGroupCard {
-            inviteCodeRow
+            if viewModel.isGuestWorkspace {
+                Button(action: viewModel.requireAuthenticationForLocalFamily) {
+                    ProfileNavigationRow(
+                        title: "登录并邀请家人",
+                        systemImage: "person.2.badge.plus"
+                    )
+                }
+                .buttonStyle(.plain)
+            } else {
+                inviteCodeRow
+            }
 
             Divider().padding(.leading, 48)
 
@@ -314,16 +292,12 @@ struct ProfileView: View {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(alignment: .top, spacing: 20) {
                     ForEach(displayedMembers) { member in
-                        if member.userId == viewModel.currentUser?.id {
+                        NavigationLink {
+                            MemberActivityDetailView(member: member)
+                        } label: {
                             memberItem(member)
-                        } else {
-                            NavigationLink {
-                                MemberActivityDetailView(member: member)
-                            } label: {
-                                memberItem(member)
-                            }
-                            .buttonStyle(.plain)
                         }
+                        .buttonStyle(.plain)
                     }
                 }
                 .padding(.vertical, 4)
@@ -363,6 +337,32 @@ struct ProfileView: View {
 
     private var accountSection: some View {
         ProfileGroupCard {
+            NavigationLink {
+                AchievementsView()
+            } label: {
+                ProfileNavigationRow(
+                    title: "我的成就",
+                    systemImage: "medal.fill",
+                    badge: nil
+                )
+            }
+            .buttonStyle(.plain)
+
+            Divider().padding(.leading, 48)
+
+            NavigationLink {
+                AccountSecurityView()
+            } label: {
+                ProfileNavigationRow(
+                    title: "账户与安全",
+                    systemImage: "lock.shield.fill",
+                    badge: nil
+                )
+            }
+            .buttonStyle(.plain)
+
+            Divider().padding(.leading, 48)
+
             ProfileInfoRow(
                 title: "家庭套餐",
                 value: viewModel.hasPremiumAccess ? "家庭高级版" : "免费版",
@@ -450,51 +450,6 @@ struct ProfileView: View {
         )
     }
     #endif
-
-    private var leaveFamilyButton: some View {
-        Button {
-            if viewModel.isCurrentUserOwner {
-                isShowingOwnerLeaveGuidance = true
-            } else {
-                isShowingLeaveFamilyConfirmation = true
-            }
-        } label: {
-            HStack(spacing: 9) {
-                Image(systemName: "rectangle.portrait.and.arrow.forward")
-                Text("退出当前家庭")
-            }
-            .font(.system(size: 17, weight: .medium))
-            .foregroundStyle(DSColor.coral)
-            .frame(maxWidth: .infinity, minHeight: 56)
-            .background(DSColor.pureSurface)
-            .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: 18, style: .continuous)
-                    .stroke(DSColor.coral.opacity(0.35), lineWidth: 1)
-            )
-        }
-        .buttonStyle(.plain)
-        .disabled(viewModel.isLoading)
-        .accessibilityHint(viewModel.isCurrentUserOwner ? "需要先转让一家之主" : "退出后保留历史记录")
-    }
-
-    private var logoutButton: some View {
-        Button {
-            isShowingLogoutConfirmation = true
-        } label: {
-            Text("退出登录")
-                .font(.system(size: 17, weight: .medium))
-                .foregroundStyle(.red)
-                .frame(maxWidth: .infinity, minHeight: 56)
-                .background(DSColor.pureSurface)
-                .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 18, style: .continuous)
-                        .stroke(DSColor.subtleStroke, lineWidth: 1)
-                )
-        }
-        .buttonStyle(.plain)
-    }
 
     private var inviteCode: String {
         guard let code = viewModel.currentFamily?.inviteCode, !code.isEmpty else {
@@ -891,26 +846,23 @@ private struct ProfileAppearanceRow: View {
     }
 }
 
-private enum ProfilePalette {
-    static let identitySurface = DSColor.choreBlueSurface
-    static let petal = DSColor.sky
-}
-
 private struct ProfilePetalDecoration: View {
+    let color: Color
+
     var body: some View {
         ZStack(alignment: .bottomTrailing) {
             Circle()
-                .fill(ProfilePalette.petal.opacity(0.32))
+                .fill(color.opacity(0.32))
                 .frame(width: 78, height: 78)
                 .offset(x: 18, y: 22)
 
             Circle()
-                .fill(ProfilePalette.petal.opacity(0.26))
+                .fill(color.opacity(0.26))
                 .frame(width: 58, height: 58)
                 .offset(x: -36, y: 27)
 
             Circle()
-                .fill(ProfilePalette.petal.opacity(0.22))
+                .fill(color.opacity(0.22))
                 .frame(width: 45, height: 45)
                 .offset(x: -74, y: 34)
         }

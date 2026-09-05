@@ -35,6 +35,11 @@
 		1A0000010000000000000026 /* JoinRequestsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A0000010000000000001026 /* JoinRequestsView.swift */; };
 		1A0000010000000000000027 /* ActivityRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A0000010000000000001027 /* ActivityRow.swift */; };
 		1A0000010000000000000028 /* SecureTokenStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A0000010000000000001028 /* SecureTokenStore.swift */; };
+		1A0000010000000000000029 /* AchievementsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A0000010000000000001029 /* AchievementsView.swift */; };
+		1A0000010000000000000030 /* WeeklyInsightsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A0000010000000000001030 /* WeeklyInsightsView.swift */; };
+		1A0000010000000000000031 /* AccountSecurityView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A0000010000000000001031 /* AccountSecurityView.swift */; };
+		1A0000010000000000000032 /* LocalWorkspace.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A0000010000000000001032 /* LocalWorkspace.swift */; };
+		1A0000010000000000000033 /* OnboardingChoiceView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A0000010000000000001033 /* OnboardingChoiceView.swift */; };
 		1B0000010000000000000001 /* WhatDidYouDoTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1B0000010000000000001001 /* WhatDidYouDoTests.swift */; };
 /* End PBXBuildFile section */
 
@@ -78,6 +83,11 @@
 		1A0000010000000000001026 /* JoinRequestsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JoinRequestsView.swift; sourceTree = "<group>"; };
 		1A0000010000000000001027 /* ActivityRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActivityRow.swift; sourceTree = "<group>"; };
 		1A0000010000000000001028 /* SecureTokenStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SecureTokenStore.swift; sourceTree = "<group>"; };
+		1A0000010000000000001029 /* AchievementsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AchievementsView.swift; sourceTree = "<group>"; };
+		1A0000010000000000001030 /* WeeklyInsightsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WeeklyInsightsView.swift; sourceTree = "<group>"; };
+		1A0000010000000000001031 /* AccountSecurityView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccountSecurityView.swift; sourceTree = "<group>"; };
+		1A0000010000000000001032 /* LocalWorkspace.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalWorkspace.swift; sourceTree = "<group>"; };
+		1A0000010000000000001033 /* OnboardingChoiceView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingChoiceView.swift; sourceTree = "<group>"; };
 		1B0000010000000000001000 /* WhatDidYouDoTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = WhatDidYouDoTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		1B0000010000000000001001 /* WhatDidYouDoTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WhatDidYouDoTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
@@ -179,6 +189,7 @@
 			isa = PBXGroup;
 			children = (
 				1A0000010000000000001007 /* Models.swift */,
+				1A0000010000000000001032 /* LocalWorkspace.swift */,
 			);
 			path = Models;
 			sourceTree = "<group>";
@@ -203,6 +214,7 @@
 			isa = PBXGroup;
 			children = (
 				1A0000010000000000001010 /* LoginView.swift */,
+				1A0000010000000000001033 /* OnboardingChoiceView.swift */,
 			);
 			path = Auth;
 			sourceTree = "<group>";
@@ -225,6 +237,9 @@
 				1A0000010000000000001027 /* ActivityRow.swift */,
 				1A0000010000000000001016 /* FamilyDashboardView.swift */,
 				1A0000010000000000001017 /* ProfileView.swift */,
+				1A0000010000000000001029 /* AchievementsView.swift */,
+				1A0000010000000000001030 /* WeeklyInsightsView.swift */,
+				1A0000010000000000001031 /* AccountSecurityView.swift */,
 			);
 			path = Home;
 			sourceTree = "<group>";
@@ -374,6 +389,8 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				1A0000010000000000000032 /* LocalWorkspace.swift in Sources */,
+				1A0000010000000000000033 /* OnboardingChoiceView.swift in Sources */,
 				1A0000010000000000000001 /* WhatDidYouDoApp.swift in Sources */,
 				1A0000010000000000000002 /* AppRootView.swift in Sources */,
 				1A0000010000000000000003 /* DSColors.swift in Sources */,
@@ -401,6 +418,9 @@
 				1A0000010000000000000026 /* JoinRequestsView.swift in Sources */,
 				1A0000010000000000000027 /* ActivityRow.swift in Sources */,
 				1A0000010000000000000028 /* SecureTokenStore.swift in Sources */,
+				1A0000010000000000000029 /* AchievementsView.swift in Sources */,
+				1A0000010000000000000030 /* WeeklyInsightsView.swift in Sources */,
+				1A0000010000000000000031 /* AccountSecurityView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -567,7 +587,7 @@
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 0.1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.whatdidyoudo.ios;
+				PRODUCT_BUNDLE_IDENTIFIER = com.douxiaolang.familyguard;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
 				SWIFT_EMIT_LOC_STRINGS = YES;
@@ -599,7 +619,7 @@
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 0.1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.whatdidyoudo.ios;
+				PRODUCT_BUNDLE_IDENTIFIER = com.douxiaolang.familyguard;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
 				SWIFT_EMIT_LOC_STRINGS = YES;
@@ -621,7 +641,7 @@
 					"@executable_path/Frameworks",
 					"@loader_path/Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.whatdidyoudo.iosTests;
+				PRODUCT_BUNDLE_IDENTIFIER = com.douxiaolang.familyguardTests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_VERSION = 6.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
@@ -642,7 +662,7 @@
 					"@executable_path/Frameworks",
 					"@loader_path/Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.whatdidyoudo.iosTests;
+				PRODUCT_BUNDLE_IDENTIFIER = com.douxiaolang.familyguardTests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_VERSION = 6.0;
 				TARGETED_DEVICE_FAMILY = "1,2";

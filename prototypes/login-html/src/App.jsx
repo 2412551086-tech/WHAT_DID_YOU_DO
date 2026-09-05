@@ -1,13 +1,13 @@
 import { useEffect, useState } from "react";
 import { FaApple, FaWeixin } from "react-icons/fa";
-import { HiOutlineDevicePhoneMobile } from "react-icons/hi2";
+import { HiOutlineEnvelope } from "react-icons/hi2";
 
 const loginOptions = [
   {
-    id: "phone",
-    label: "手机号登录",
-    className: "login-button--phone",
-    icon: HiOutlineDevicePhoneMobile,
+    id: "email",
+    label: "邮箱验证码",
+    className: "login-button--email",
+    icon: HiOutlineEnvelope,
   },
   {
     id: "wechat",
@@ -40,7 +40,7 @@ export function App() {
       return;
     }
 
-    setNotice(type === "phone" ? "手机号登录入口已开启" : "该登录方式即将支持");
+    setNotice(type === "email" ? "邮箱验证码入口正在接入" : "该登录方式即将支持");
   }
 
   return (

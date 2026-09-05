@@ -29,7 +29,7 @@ struct JoinFamilyView: View {
 
             VStack(spacing: 0) {
                 FamilyFlowTopBar(title: "加入家庭") {
-                    viewModel.showCreateFamily()
+                    viewModel.returnToOnboarding()
                 }
 
                 ScrollView {
@@ -50,19 +50,25 @@ struct JoinFamilyView: View {
                         statusBanner
 
                         FamilyFlowPrimaryButton(
-                            title: "提交加入申请",
+                            title: viewModel.hasAccessToken ? "提交加入申请" : "确认家庭并继续",
                             isEnabled: canSubmit
                         ) {
-                            viewModel.submitJoinRequest()
+                            if viewModel.hasAccessToken {
+                                viewModel.submitJoinRequest()
+                            } else {
+                                viewModel.requireAuthenticationForJoin()
+                            }
                         }
 
-                        Button("切换账号") {
-                            viewModel.logout()
+                        if viewModel.hasAccessToken {
+                            Button("切换账号") {
+                                viewModel.logout()
+                            }
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundStyle(DSColor.mutedInk)
+                            .frame(maxWidth: .infinity)
+                            .disabled(viewModel.isLoading)
                         }
-                        .font(.system(size: 14, weight: .medium))
-                        .foregroundStyle(DSColor.mutedInk)
-                        .frame(maxWidth: .infinity)
-                        .disabled(viewModel.isLoading)
                     }
                     .padding(.horizontal, 20)
                     .padding(.top, 20)

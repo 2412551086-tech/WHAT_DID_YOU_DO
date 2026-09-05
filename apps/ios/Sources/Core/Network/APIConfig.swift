@@ -48,7 +48,7 @@ enum APIConfig {
         validatedBaseURL(environment.baseURL)
     }
 
-    // Xcode 调试开关：true 使用本地 Mock；false 调用本机 Nest 后端。
+    // Xcode 调试开关：true 使用本地 Mock；false 调用所选 API 环境。
     static let useMockData = false
 
     static var localNetworkBaseURL: URL {
@@ -62,7 +62,7 @@ enum APIConfig {
     static var productionBaseURL: URL {
         url(
             from: ProcessInfo.processInfo.environment["WDD_PRODUCTION_BASE_URL"],
-            fallback: "https://api.whatdidyoudo.example.com"
+            fallback: "https://api.douxiaolang.com"
         )
     }
 
@@ -93,7 +93,7 @@ enum APIConfig {
         #if targetEnvironment(simulator)
         .localSimulator
         #else
-        .localNetwork
+        .production
         #endif
         #else
         .production

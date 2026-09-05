@@ -2,7 +2,7 @@ import SwiftUI
 
 enum FamilyIdentityOptions {
     static let identities = [
-        "男主人", "女主人", "老公", "老婆", "老妈", "老爸", "儿子", "女儿",
+        "家庭成员", "男主人", "女主人", "老公", "老婆", "老妈", "老爸", "儿子", "女儿",
         "哥哥", "姐姐", "弟弟", "妹妹", "爷爷", "奶奶", "室友", "自定义",
     ]
 
@@ -14,6 +14,29 @@ enum FamilyIdentityOptions {
 
     static func actionAsset(for key: String) -> String {
         String(format: "family_avatar_action_%02d", index(for: key) + 1)
+    }
+
+    static func neutralAsset(for key: String) -> String {
+        String(format: "family_avatar_neutral_%02d", index(for: key) + 1)
+    }
+
+    static func accentColor(for key: String?) -> Color {
+        switch key ?? avatarKeys[0] {
+        case "avatar_01": return Color(red: 0.80, green: 0.63, blue: 0.38)
+        case "avatar_02": return Color(red: 0.66, green: 0.81, blue: 0.70)
+        case "avatar_03": return Color(red: 0.53, green: 0.33, blue: 0.22)
+        case "avatar_04": return Color(red: 0.59, green: 0.46, blue: 0.51)
+        case "avatar_05": return Color(red: 0.58, green: 0.70, blue: 0.80)
+        case "avatar_06": return Color(red: 0.92, green: 0.69, blue: 0.47)
+        case "avatar_07": return Color(red: 0.75, green: 0.55, blue: 0.55)
+        case "avatar_08": return Color(red: 0.55, green: 0.69, blue: 0.77)
+        case "avatar_09": return Color(red: 0.54, green: 0.67, blue: 0.48)
+        case "avatar_10": return Color(red: 0.73, green: 0.58, blue: 0.30)
+        case "avatar_11": return Color(red: 0.86, green: 0.53, blue: 0.30)
+        case "avatar_12": return Color(red: 0.83, green: 0.69, blue: 0.87)
+        case "avatar_13": return Color(red: 0.61, green: 0.82, blue: 0.86)
+        default: return DSColor.sky
+        }
     }
 
 }

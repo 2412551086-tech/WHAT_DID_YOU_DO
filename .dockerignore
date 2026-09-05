@@ -1,0 +1,15 @@
+.git
+.github
+.swiftpm
+.build
+DerivedData
+node_modules
+**/node_modules
+**/dist
+apps
+design-assets
+docs
+local-records
+*.log
+backend/.env
+deploy/production/production.env

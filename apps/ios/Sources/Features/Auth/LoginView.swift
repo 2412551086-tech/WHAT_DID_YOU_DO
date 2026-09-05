@@ -2,86 +2,93 @@ import SwiftUI
 
 struct LoginView: View {
     @EnvironmentObject private var viewModel: AppViewModel
-    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @Environment(\.colorScheme) private var colorScheme
     @State private var hasAcceptedAgreement = false
-    @State private var isPhoneLoginPresented = false
     @State private var notice: LoginNotice?
-    @State private var copySeed = Int.random(in: 0..<10_000)
+    @State private var showsEmailLogin = false
 
     var body: some View {
         ZStack {
             Image("login_household_battle")
                 .resizable()
                 .scaledToFill()
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
                 .ignoresSafeArea()
                 .accessibilityHidden(true)
 
-            if colorScheme == .dark {
-                Color.black
-                    .opacity(0.42)
-                    .ignoresSafeArea()
-                    .accessibilityHidden(true)
-            }
+            Color.black
+                .opacity(colorScheme == .dark ? 0.48 : 0.16)
+                .ignoresSafeArea()
+                .accessibilityHidden(true)
 
-            ScrollView(showsIndicators: false) {
-                VStack(spacing: 0) {
-                    Color.clear
-                        .frame(height: heroHeight)
-                        .accessibilityHidden(true)
-
-                    VStack(spacing: 14) {
-                        statusBanner
-
-                        LoginActionButton(
-                            title: "手机号登录",
-                            systemImage: "iphone",
-                            fill: DSColor.yellow,
-                            isLoading: viewModel.isLoading
-                        ) {
-                            beginPhoneLogin()
-                        }
-
-                        LoginActionButton(
-                            title: "微信登录",
-                            systemImage: "bubble.left.and.bubble.right.fill",
-                            fill: DSColor.sky
-                        ) {
-                            notice = .comingSoon("微信登录")
-                        }
-
-                        LoginActionButton(
-                            title: "Apple 登录",
-                            systemImage: "apple.logo",
-                            fill: DSColor.surface
-                        ) {
-                            notice = .comingSoon("Apple 登录")
-                        }
-
-                        Text(RotatingCopy.value(from: RotatingCopy.login, seed: copySeed))
-                            .font(.system(size: 14, weight: .medium))
-                            .foregroundStyle(DSColor.mutedInk)
-                            .multilineTextAlignment(.center)
-                            .fixedSize(horizontal: false, vertical: true)
-
-                        agreementRow
+            VStack(spacing: 0) {
+                HStack {
+                    Button(action: viewModel.cancelAuthentication) {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 17, weight: .semibold))
+                            .frame(width: 44, height: 44)
+                            .background(.ultraThinMaterial)
+                            .clipShape(Circle())
                     }
-                    .padding(.horizontal, 38)
-                    .padding(.bottom, 28)
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("返回")
+                    Spacer()
                 }
+                .padding(.horizontal, 20)
+                .padding(.top, 8)
+
+                Spacer(minLength: 180)
+
+                VStack(alignment: .leading, spacing: 18) {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text(gateTitle)
+                            .font(.system(size: 30, weight: .bold))
+                            .foregroundStyle(DSColor.ink)
+                        Text(gateSubtitle)
+                            .font(.system(size: 14))
+                            .foregroundStyle(DSColor.mutedInk)
+                    }
+
+                    if let errorMessage = viewModel.errorMessage {
+                        DSErrorBanner(message: errorMessage)
+                    }
+
+                    LazyVGrid(
+                        columns: Array(repeating: GridItem(.flexible(), spacing: 10), count: orderedProviders.count),
+                        spacing: 10
+                    ) {
+                        ForEach(orderedProviders) { provider in
+                            AuthProviderTile(provider: provider, isLoading: viewModel.isLoading) {
+                                beginAuthentication(with: provider)
+                            }
+                        }
+                    }
+
+                    #if DEBUG
+                    Button("开发环境登录") {
+                        guard hasAcceptedAgreement else {
+                            notice = .agreementRequired
+                            return
+                        }
+                        viewModel.developmentLogin()
+                    }
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(DSColor.mutedInk)
+                    .frame(maxWidth: .infinity)
+                    #endif
+
+                    agreementRow
+                }
+                .padding(20)
+                .background(DSColor.quietBackground.opacity(0.97))
+                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                .padding(.horizontal, 20)
+                .padding(.bottom, 24)
             }
-            .ignoresSafeArea(edges: .top)
         }
-        .accessibilityElement(children: .contain)
-        .accessibilityLabel("家庭保卫战登录")
         .navigationBarBackButtonHidden(true)
-        .sheet(isPresented: $isPhoneLoginPresented) {
-            PhoneLoginSheet()
+        .sheet(isPresented: $showsEmailLogin) {
+            EmailOTPLoginSheet()
                 .environmentObject(viewModel)
-                .presentationDetents([.medium])
-                .presentationDragIndicator(.visible)
-                .presentationCornerRadius(24)
         }
         .alert(item: $notice) { notice in
             Alert(
@@ -90,21 +97,48 @@ struct LoginView: View {
                 dismissButton: .default(Text("知道了"))
             )
         }
-        .onChange(of: viewModel.sessionState) { _, newState in
-            if newState == .authenticated {
-                isPhoneLoginPresented = false
-            }
-        }
-        .onAppear {
-            copySeed = Int.random(in: 0..<10_000)
+    }
+
+    private var gateTitle: String {
+        switch viewModel.pendingAuthAction {
+        case .joinFamily: "登录后加入家庭"
+        case .claimLocalDraft: "登录后开启家庭同步"
+        case .enableCloudSync: "登录后开启云端同步"
+        case .inviteMembers: "登录后邀请家人"
+        case nil: "欢迎回来"
         }
     }
 
-    @ViewBuilder
-    private var statusBanner: some View {
-        if let errorMessage = viewModel.errorMessage {
-            DSErrorBanner(message: errorMessage)
-                .transition(.opacity.combined(with: .move(edge: .top)))
+    private var gateSubtitle: String {
+        pendingActionSubtitle ?? "选择你上次使用的方式，继续守护这个家。"
+    }
+
+    private var pendingActionSubtitle: String? {
+        switch viewModel.pendingAuthAction {
+        case .joinFamily: "验证账号后将继续加入家庭。"
+        case .claimLocalDraft: "登录后会保留本机家务和记录，并开启同步。"
+        case .enableCloudSync: "登录后会保留当前内容，并开启云端同步。"
+        case .inviteMembers: "登录后会回到邀请家人的步骤。"
+        case nil: nil
+        }
+    }
+
+    private var orderedProviders: [ClientAuthProvider] {
+        viewModel.availableAuthProviders.sorted { left, right in
+            if left == .email { return true }
+            if right == .email { return false }
+            return left.rawValue < right.rawValue
+        }
+    }
+
+    private func beginAuthentication(with provider: ClientAuthProvider) {
+        guard hasAcceptedAgreement else {
+            notice = .agreementRequired
+            return
+        }
+        viewModel.selectAuthProvider(provider)
+        if provider == .email {
+            showsEmailLogin = true
         }
     }
 
@@ -112,374 +146,293 @@ struct LoginView: View {
         Button {
             hasAcceptedAgreement.toggle()
         } label: {
-            HStack(alignment: .firstTextBaseline, spacing: 10) {
+            HStack(alignment: .top, spacing: 9) {
                 Image(systemName: hasAcceptedAgreement ? "checkmark.square.fill" : "square")
-                    .font(.system(size: 24, weight: .medium))
+                    .font(.system(size: 21, weight: .medium))
                     .foregroundStyle(hasAcceptedAgreement ? DSColor.infoBlue : DSColor.ink)
-
-                agreementText
-                    .font(.system(size: 14, weight: .medium))
-                    .multilineTextAlignment(.leading)
+                Text("我已阅读并同意用户协议和隐私政策")
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(DSColor.ink)
+                    .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .frame(maxWidth: .infinity, alignment: .center)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .overlay(alignment: .leading) {
-            LoginAccentStar()
-                .frame(width: 30, height: 36)
-                .offset(x: -28, y: -18)
-                .accessibilityHidden(true)
-        }
-        .accessibilityLabel(hasAcceptedAgreement ? "已同意用户协议和隐私政策" : "同意用户协议和隐私政策")
-        .accessibilityValue(hasAcceptedAgreement ? "已选择" : "未选择")
-    }
-
-    private var agreementText: Text {
-        Text("我已阅读并同意 ")
-            .foregroundColor(DSColor.ink)
-        + Text("用户协议")
-            .foregroundColor(DSColor.infoBlue)
-            .underline()
-        + Text(" 和 ")
-            .foregroundColor(DSColor.ink)
-        + Text("隐私政策")
-            .foregroundColor(DSColor.infoBlue)
-            .underline()
-    }
-
-    private var heroHeight: CGFloat {
-        dynamicTypeSize.isAccessibilitySize ? 410 : 579
-    }
-
-    private func beginPhoneLogin() {
-        guard hasAcceptedAgreement else {
-            notice = .agreementRequired
-            return
-        }
-        isPhoneLoginPresented = true
     }
 }
 
-private struct PhoneLoginSheet: View {
+private struct EmailOTPLoginSheet: View {
     @EnvironmentObject private var viewModel: AppViewModel
     @Environment(\.dismiss) private var dismiss
-    @FocusState private var focusedField: PhoneLoginField?
-    @State private var verificationCode = ""
+    @FocusState private var focusedField: Field?
+    @State private var email = ""
+    @State private var code = ""
+    @State private var challenge: EmailLoginChallengeResponse?
+    @State private var resendCountdown = 0
+    @State private var isSubmitting = false
+
+    private enum Field {
+        case email
+        case code
+    }
 
     var body: some View {
         NavigationStack {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 16) {
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text("手机号登录")
-                            .font(.system(size: 28, weight: .bold, design: .rounded))
-                        Text("开发登录暂不校验手机号长度。")
-                            .font(.system(size: 14, weight: .regular))
+            VStack(alignment: .leading, spacing: 22) {
+                HStack {
+                    Spacer()
+                    Button {
+                        dismiss()
+                    } label: {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 16, weight: .semibold))
+                            .frame(width: 44, height: 44)
+                            .background(DSColor.pureSurface)
+                            .clipShape(Circle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("取消")
+                }
+
+                VStack(alignment: .leading, spacing: 8) {
+                    Image(systemName: challenge == nil ? "envelope.fill" : "number.square.fill")
+                        .font(.system(size: 30, weight: .semibold))
+                        .foregroundStyle(DSColor.infoBlue)
+                    Text(challenge == nil ? "邮箱验证码登录" : "输入 6 位验证码")
+                        .font(.system(size: 26, weight: .bold))
+                        .foregroundStyle(DSColor.ink)
+                    Text(helperText)
+                        .font(.system(size: 14))
+                        .foregroundStyle(DSColor.mutedInk)
+                }
+
+                if let errorMessage = viewModel.errorMessage {
+                    DSErrorBanner(message: errorMessage)
+                }
+
+                if challenge == nil {
+                    TextField("name@example.com", text: $email)
+                        .textInputAutocapitalization(.never)
+                        .keyboardType(.emailAddress)
+                        .textContentType(.emailAddress)
+                        .autocorrectionDisabled()
+                        .focused($focusedField, equals: .email)
+                        .font(.system(size: 17))
+                        .padding(.horizontal, 16)
+                        .frame(minHeight: 54)
+                        .background(DSColor.pureSurface)
+                        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                        .overlay {
+                            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                .stroke(DSColor.subtleStroke, lineWidth: 1)
+                        }
+                        .submitLabel(.continue)
+                        .onSubmit(sendCode)
+                } else {
+                    TextField("000000", text: $code)
+                        .keyboardType(.numberPad)
+                        .textContentType(.oneTimeCode)
+                        .multilineTextAlignment(.center)
+                        .focused($focusedField, equals: .code)
+                        .font(.system(size: 28, weight: .semibold, design: .rounded))
+                        .padding(.horizontal, 16)
+                        .frame(minHeight: 58)
+                        .background(DSColor.pureSurface)
+                        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                        .overlay {
+                            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                .stroke(DSColor.subtleStroke, lineWidth: 1)
+                        }
+                        .onChange(of: code) { _, newValue in
+                            let digits = newValue.filter(\.isNumber)
+                            code = String(digits.prefix(6))
+                        }
+
+                    HStack {
+                        Button("更换邮箱") {
+                            challenge = nil
+                            code = ""
+                            resendCountdown = 0
+                            focusedField = .email
+                        }
+                        Spacer()
+                        Button(resendCountdown > 0 ? "\(resendCountdown) 秒后重发" : "重新发送") {
+                            sendCode()
+                        }
+                        .disabled(resendCountdown > 0 || viewModel.isLoading || isSubmitting)
+                    }
+                    .font(.system(size: 14, weight: .medium))
+
+                    #if DEBUG
+                    if let developmentCode = challenge?.developmentCode {
+                        Text("开发环境验证码：\(developmentCode)")
+                            .font(.system(size: 12, weight: .medium, design: .monospaced))
                             .foregroundStyle(DSColor.mutedInk)
                     }
-
-                    loginTextField(
-                        title: "输入手机号",
-                        systemImage: "iphone"
-                    ) {
-                        TextField("输入手机号", text: $viewModel.phoneNumber)
-                            .font(.system(size: 18, weight: .medium))
-                            .keyboardType(.phonePad)
-                            .textContentType(.telephoneNumber)
-                            .focused($focusedField, equals: .phone)
-                    }
-
-                    loginTextField(
-                        title: "输入验证码",
-                        systemImage: "number"
-                    ) {
-                        TextField("输入验证码", text: $verificationCode)
-                            .font(.system(size: 18, weight: .medium))
-                            .keyboardType(.numberPad)
-                            .textContentType(.oneTimeCode)
-                            .focused($focusedField, equals: .code)
-                            .submitLabel(.done)
-                            .onSubmit {
-                                viewModel.mockLogin()
-                            }
-                    }
-
-                    Text("当前开发阶段暂不校验验证码；登录后会沿用账号已有昵称。")
-                        .font(.system(size: 12, weight: .regular))
-                        .foregroundStyle(DSColor.mutedInk)
-                        .fixedSize(horizontal: false, vertical: true)
-
-                    if let errorMessage = viewModel.errorMessage {
-                        DSErrorBanner(message: errorMessage)
-                    }
-
-                    PhoneLoginSubmitButton(
-                        title: "登录并进入家庭",
-                        systemImage: "arrow.right.circle.fill",
-                        isLoading: viewModel.isLoading
-                    ) {
-                        viewModel.mockLogin()
-                    }
+                    #endif
                 }
-                .padding(.horizontal, 20)
-                .padding(.top, 12)
-                .padding(.bottom, 24)
-            }
-            .background(DSColor.quietBackground)
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button("取消") {
-                        dismiss()
+
+                Button {
+                    if challenge == nil {
+                        sendCode()
+                    } else {
+                        verifyCode()
                     }
-                    .disabled(viewModel.isLoading)
+                } label: {
+                    HStack(spacing: 8) {
+                        if viewModel.isLoading {
+                            ProgressView()
+                                .tint(DSColor.ink)
+                        }
+                        Text(challenge == nil ? "发送验证码" : "验证并继续")
+                            .font(.system(size: 17, weight: .bold))
+                    }
+                    .foregroundStyle(DSColor.ink)
+                    .frame(maxWidth: .infinity, minHeight: 54)
+                    .background(DSColor.yellow)
+                    .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                }
+                .buttonStyle(.plain)
+                .disabled(
+                    viewModel.isLoading
+                        || isSubmitting
+                        || (challenge == nil ? email.isEmpty : code.count != 6)
+                )
+
+                Spacer()
+            }
+            .padding(22)
+            .background(DSColor.quietBackground.ignoresSafeArea())
+            .navigationTitle("")
+            .navigationBarTitleDisplayMode(.inline)
+            .onAppear { focusedField = .email }
+            .task(id: challenge?.challengeId) {
+                while challenge != nil, resendCountdown > 0 {
+                    try? await Task.sleep(for: .seconds(1))
+                    guard !Task.isCancelled else { return }
+                    resendCountdown -= 1
                 }
             }
         }
-        .onAppear {
-            focusedField = viewModel.phoneNumber.isEmpty ? .phone : .code
+        .presentationDetents([.medium, .large])
+        .presentationDragIndicator(.visible)
+        .interactiveDismissDisabled(viewModel.isLoading)
+    }
+
+    private var helperText: String {
+        if let challenge {
+            return "验证码已发送至 \(challenge.maskedEmail)，10 分钟内有效。"
+        }
+        return "新邮箱会自动创建账号，已使用的邮箱会登录原账号。"
+    }
+
+    private func sendCode() {
+        guard !isSubmitting else { return }
+        isSubmitting = true
+        Task {
+            defer { isSubmitting = false }
+            guard let response = await viewModel.requestEmailLoginCode(email) else { return }
+            challenge = response
+            resendCountdown = response.resendAfterSeconds
+            #if DEBUG
+            if let developmentCode = response.developmentCode {
+                code = developmentCode
+            }
+            #endif
+            focusedField = .code
         }
     }
 
-    private func loginTextField<Content: View>(
-        title: String,
-        systemImage: String,
-        @ViewBuilder content: () -> Content
-    ) -> some View {
-        HStack(spacing: 12) {
-            Image(systemName: systemImage)
-                .font(.system(size: 19, weight: .semibold))
-                .frame(width: 26)
-
-            content()
+    private func verifyCode() {
+        guard let challenge, !isSubmitting else { return }
+        isSubmitting = true
+        Task {
+            defer { isSubmitting = false }
+            let succeeded = await viewModel.verifyEmailLoginCode(
+                email: email,
+                challengeId: challenge.challengeId,
+                code: code
+            )
+            if succeeded {
+                dismiss()
+            }
         }
-        .padding(.horizontal, 16)
-        .frame(minHeight: 56)
-        .background(DSColor.pureSurface)
-        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .stroke(DSColor.outline.opacity(0.9), lineWidth: 1.5)
-        )
-        .accessibilityLabel(title)
     }
 }
 
-private enum PhoneLoginField: Hashable {
-    case phone
-    case code
-}
-
-private struct PhoneLoginSubmitButton: View {
-    let title: String
-    let systemImage: String
+private struct AuthProviderTile: View {
+    let provider: ClientAuthProvider
     let isLoading: Bool
     let action: () -> Void
 
     var body: some View {
-        Button {
-            guard !isLoading else { return }
-            action()
-        } label: {
-            HStack(spacing: 9) {
-                if isLoading {
-                    ProgressView()
-                        .controlSize(.small)
-                        .tint(DSColor.ink)
-                } else {
-                    Image(systemName: systemImage)
-                }
-
-                Text(isLoading ? "正在登录…" : title)
+        Button(action: action) {
+            VStack(spacing: 10) {
+                Image(systemName: systemImage)
+                    .font(.system(size: 22, weight: .semibold))
+                    .frame(width: 42, height: 42)
+                    .background(iconFillColor)
+                    .clipShape(Circle())
+                Text(title)
+                    .font(.system(size: 13, weight: .semibold))
+                    .multilineTextAlignment(.center)
+                    .lineLimit(2)
+                    .minimumScaleFactor(0.8)
             }
-            .font(.system(size: 17, weight: .semibold, design: .rounded))
-            .foregroundStyle(DSColor.ink)
-            .frame(maxWidth: .infinity, minHeight: 56)
-            .background(DSColor.yellow)
-            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .foregroundStyle(foregroundColor)
+            .padding(.horizontal, 6)
+            .frame(maxWidth: .infinity, minHeight: 94)
+            .background(fillColor)
+            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
             .overlay {
-                RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .stroke(DSColor.outline, lineWidth: 1.8)
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .stroke(DSColor.subtleStroke, lineWidth: 1)
             }
-            .opacity(isLoading ? 0.65 : 1)
         }
         .buttonStyle(.plain)
         .disabled(isLoading)
     }
-}
 
-private struct LoginActionButton: View {
-    let title: String
-    let systemImage: String
-    let fill: Color
-    var isLoading = false
-    let action: () -> Void
-
-    @State private var isPressed = false
-
-    var body: some View {
-        Button {
-            guard !isLoading else { return }
-            action()
-        } label: {
-            ZStack {
-                RoundedRectangle(cornerRadius: 11, style: .continuous)
-                    .fill(DSColor.shadow.opacity(0.92))
-                    .offset(
-                        x: isPressed ? 2 : 7,
-                        y: isPressed ? 2 : 8
-                    )
-
-                ZStack {
-                    Text(isLoading ? "正在登录…" : title)
-                        .font(.system(size: 20, weight: .semibold, design: .rounded))
-                        .lineLimit(1)
-
-                    HStack {
-                        if isLoading {
-                            ProgressView()
-                                .tint(DSColor.ink)
-                                .frame(width: 34, height: 34)
-                        } else if title == "微信登录" {
-                            WeChatLoginIcon(cutoutColor: fill)
-                                .frame(width: 30, height: 26)
-                                .frame(width: 34, height: 34)
-                        } else {
-                            Image(systemName: systemImage)
-                                .font(.system(size: 27, weight: .semibold))
-                                .frame(width: 34, height: 34)
-                        }
-
-                        Spacer(minLength: 0)
-                    }
-                }
-                .foregroundStyle(DSColor.ink)
-                .padding(.horizontal, 28)
-                .frame(maxWidth: .infinity, minHeight: 52)
-                .background(fill)
-                .clipShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 11, style: .continuous)
-                        .stroke(DSColor.outline, lineWidth: 1.8)
-                )
-            }
-            .padding(.trailing, 7)
-            .padding(.bottom, 8)
+    private var title: String {
+        switch provider {
+        case .apple: "Apple"
+        case .wechat: "微信"
+        case .email: "邮箱验证码"
+        case .google: "Google"
         }
-        .buttonStyle(.plain)
-        .disabled(isLoading)
-        .simultaneousGesture(
-            DragGesture(minimumDistance: 0)
-                .onChanged { _ in
-                    if !isLoading { isPressed = true }
-                }
-                .onEnded { _ in isPressed = false }
-        )
-        .animation(.easeOut(duration: 0.12), value: isPressed)
-        .accessibilityHint(title == "手机号登录" ? "打开手机号输入" : "该登录方式即将支持")
     }
-}
 
-private struct WeChatLoginIcon: View {
-    let cutoutColor: Color
-
-    var body: some View {
-        ZStack {
-            Image(systemName: "message.fill")
-                .font(.system(size: 22, weight: .black))
-                .offset(x: -5, y: -2)
-
-            Circle()
-                .fill(cutoutColor)
-                .frame(width: 2.7, height: 2.7)
-                .offset(x: -8, y: -5)
-            Circle()
-                .fill(cutoutColor)
-                .frame(width: 2.7, height: 2.7)
-                .offset(x: -2, y: -5)
-
-            Image(systemName: "message.fill")
-                .font(.system(size: 18, weight: .black))
-                .offset(x: 6, y: 5)
-
-            Circle()
-                .fill(cutoutColor)
-                .frame(width: 2.3, height: 2.3)
-                .offset(x: 3, y: 3)
-            Circle()
-                .fill(cutoutColor)
-                .frame(width: 2.3, height: 2.3)
-                .offset(x: 8, y: 3)
+    private var systemImage: String {
+        switch provider {
+        case .apple: "apple.logo"
+        case .wechat: "bubble.left.and.bubble.right.fill"
+        case .email: "envelope.fill"
+        case .google: "g.circle.fill"
         }
-        .foregroundStyle(DSColor.ink)
     }
-}
 
-private struct LoginAccentStar: View {
-    var body: some View {
-        FourPointSparkle()
-            .fill(DSColor.yellow)
-            .overlay {
-                FourPointSparkle()
-                    .stroke(DSColor.outline, lineWidth: 2.4)
-            }
-            .rotationEffect(.degrees(-12))
+    private var fillColor: Color {
+        DSColor.pureSurface
     }
-}
 
-private struct FourPointSparkle: Shape {
-    func path(in rect: CGRect) -> Path {
-        let center = CGPoint(x: rect.midX, y: rect.midY)
-        let points = [
-            CGPoint(x: center.x, y: rect.minY),
-            CGPoint(x: center.x + rect.width * 0.16, y: center.y - rect.height * 0.14),
-            CGPoint(x: rect.maxX, y: center.y),
-            CGPoint(x: center.x + rect.width * 0.16, y: center.y + rect.height * 0.14),
-            CGPoint(x: center.x, y: rect.maxY),
-            CGPoint(x: center.x - rect.width * 0.16, y: center.y + rect.height * 0.14),
-            CGPoint(x: rect.minX, y: center.y),
-            CGPoint(x: center.x - rect.width * 0.16, y: center.y - rect.height * 0.14)
-        ]
+    private var foregroundColor: Color {
+        DSColor.ink
+    }
 
-        var path = Path()
-        path.move(to: points[0])
-        for point in points.dropFirst() {
-            path.addLine(to: point)
+    private var iconFillColor: Color {
+        switch provider {
+        case .email: DSColor.yellow.opacity(0.72)
+        case .wechat: DSColor.mint.opacity(0.65)
+        case .apple: DSColor.ink.opacity(0.08)
+        case .google: DSColor.sky.opacity(0.58)
         }
-        path.closeSubpath()
-        return path
     }
 }
 
 private enum LoginNotice: Identifiable {
     case agreementRequired
-    case comingSoon(String)
 
-    var id: String {
-        switch self {
-        case .agreementRequired: return "agreement"
-        case .comingSoon(let name): return "coming-soon-\(name)"
-        }
-    }
-
-    var title: String {
-        switch self {
-        case .agreementRequired: return "请先确认协议"
-        case .comingSoon(let name): return name
-        }
-    }
-
-    var message: String {
-        switch self {
-        case .agreementRequired:
-            return "请先阅读并同意用户协议和隐私政策。"
-        case .comingSoon:
-            return "该登录方式即将支持，本地联调请使用手机号登录。"
-        }
-    }
-}
-
-#Preview {
-    LoginView()
-        .environmentObject(AppViewModel(forceMockData: true))
+    var id: String { "agreement-required" }
+    var title: String { "请先确认协议" }
+    var message: String { "登录前需要阅读并同意用户协议和隐私政策。" }
 }

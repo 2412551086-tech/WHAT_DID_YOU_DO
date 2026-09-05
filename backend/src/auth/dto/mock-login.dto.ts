@@ -1,6 +1,7 @@
 import { IsOptional, IsString, MaxLength, MinLength } from 'class-validator';
+import { SessionDeviceDto } from './session-device.dto';
 
-export class MockLoginDto {
+export class MockLoginDto extends SessionDeviceDto {
   @IsOptional()
   @IsString()
   @MinLength(1)
@@ -10,5 +11,5 @@ export class MockLoginDto {
   @IsOptional()
   @IsString()
   @MinLength(1)
-  phoneNumber?: string;
+  devIdentifier?: string;
 }
