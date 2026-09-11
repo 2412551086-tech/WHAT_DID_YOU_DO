@@ -16,6 +16,10 @@
 - `reference/all-member-portraits-contact-sheet.jpg`：十三个角色头像总览。
 - `reference/all-member-action-portraits-contact-sheet.jpg`：十三个动作版角色头像总览。
 
+iOS 月度战报运行资源：
+
+- `monthly_leader_watering`：月度领先人物主卡，来源为 `action-poses/member-01-yellow-bob-watering-plants.png`。
+
 角色编号在头像与全身立绘中保持一致：
 
 1. `member-01-yellow-bob`：黄色上衣、黑色短发女性。
@@ -67,6 +71,32 @@
 ### `03-previews`
 
 - `screens-contact-sheet.jpg`：全部 13 张页面的缩略图总览，仅用于快速定位文件。
+
+### `04-chore-icons/extracted-from-chore-selection`
+
+家务选择页的独立插画素材。iOS 运行资源使用以下稳定 Asset 名称：
+
+- `chore_core_cook_prepare`：做饭 / 备餐。
+- `chore_core_dishes_cleanup`：饭后收拾 / 洗碗。
+- `chore_core_laundry`：洗衣服。
+- `chore_core_fold_clothes`：收衣 / 叠衣。
+- `chore_core_sweep_vacuum`：扫地 / 吸尘。
+- `chore_core_mop_floor`：拖地 / 地面湿清洁。
+- `chore_core_organize_storage`：整理收纳。
+- `chore_core_bathroom_clean`：卫生间清洁。
+- `chore_core_trash_recycling`：倒垃圾 / 垃圾分类。
+- `chore_core_shopping_supplies`：采购补货 / 家庭物资管理。
+- `chore_premium_change_bedding`：换床单。
+- `chore_premium_clean_stove`：清理灶台。
+- `chore_premium_walk_dog`：遛狗。
+
+未列出的高级家务暂时没有语义匹配的正式插画，App 继续使用对应 SF Symbol，不得复用不相关图片。
+
+### iOS 运行资源
+
+- `login_household_battle`：登录页顶部“家庭保卫战”主视觉，运行文件位于 `apps/ios/Resources/Assets.xcassets/login_household_battle.imageset/`。
+- `avatar_01` 至 `avatar_13`：后端 `avatarKey` 的兼容运行名称，依次映射到 `member-01` 至 `member-13` 的头像。
+- `family_avatar_action_01` 至 `family_avatar_action_13`：家庭创建、加入和审核状态页的人物动作立绘，编号与头像保持一致。
 
 ## 命名规则
 

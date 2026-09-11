@@ -1,0 +1,1439 @@
+{
+  "grid": {
+    "atlas_size": [
+      1536,
+      1024
+    ],
+    "cell_size": [
+      384,
+      512
+    ],
+    "columns": 4,
+    "rows": 2
+  },
+  "atlases": {
+    "achv2_atlas_1": {
+      "source_sha256": "ecca87242a4a547e7a9dd64e77d4b2a150c3a7cf4627a1cae359fd1a81329310",
+      "output_sha256": "beb61129cda7300395f39a79cadaa34771959a7a70c4fb78b83922fd089d1afb",
+      "size": [
+        1536,
+        1024
+      ],
+      "has_alpha": true,
+      "alpha_nonzero": 548303,
+      "alpha_opaque": 543767,
+      "alpha_partial": 4536,
+      "alpha_min": 0,
+      "alpha_max": 255,
+      "cells": [
+        {
+          "row": 0,
+          "column": 0,
+          "background_pixels": 135532,
+          "foreground_pixels": 61076,
+          "partial_alpha_pixels": 772,
+          "nonzero_alpha": 60517,
+          "alpha_coverage": 0.307805,
+          "background_rgb": [
+            254,
+            254,
+            254
+          ],
+          "restored_internal_pixels": 2452
+        },
+        {
+          "row": 0,
+          "column": 1,
+          "background_pixels": 135796,
+          "foreground_pixels": 60812,
+          "partial_alpha_pixels": 567,
+          "nonzero_alpha": 60781,
+          "alpha_coverage": 0.309148,
+          "background_rgb": [
+            254,
+            254,
+            254
+          ]
+        },
+        {
+          "row": 0,
+          "column": 2,
+          "background_pixels": 134689,
+          "foreground_pixels": 61919,
+          "partial_alpha_pixels": 503,
+          "nonzero_alpha": 61887,
+          "alpha_coverage": 0.314774,
+          "background_rgb": [
+            254,
+            254,
+            254
+          ]
+        },
+        {
+          "row": 0,
+          "column": 3,
+          "background_pixels": 129428,
+          "foreground_pixels": 67180,
+          "partial_alpha_pixels": 643,
+          "nonzero_alpha": 67115,
+          "alpha_coverage": 0.341365,
+          "background_rgb": [
+            254,
+            254,
+            254
+          ]
+        },
+        {
+          "row": 1,
+          "column": 0,
+          "background_pixels": 139547,
+          "foreground_pixels": 57061,
+          "partial_alpha_pixels": 498,
+          "nonzero_alpha": 57038,
+          "alpha_coverage": 0.29011,
+          "background_rgb": [
+            254,
+            254,
+            254
+          ]
+        },
+        {
+          "row": 1,
+          "column": 1,
+          "background_pixels": 110660,
+          "foreground_pixels": 85948,
+          "partial_alpha_pixels": 436,
+          "nonzero_alpha": 85928,
+          "alpha_coverage": 0.437052,
+          "background_rgb": [
+            254,
+            254,
+            254
+          ]
+        },
+        {
+          "row": 1,
+          "column": 2,
+          "background_pixels": 101777,
+          "foreground_pixels": 94831,
+          "partial_alpha_pixels": 451,
+          "nonzero_alpha": 94821,
+          "alpha_coverage": 0.482285,
+          "background_rgb": [
+            254,
+            254,
+            254
+          ]
+        },
+        {
+          "row": 1,
+          "column": 3,
+          "background_pixels": 138784,
+          "foreground_pixels": 57824,
+          "partial_alpha_pixels": 666,
+          "nonzero_alpha": 57764,
+          "alpha_coverage": 0.293803,
+          "background_rgb": [
+            254,
+            254,
+            254
+          ]
+        }
+      ]
+    },
+    "achv2_atlas_2": {
+      "source_sha256": "1c1c31bfcc9705d148e9d01808ccd571f8d623271d623db1db7d3c05d6d493c7",
+      "output_sha256": "7e5226e66e95b48e8341045e36d2d96e09adb165aed08cfb844a5f7c50cb87bf",
+      "size": [
+        1536,
+        1024
+      ],
+      "has_alpha": true,
+      "alpha_nonzero": 539937,
+      "alpha_opaque": 533854,
+      "alpha_partial": 6083,
+      "alpha_min": 0,
+      "alpha_max": 255,
+      "cells": [
+        {
+          "row": 0,
+          "column": 0,
+          "background_pixels": 124093,
+          "foreground_pixels": 72515,
+          "partial_alpha_pixels": 1078,
+          "nonzero_alpha": 72269,
+          "alpha_coverage": 0.367579,
+          "background_rgb": [
+            254,
+            254,
+            254
+          ]
+        },
+        {
+          "row": 0,
+          "column": 1,
+          "background_pixels": 123983,
+          "foreground_pixels": 72625,
+          "partial_alpha_pixels": 561,
+          "nonzero_alpha": 72572,
+          "alpha_coverage": 0.36912,
+          "background_rgb": [
+            254,
+            254,
+            254
+          ]
+        },
+        {
+          "row": 0,
+          "column": 2,
+          "background_pixels": 132090,
+          "foreground_pixels": 64518,
+          "partial_alpha_pixels": 1145,
+          "nonzero_alpha": 64423,
+          "alpha_coverage": 0.327672,
+          "background_rgb": [
+            254,
+            254,
+            254
+          ]
+        },
+        {
+          "row": 0,
+          "column": 3,
+          "background_pixels": 138358,
+          "foreground_pixels": 58250,
+          "partial_alpha_pixels": 385,
+          "nonzero_alpha": 58162,
+          "alpha_coverage": 0.295827,
+          "background_rgb": [
+            254,
+            254,
+            254
+          ]
+        },
+        {
+          "row": 1,
+          "column": 0,
+          "background_pixels": 128462,
+          "foreground_pixels": 68146,
+          "partial_alpha_pixels": 1094,
+          "nonzero_alpha": 68036,
+          "alpha_coverage": 0.346049,
+          "background_rgb": [
+            254,
+            254,
+            254
+          ]
+        },
+        {
+          "row": 1,
+          "column": 1,
+          "background_pixels": 135553,
+          "foreground_pixels": 61055,
+          "partial_alpha_pixels": 427,
+          "nonzero_alpha": 60939,
+          "alpha_coverage": 0.309952,
+          "background_rgb": [
+            254,
+            254,
+            254
+          ]
+        },
+        {
+          "row": 1,
+          "column": 2,
+          "background_pixels": 140779,
+          "foreground_pixels": 55829,
+          "partial_alpha_pixels": 720,
+          "nonzero_alpha": 55736,
+          "alpha_coverage": 0.283488,
+          "background_rgb": [
+            254,
+            254,
+            254
+          ]
+        },
+        {
+          "row": 1,
+          "column": 3,
+          "background_pixels": 113203,
+          "foreground_pixels": 83405,
+          "partial_alpha_pixels": 673,
+          "nonzero_alpha": 81866,
+          "alpha_coverage": 0.416392,
+          "background_rgb": [
+            254,
+            254,
+            254
+          ],
+          "restored_internal_pixels": 5934
+        }
+      ]
+    },
+    "achv2_atlas_3": {
+      "source_sha256": "41e94437b18d31e7195db6d510907f8da73da04b2b995ef0b33256b71953d5b9",
+      "output_sha256": "ebe31d5149c28a071e00f197a58a3aad8ab043579b60df43ac5559e99be2db9a",
+      "size": [
+        1536,
+        1024
+      ],
+      "has_alpha": true,
+      "alpha_nonzero": 606450,
+      "alpha_opaque": 596815,
+      "alpha_partial": 9635,
+      "alpha_min": 0,
+      "alpha_max": 255,
+      "cells": [
+        {
+          "row": 0,
+          "column": 0,
+          "background_pixels": 133209,
+          "foreground_pixels": 63399,
+          "partial_alpha_pixels": 861,
+          "nonzero_alpha": 63369,
+          "alpha_coverage": 0.322311,
+          "background_rgb": [
+            254,
+            254,
+            254
+          ]
+        },
+        {
+          "row": 0,
+          "column": 1,
+          "background_pixels": 134763,
+          "foreground_pixels": 61845,
+          "partial_alpha_pixels": 839,
+          "nonzero_alpha": 61798,
+          "alpha_coverage": 0.314321,
+          "background_rgb": [
+            254,
+            254,
+            254
+          ]
+        },
+        {
+          "row": 0,
+          "column": 2,
+          "background_pixels": 135466,
+          "foreground_pixels": 61142,
+          "partial_alpha_pixels": 975,
+          "nonzero_alpha": 61080,
+          "alpha_coverage": 0.310669,
+          "background_rgb": [
+            254,
+            254,
+            254
+          ]
+        },
+        {
+          "row": 0,
+          "column": 3,
+          "background_pixels": 137141,
+          "foreground_pixels": 59467,
+          "partial_alpha_pixels": 830,
+          "nonzero_alpha": 59396,
+          "alpha_coverage": 0.302104,
+          "background_rgb": [
+            254,
+            254,
+            254
+          ]
+        },
+        {
+          "row": 1,
+          "column": 0,
+          "background_pixels": 115466,
+          "foreground_pixels": 81142,
+          "partial_alpha_pixels": 1469,
+          "nonzero_alpha": 81087,
+          "alpha_coverage": 0.41243,
+          "background_rgb": [
+            254,
+            254,
+            254
+          ]
+        },
+        {
+          "row": 1,
+          "column": 1,
+          "background_pixels": 96919,
+          "foreground_pixels": 99689,
+          "partial_alpha_pixels": 1451,
+          "nonzero_alpha": 99616,
+          "alpha_coverage": 0.506673,
+          "background_rgb": [
+            254,
+            254,
+            254
+          ]
+        },
+        {
+          "row": 1,
+          "column": 2,
+          "background_pixels": 98966,
+          "foreground_pixels": 97642,
+          "partial_alpha_pixels": 1771,
+          "nonzero_alpha": 97546,
+          "alpha_coverage": 0.496145,
+          "background_rgb": [
+            254,
+            254,
+            254
+          ],
+          "removed_isolated_boundary_pixels": 0
+        },
+        {
+          "row": 1,
+          "column": 3,
+          "background_pixels": 113811,
+          "foreground_pixels": 82797,
+          "partial_alpha_pixels": 1491,
+          "nonzero_alpha": 82735,
+          "alpha_coverage": 0.420812,
+          "background_rgb": [
+            254,
+            254,
+            254
+          ],
+          "removed_isolated_boundary_pixels": 177
+        }
+      ]
+    },
+    "achv2_atlas_4": {
+      "source_sha256": "c4d8f6c84c3d27354aa4ff560fe86eafa6c092e477182507b1c3ee15d753ee50",
+      "output_sha256": "29502536e1576770637d0c168e96f126f916e1c9374405f770df55994c2eb10e",
+      "size": [
+        1536,
+        1024
+      ],
+      "has_alpha": true,
+      "alpha_nonzero": 670346,
+      "alpha_opaque": 665000,
+      "alpha_partial": 5346,
+      "alpha_min": 0,
+      "alpha_max": 255,
+      "cells": [
+        {
+          "row": 0,
+          "column": 0,
+          "background_pixels": 95325,
+          "foreground_pixels": 101283,
+          "partial_alpha_pixels": 957,
+          "nonzero_alpha": 101230,
+          "alpha_coverage": 0.514882,
+          "background_rgb": [
+            254,
+            254,
+            254
+          ]
+        },
+        {
+          "row": 0,
+          "column": 1,
+          "background_pixels": 129451,
+          "foreground_pixels": 67157,
+          "partial_alpha_pixels": 473,
+          "nonzero_alpha": 67105,
+          "alpha_coverage": 0.341314,
+          "background_rgb": [
+            254,
+            254,
+            254
+          ]
+        },
+        {
+          "row": 0,
+          "column": 2,
+          "background_pixels": 105918,
+          "foreground_pixels": 90690,
+          "partial_alpha_pixels": 731,
+          "nonzero_alpha": 90472,
+          "alpha_coverage": 0.460164,
+          "background_rgb": [
+            254,
+            254,
+            254
+          ]
+        },
+        {
+          "row": 0,
+          "column": 3,
+          "background_pixels": 94990,
+          "foreground_pixels": 101618,
+          "partial_alpha_pixels": 196,
+          "nonzero_alpha": 101592,
+          "alpha_coverage": 0.516724,
+          "background_rgb": [
+            254,
+            254,
+            254
+          ]
+        },
+        {
+          "row": 1,
+          "column": 0,
+          "background_pixels": 112479,
+          "foreground_pixels": 84129,
+          "partial_alpha_pixels": 110,
+          "nonzero_alpha": 84117,
+          "alpha_coverage": 0.427841,
+          "background_rgb": [
+            254,
+            254,
+            254
+          ]
+        },
+        {
+          "row": 1,
+          "column": 1,
+          "background_pixels": 128294,
+          "foreground_pixels": 68314,
+          "partial_alpha_pixels": 324,
+          "nonzero_alpha": 68265,
+          "alpha_coverage": 0.347214,
+          "background_rgb": [
+            254,
+            254,
+            254
+          ]
+        },
+        {
+          "row": 1,
+          "column": 2,
+          "background_pixels": 112776,
+          "foreground_pixels": 83832,
+          "partial_alpha_pixels": 1752,
+          "nonzero_alpha": 83704,
+          "alpha_coverage": 0.425741,
+          "background_rgb": [
+            254,
+            254,
+            254
+          ]
+        },
+        {
+          "row": 1,
+          "column": 3,
+          "background_pixels": 122663,
+          "foreground_pixels": 73945,
+          "partial_alpha_pixels": 803,
+          "nonzero_alpha": 73861,
+          "alpha_coverage": 0.375676,
+          "background_rgb": [
+            254,
+            254,
+            254
+          ]
+        }
+      ]
+    },
+    "achv2_atlas_5": {
+      "source_sha256": "1b17a69c4246df45681643ae1175bef50e496acdc3dd72fa93423ec219b3d9f0",
+      "output_sha256": "6c89a01158ca11fe11bcb9d6a8098e737f3e1b4ee4fe50f394ff242759c2b02e",
+      "size": [
+        1536,
+        1024
+      ],
+      "has_alpha": true,
+      "alpha_nonzero": 560807,
+      "alpha_opaque": 556065,
+      "alpha_partial": 4742,
+      "alpha_min": 0,
+      "alpha_max": 255,
+      "cells": [
+        {
+          "row": 0,
+          "column": 0,
+          "background_pixels": 140214,
+          "foreground_pixels": 56394,
+          "partial_alpha_pixels": 494,
+          "nonzero_alpha": 56375,
+          "alpha_coverage": 0.286738,
+          "background_rgb": [
+            254,
+            254,
+            254
+          ]
+        },
+        {
+          "row": 0,
+          "column": 1,
+          "background_pixels": 132641,
+          "foreground_pixels": 63967,
+          "partial_alpha_pixels": 577,
+          "nonzero_alpha": 63926,
+          "alpha_coverage": 0.325144,
+          "background_rgb": [
+            254,
+            254,
+            254
+          ]
+        },
+        {
+          "row": 0,
+          "column": 2,
+          "background_pixels": 128505,
+          "foreground_pixels": 68103,
+          "partial_alpha_pixels": 332,
+          "nonzero_alpha": 68083,
+          "alpha_coverage": 0.346288,
+          "background_rgb": [
+            254,
+            254,
+            254
+          ]
+        },
+        {
+          "row": 0,
+          "column": 3,
+          "background_pixels": 129526,
+          "foreground_pixels": 67082,
+          "partial_alpha_pixels": 339,
+          "nonzero_alpha": 67072,
+          "alpha_coverage": 0.341146,
+          "background_rgb": [
+            254,
+            254,
+            254
+          ]
+        },
+        {
+          "row": 1,
+          "column": 0,
+          "background_pixels": 116754,
+          "foreground_pixels": 79854,
+          "partial_alpha_pixels": 1225,
+          "nonzero_alpha": 79808,
+          "alpha_coverage": 0.405924,
+          "background_rgb": [
+            254,
+            254,
+            254
+          ]
+        },
+        {
+          "row": 1,
+          "column": 1,
+          "background_pixels": 131413,
+          "foreground_pixels": 65195,
+          "partial_alpha_pixels": 575,
+          "nonzero_alpha": 65163,
+          "alpha_coverage": 0.331436,
+          "background_rgb": [
+            254,
+            254,
+            254
+          ]
+        },
+        {
+          "row": 1,
+          "column": 2,
+          "background_pixels": 115902,
+          "foreground_pixels": 80706,
+          "partial_alpha_pixels": 790,
+          "nonzero_alpha": 80651,
+          "alpha_coverage": 0.410212,
+          "background_rgb": [
+            254,
+            254,
+            254
+          ],
+          "removed_isolated_boundary_pixels": 109
+        },
+        {
+          "row": 1,
+          "column": 3,
+          "background_pixels": 116749,
+          "foreground_pixels": 79859,
+          "partial_alpha_pixels": 413,
+          "nonzero_alpha": 79838,
+          "alpha_coverage": 0.406077,
+          "background_rgb": [
+            254,
+            254,
+            254
+          ]
+        }
+      ]
+    },
+    "achv2_atlas_6": {
+      "source_sha256": "62d6bc53cf5fbb6085251de55793df63804a1571c865efb8581cfe5d41cc87f3",
+      "output_sha256": "ee9a870dac897a76e4e64b9f5418e441f65cecae7d1518049b3b63bd1629946a",
+      "size": [
+        1536,
+        1024
+      ],
+      "has_alpha": true,
+      "alpha_nonzero": 600850,
+      "alpha_opaque": 596587,
+      "alpha_partial": 4263,
+      "alpha_min": 0,
+      "alpha_max": 255,
+      "cells": [
+        {
+          "row": 0,
+          "column": 0,
+          "background_pixels": 132572,
+          "foreground_pixels": 64036,
+          "partial_alpha_pixels": 660,
+          "nonzero_alpha": 63956,
+          "alpha_coverage": 0.325297,
+          "background_rgb": [
+            253,
+            254,
+            253
+          ]
+        },
+        {
+          "row": 0,
+          "column": 1,
+          "background_pixels": 155585,
+          "foreground_pixels": 41023,
+          "partial_alpha_pixels": 353,
+          "nonzero_alpha": 40975,
+          "alpha_coverage": 0.20841,
+          "background_rgb": [
+            253,
+            253,
+            253
+          ]
+        },
+        {
+          "row": 0,
+          "column": 2,
+          "background_pixels": 143536,
+          "foreground_pixels": 53072,
+          "partial_alpha_pixels": 710,
+          "nonzero_alpha": 53021,
+          "alpha_coverage": 0.269679,
+          "background_rgb": [
+            253,
+            253,
+            253
+          ]
+        },
+        {
+          "row": 0,
+          "column": 3,
+          "background_pixels": 111767,
+          "foreground_pixels": 84841,
+          "partial_alpha_pixels": 782,
+          "nonzero_alpha": 84794,
+          "alpha_coverage": 0.431285,
+          "background_rgb": [
+            253,
+            254,
+            253
+          ]
+        },
+        {
+          "row": 1,
+          "column": 0,
+          "background_pixels": 108967,
+          "foreground_pixels": 87641,
+          "partial_alpha_pixels": 408,
+          "nonzero_alpha": 87590,
+          "alpha_coverage": 0.445506,
+          "background_rgb": [
+            253,
+            254,
+            253
+          ]
+        },
+        {
+          "row": 1,
+          "column": 1,
+          "background_pixels": 104484,
+          "foreground_pixels": 92124,
+          "partial_alpha_pixels": 826,
+          "nonzero_alpha": 91752,
+          "alpha_coverage": 0.466675,
+          "background_rgb": [
+            253,
+            254,
+            253
+          ]
+        },
+        {
+          "row": 1,
+          "column": 2,
+          "background_pixels": 96984,
+          "foreground_pixels": 99624,
+          "partial_alpha_pixels": 396,
+          "nonzero_alpha": 99540,
+          "alpha_coverage": 0.506287,
+          "background_rgb": [
+            253,
+            254,
+            253
+          ]
+        },
+        {
+          "row": 1,
+          "column": 3,
+          "background_pixels": 117332,
+          "foreground_pixels": 79276,
+          "partial_alpha_pixels": 128,
+          "nonzero_alpha": 79222,
+          "alpha_coverage": 0.402944,
+          "background_rgb": [
+            254,
+            254,
+            253
+          ]
+        }
+      ]
+    }
+  },
+  "legacy_alpha_icons": {
+    "achievement_active_days_3": {
+      "source_sha256": "807ab5bf02788abeaa559c9dfabda8465e378ac67029fc9bf099ac6a8ec45206",
+      "output_sha256": "673fd0c8cf3b6980a06e77b2d8d1ce04fe400a23614c2e24a6f457152e4c9cc3",
+      "size": [
+        512,
+        512
+      ],
+      "has_alpha": true,
+      "removed_outer_white_pixels": 20507,
+      "alpha_nonzero": 81970,
+      "alpha_partial": 103
+    },
+    "achievement_active_days_5": {
+      "source_sha256": "d30775cb3c70b330873fa57f40bb3727b6823040ebc8e03e38cbf2c74842d374",
+      "output_sha256": "ba76e610830a32e6bb26f9566f93fd19e3c5238aefa12a5c1d3c45c1a4d0e7c4",
+      "size": [
+        512,
+        512
+      ],
+      "has_alpha": true,
+      "removed_outer_white_pixels": 17639,
+      "alpha_nonzero": 99522,
+      "alpha_partial": 67
+    },
+    "achievement_active_days_7": {
+      "source_sha256": "bc4477dd860ef84717477ee4d2d8fa1f98959567f0dc105863356ffbb707f543",
+      "output_sha256": "c1b0740e839c37d2fecdf1c128467d4f758586c6400d76e9f5dc48f6b46141d4",
+      "size": [
+        512,
+        512
+      ],
+      "has_alpha": true,
+      "removed_outer_white_pixels": 10759,
+      "alpha_nonzero": 156258,
+      "alpha_partial": 139
+    },
+    "achievement_family_all_in": {
+      "source_sha256": "14cc731875a17c5f38e1694bba0dd7cd632c692fb32dbd355cee13faac82510c",
+      "output_sha256": "c245a7a4a06dfea06450da0ff25978ce399905b145140b429cecd3e4b72a09fa",
+      "size": [
+        512,
+        512
+      ],
+      "has_alpha": true,
+      "removed_outer_white_pixels": 17432,
+      "alpha_nonzero": 133439,
+      "alpha_partial": 196
+    },
+    "achievement_family_category_coverage": {
+      "source_sha256": "87818c28921d8be5b187662a69ddc9e2cbaf09ebd6c8d819d6419562e8b6e384",
+      "output_sha256": "5bacb277b8ac654ff2befd596e33d4de9bd9864b3493dcb6036a67c0c7bdb0d8",
+      "size": [
+        512,
+        512
+      ],
+      "has_alpha": true,
+      "removed_outer_white_pixels": 12442,
+      "alpha_nonzero": 118483,
+      "alpha_partial": 197
+    },
+    "achievement_family_formed": {
+      "source_sha256": "9ec23cd1b914b11563c803a4f678ecfa148e2178990f2a5b77f3cbe0da44604d",
+      "output_sha256": "0c37240f2bdbd512b73744f52c1ab4ce14aaa9c400d53660cba82d0ead17d0a3",
+      "size": [
+        512,
+        512
+      ],
+      "has_alpha": true,
+      "removed_outer_white_pixels": 16207,
+      "alpha_nonzero": 114942,
+      "alpha_partial": 192
+    },
+    "achievement_family_full_service": {
+      "source_sha256": "1f1bb585cc6d19d950167db6e3eacf70c705db766ae30c1e7edf070909337a2b",
+      "output_sha256": "bba9ddfc661f6996ad36966fad6751b33c317992e3f407f36e69c3164bfe15b4",
+      "size": [
+        512,
+        512
+      ],
+      "has_alpha": true,
+      "removed_outer_white_pixels": 9829,
+      "alpha_nonzero": 159498,
+      "alpha_partial": 1502
+    },
+    "achievement_family_relay": {
+      "source_sha256": "28be303bb6c56ae70201ecf6ee3101988352a67f3c8ce43e5032a71fbc64a6f4",
+      "output_sha256": "3b4f3040bd2b3a882f7f43a943bed8aa42b76c46cab1a776eb90092aa8012b7e",
+      "size": [
+        512,
+        512
+      ],
+      "has_alpha": true,
+      "removed_outer_white_pixels": 16813,
+      "alpha_nonzero": 76774,
+      "alpha_partial": 198
+    },
+    "achievement_family_visible_4w": {
+      "source_sha256": "0727c0128b5e9c78aa126d052af57e2be8ede55cdf72c0c36735b83e75c7d2c0",
+      "output_sha256": "3ff9f86d07f1fdd42ad81e70d5ad9d8db8ca54c2c3ce2fa785aef6f4fec07e59",
+      "size": [
+        512,
+        512
+      ],
+      "has_alpha": true,
+      "removed_outer_white_pixels": 15645,
+      "alpha_nonzero": 120675,
+      "alpha_partial": 85
+    },
+    "achievement_first_record": {
+      "source_sha256": "3aea422ce85863c4b4ef391923994e7fd67757f2082b2ac00f706bcfd98a1f8e",
+      "output_sha256": "7b26f91097763918bbc9664f3835e1d1f5834109ff48ec72b28d51623bc97dc1",
+      "size": [
+        512,
+        512
+      ],
+      "has_alpha": true,
+      "removed_outer_white_pixels": 11293,
+      "alpha_nonzero": 158892,
+      "alpha_partial": 41
+    },
+    "achievement_habit_25_30": {
+      "source_sha256": "14ec36c3aaf8fa9fc1dd3162fc466e5fe80f02b5ae2d4d536142793f4947d823",
+      "output_sha256": "ae1c7609508536efa4eb3b2b759f1cfb1e3ed5a72fc01334e0b9d55d2e882b34",
+      "size": [
+        512,
+        512
+      ],
+      "has_alpha": true,
+      "removed_outer_white_pixels": 8879,
+      "alpha_nonzero": 137239,
+      "alpha_partial": 387
+    },
+    "achievement_mastery_all_rounder": {
+      "source_sha256": "c37453ac9b770d997a56c4dfd7d3ed06fbf76f32c5221938123780f60af2c559",
+      "output_sha256": "bb2a5a4d366dcd37d14d03e9b0cdd893d8bbb25593c68a17fc15495301529c6f",
+      "size": [
+        512,
+        512
+      ],
+      "has_alpha": true,
+      "removed_outer_white_pixels": 31569,
+      "alpha_nonzero": 86477,
+      "alpha_partial": 242
+    },
+    "achievement_mastery_childcare": {
+      "source_sha256": "87c861974eca3eb96298d02cec70df0c6afdc1e5f7528c703d0d7ea9ecd3f1bb",
+      "output_sha256": "8479a7db6f00a52daec4ab5411948297ee2921f3e51dda40b8e2d200921853ce",
+      "size": [
+        512,
+        512
+      ],
+      "has_alpha": true,
+      "removed_outer_white_pixels": 10126,
+      "alpha_nonzero": 133693,
+      "alpha_partial": 1802
+    },
+    "achievement_mastery_cooking": {
+      "source_sha256": "2f245e6c3e0a55007cd102fe67cd8d2b5cfbf3fde8328d42f674137308879c5f",
+      "output_sha256": "9c23307068008336b6f115e94fcc030e9e6f9711e0f60fd78d86dfc85d88f51c",
+      "size": [
+        512,
+        512
+      ],
+      "has_alpha": true,
+      "removed_outer_white_pixels": 18339,
+      "alpha_nonzero": 113148,
+      "alpha_partial": 1724
+    },
+    "achievement_mastery_dishes": {
+      "source_sha256": "dd55a9a8fcd16bdf600f76e57763204041dc4077e7fc8aafc090108198e0bf09",
+      "output_sha256": "bbddd08a443e1b571e46f1b35589d7fd738bc9c1d3858b6b0a04562f85a0a0b4",
+      "size": [
+        512,
+        512
+      ],
+      "has_alpha": true,
+      "removed_outer_white_pixels": 22139,
+      "alpha_nonzero": 98059,
+      "alpha_partial": 120
+    },
+    "achievement_mastery_floor": {
+      "source_sha256": "4f18f33329753b004897d2b2f5cdb0064f4c33da2a265c829998ba7b4254e12b",
+      "output_sha256": "67dcd7ecdf8310ba29aefa1b7ee60fe0ddcb8747896b1241475e3b852bdfd0b8",
+      "size": [
+        512,
+        512
+      ],
+      "has_alpha": true,
+      "removed_outer_white_pixels": 15789,
+      "alpha_nonzero": 118157,
+      "alpha_partial": 65
+    },
+    "achievement_mastery_laundry": {
+      "source_sha256": "f2cd9c2799a693c3f40cb632ec71315fe53b33f151819620299e9003544c12af",
+      "output_sha256": "3a5163d7bddd65239589bc722fc2eefd9b6d611dfd2d30aad2c0330179827bb3",
+      "size": [
+        512,
+        512
+      ],
+      "has_alpha": true,
+      "removed_outer_white_pixels": 19277,
+      "alpha_nonzero": 125828,
+      "alpha_partial": 122
+    },
+    "achievement_mastery_organize": {
+      "source_sha256": "a26ca5fbde39c0a44ffcb9d84ab56b04a09706fbcf77e5809db95f85f576c00e",
+      "output_sha256": "d7f5dd39612a8db63fc4dbbc7a21d10bd5290be6ca3f071194595399fc147a85",
+      "size": [
+        512,
+        512
+      ],
+      "has_alpha": true,
+      "removed_outer_white_pixels": 15515,
+      "alpha_nonzero": 124272,
+      "alpha_partial": 1220
+    },
+    "achievement_mastery_pet": {
+      "source_sha256": "fd62086f7d51b17db26c8eb77504c2c88af58c8c07d2daae798935250fc8b920",
+      "output_sha256": "714a4279660c977c9c081ada0cb0ed9597eee42c5ec58f18bf6d366f5d8ee243",
+      "size": [
+        512,
+        512
+      ],
+      "has_alpha": true,
+      "removed_outer_white_pixels": 11588,
+      "alpha_nonzero": 103598,
+      "alpha_partial": 91
+    },
+    "achievement_mastery_romance": {
+      "source_sha256": "eec1bd59f6b2bd3a9c2dc0a5c1179f0dbddcd3ac04e8a8abd0d672561aadc900",
+      "output_sha256": "6227bbac587ff22412d5f2e8d8da2930454f2b2b8f2678d5df14da9b1d911a8f",
+      "size": [
+        512,
+        512
+      ],
+      "has_alpha": true,
+      "removed_outer_white_pixels": 18637,
+      "alpha_nonzero": 137254,
+      "alpha_partial": 150
+    },
+    "achievement_mastery_trash": {
+      "source_sha256": "7a722d36d5c4b05c591b0156bf62c0a8e476f1f5964d167bd6db1fa96f792e28",
+      "output_sha256": "cf3177f8787d3ff6ee4582c724834298c675e1d114a3ff00dfe5c5e80fe701b4",
+      "size": [
+        512,
+        512
+      ],
+      "has_alpha": true,
+      "removed_outer_white_pixels": 15282,
+      "alpha_nonzero": 84818,
+      "alpha_partial": 111
+    },
+    "achievement_pair_cook_and_clean": {
+      "source_sha256": "5c62ace5d0bff29b36ea334ab186f9a9a1c22c4f6555a2215069a94275c65dca",
+      "output_sha256": "003aa6ae7b32c7cafd6990b569e561d45a2dff3ca39ddbe8b5dfc97e2404f0f2",
+      "size": [
+        512,
+        512
+      ],
+      "has_alpha": true,
+      "removed_outer_white_pixels": 16387,
+      "alpha_nonzero": 124427,
+      "alpha_partial": 917
+    },
+    "achievement_reaction_first": {
+      "source_sha256": "eb8104565fc2e56093f66ae7c663579d5f2a0515f5a5dbf56dbca92bf7a54b92",
+      "output_sha256": "0d8641c490a18d2b45870eaae5639afbe2da7baf86ec5271150070f96f61ec1d",
+      "size": [
+        512,
+        512
+      ],
+      "has_alpha": true,
+      "removed_outer_white_pixels": 11477,
+      "alpha_nonzero": 166771,
+      "alpha_partial": 69
+    },
+    "achievement_reaction_given_20": {
+      "source_sha256": "679565fbaca432ec65a93ab6edc3f500834c411b10c84a8352467082e2240fdc",
+      "output_sha256": "67f445414b6ffd8bffd18ada57a7680db73de9ef067e3c148cc26c329a54f2b3",
+      "size": [
+        512,
+        512
+      ],
+      "has_alpha": true,
+      "removed_outer_white_pixels": 12450,
+      "alpha_nonzero": 183759,
+      "alpha_partial": 60
+    },
+    "achievement_reaction_received_10": {
+      "source_sha256": "7287d70fbeb1ace0c61fa991303645523c15829c6c18a10b4b8b44925740fa58",
+      "output_sha256": "89e63119ff051947a5de021982373ad9822f4a2e09a97f2243c094485639b75d",
+      "size": [
+        512,
+        512
+      ],
+      "has_alpha": true,
+      "removed_outer_white_pixels": 19961,
+      "alpha_nonzero": 119099,
+      "alpha_partial": 87
+    },
+    "achievement_streak_14": {
+      "source_sha256": "ebf46e84ddf4817752cfa1e11cb9a46dc94a37268daae8f8a7e947e8be63c3d0",
+      "output_sha256": "be92e918309bbd4404e4a5a026cb8c4be5e0087bfcc2b66a132ebfb9193322b6",
+      "size": [
+        512,
+        512
+      ],
+      "has_alpha": true,
+      "removed_outer_white_pixels": 20981,
+      "alpha_nonzero": 96333,
+      "alpha_partial": 115
+    },
+    "achievement_streak_7": {
+      "source_sha256": "4be08aed2e9ba6e798cd4bf30ed3ad5255e412190ea332039936d882790bd4b3",
+      "output_sha256": "f2b5f055d8c00f17e63cf4d7621951406f4de1d3f7eef7a5c510387041a8350d",
+      "size": [
+        512,
+        512
+      ],
+      "has_alpha": true,
+      "removed_outer_white_pixels": 12170,
+      "alpha_nonzero": 60209,
+      "alpha_partial": 94
+    },
+    "chore_catalog_clean_litter": {
+      "source_sha256": "3946adfead80812e397b8558cadc845bf4269f9e86f8aa47007c20cb49e22588",
+      "output_sha256": "3946adfead80812e397b8558cadc845bf4269f9e86f8aa47007c20cb49e22588",
+      "size": [
+        256,
+        256
+      ],
+      "has_alpha": true,
+      "removed_outer_white_pixels": 0,
+      "alpha_nonzero": 65536,
+      "alpha_partial": 0
+    },
+    "chore_catalog_feed_baby": {
+      "source_sha256": "65114a6a8ed8cce425b9787a590883fe60344ea13f29ec82ecaddcd99e473810",
+      "output_sha256": "65114a6a8ed8cce425b9787a590883fe60344ea13f29ec82ecaddcd99e473810",
+      "size": [
+        256,
+        256
+      ],
+      "has_alpha": true,
+      "removed_outer_white_pixels": 0,
+      "alpha_nonzero": 65536,
+      "alpha_partial": 0
+    },
+    "chore_catalog_heavy_lifting": {
+      "source_sha256": "9a3b0076b8cc8e397d7dd9dec409e555dfe5d3a42150dd3cfe3a382f13b2774c",
+      "output_sha256": "9a3b0076b8cc8e397d7dd9dec409e555dfe5d3a42150dd3cfe3a382f13b2774c",
+      "size": [
+        256,
+        256
+      ],
+      "has_alpha": true,
+      "removed_outer_white_pixels": 0,
+      "alpha_nonzero": 65536,
+      "alpha_partial": 0
+    },
+    "chore_catalog_homework_help": {
+      "source_sha256": "15f239dd99a40982f886d908c8ec90add48c486f80d76c660ad074ccb83c7b79",
+      "output_sha256": "15f239dd99a40982f886d908c8ec90add48c486f80d76c660ad074ccb83c7b79",
+      "size": [
+        256,
+        256
+      ],
+      "has_alpha": true,
+      "removed_outer_white_pixels": 0,
+      "alpha_nonzero": 65536,
+      "alpha_partial": 0
+    },
+    "chore_catalog_repair_booking": {
+      "source_sha256": "73db42d3c2e55abb12a73030ed134603db64f81626b9df4ac2d9557547ad1bcd",
+      "output_sha256": "73db42d3c2e55abb12a73030ed134603db64f81626b9df4ac2d9557547ad1bcd",
+      "size": [
+        256,
+        256
+      ],
+      "has_alpha": true,
+      "removed_outer_white_pixels": 0,
+      "alpha_nonzero": 65536,
+      "alpha_partial": 0
+    },
+    "chore_catalog_school_run": {
+      "source_sha256": "23a3ee2b1202046c405fcbe2ccebdb0c248bd32116108a28cd170df72b24fd06",
+      "output_sha256": "23a3ee2b1202046c405fcbe2ccebdb0c248bd32116108a28cd170df72b24fd06",
+      "size": [
+        256,
+        256
+      ],
+      "has_alpha": true,
+      "removed_outer_white_pixels": 0,
+      "alpha_nonzero": 65536,
+      "alpha_partial": 0
+    },
+    "chore_catalog_walk_child": {
+      "source_sha256": "1af2302979840cc806dbda2035b7c5488ecc6adafe0cf84ce1f58853b10faf4f",
+      "output_sha256": "1af2302979840cc806dbda2035b7c5488ecc6adafe0cf84ce1f58853b10faf4f",
+      "size": [
+        256,
+        256
+      ],
+      "has_alpha": true,
+      "removed_outer_white_pixels": 0,
+      "alpha_nonzero": 65536,
+      "alpha_partial": 0
+    },
+    "chore_core_bathroom_clean": {
+      "source_sha256": "4710955ee5a607d30b04b0c805900b80d37550b5848faefd1a51ccbd054c4998",
+      "output_sha256": "b6a506c96b772be08bf1c07975d1f3cd54a5ed70684666b80aab723137d6ec5c",
+      "size": [
+        256,
+        256
+      ],
+      "has_alpha": true,
+      "removed_outer_white_pixels": 4860,
+      "alpha_nonzero": 56004,
+      "alpha_partial": 0
+    },
+    "chore_core_cook_prepare": {
+      "source_sha256": "ab9a6728145895ddac0aa36054e36df67afafeafa54a9847b6173dcb728dac63",
+      "output_sha256": "8a91e24003a9a5310961f00a49bf4075789e83a974ce22de77e01de95df0dfd3",
+      "size": [
+        256,
+        256
+      ],
+      "has_alpha": true,
+      "removed_outer_white_pixels": 4462,
+      "alpha_nonzero": 56402,
+      "alpha_partial": 0
+    },
+    "chore_core_dishes_cleanup": {
+      "source_sha256": "f07d84a3e83bf2e2eb1fdc1a1b73386bc4bb05305102fea9825f69ce7d03bb23",
+      "output_sha256": "8c1145009285a3eb954fb4d022f9a06924a10ea4587a879acc29115e61a9124c",
+      "size": [
+        256,
+        256
+      ],
+      "has_alpha": true,
+      "removed_outer_white_pixels": 4671,
+      "alpha_nonzero": 56193,
+      "alpha_partial": 0
+    },
+    "chore_core_fold_clothes": {
+      "source_sha256": "72ea1315abe68a958e7359a274c235287619340e65b26a9ae97cb171723005d9",
+      "output_sha256": "55abe723b473458d5697f18c6aebbae8f14727dc15f2782b0f9bb68da83d88a7",
+      "size": [
+        256,
+        256
+      ],
+      "has_alpha": true,
+      "removed_outer_white_pixels": 4860,
+      "alpha_nonzero": 56004,
+      "alpha_partial": 0
+    },
+    "chore_core_laundry": {
+      "source_sha256": "b3ba6e065e88f880b5ae531274016221101534a07a14afa4cbee39f1b4d583d5",
+      "output_sha256": "f05ff23a84c9a11fce0c9498a31e7b606c7003c5cb31b757a930e5b42970a781",
+      "size": [
+        256,
+        256
+      ],
+      "has_alpha": true,
+      "removed_outer_white_pixels": 4860,
+      "alpha_nonzero": 56004,
+      "alpha_partial": 0
+    },
+    "chore_core_mop_floor": {
+      "source_sha256": "41fea697277ee6d813d73c1acc9dbea9f00c9a2bc8e25fd8efb42c0c9b3a20e1",
+      "output_sha256": "61657c0cb17c87dd737ed6fa4f35079ae8384da7219263cb1621392f3bd17e74",
+      "size": [
+        256,
+        256
+      ],
+      "has_alpha": true,
+      "removed_outer_white_pixels": 4860,
+      "alpha_nonzero": 56004,
+      "alpha_partial": 0
+    },
+    "chore_core_organize_storage": {
+      "source_sha256": "286585af8eb9ad866211bb87b43f9d47b3d63e23e71275654af7c6585a9e4351",
+      "output_sha256": "b8eb5bf9546610fb3f426ed8295e92ada84c8efa2d632b61a8de23b7b4ae906a",
+      "size": [
+        256,
+        256
+      ],
+      "has_alpha": true,
+      "removed_outer_white_pixels": 4860,
+      "alpha_nonzero": 56004,
+      "alpha_partial": 0
+    },
+    "chore_core_shopping_supplies": {
+      "source_sha256": "09b4634d8789a16b9b82cf669097610c42eaea37376b8aa5b124cc65ceff80a4",
+      "output_sha256": "0957b5522d9e64b14382bc6586a5aba9cbaed1e3398f1c935586aadd2443657c",
+      "size": [
+        256,
+        256
+      ],
+      "has_alpha": true,
+      "removed_outer_white_pixels": 4860,
+      "alpha_nonzero": 56004,
+      "alpha_partial": 0
+    },
+    "chore_core_sweep_vacuum": {
+      "source_sha256": "6be3b3cf324c1a9ddbc4687871c1b1817833c8d3488652c24ba7c45266b25c2d",
+      "output_sha256": "e4e54e98472e1b05ef32049d5fe2f9d09c91b04e8ee5aaa13de73e7573a64848",
+      "size": [
+        256,
+        256
+      ],
+      "has_alpha": true,
+      "removed_outer_white_pixels": 4860,
+      "alpha_nonzero": 56004,
+      "alpha_partial": 0
+    },
+    "chore_core_trash_recycling": {
+      "source_sha256": "c9b353e9f756d2c5b15309205a63af1d3934f056c2cce06e4a5ece311b29d052",
+      "output_sha256": "e795adc600d17104e4c021669fa24630bdeb45fb4ee634c7a15e22a7c8e42bed",
+      "size": [
+        256,
+        256
+      ],
+      "has_alpha": true,
+      "removed_outer_white_pixels": 4860,
+      "alpha_nonzero": 56004,
+      "alpha_partial": 0
+    },
+    "chore_premium_change_bedding": {
+      "source_sha256": "077e937f68d34a0492f143daf21fa7c231adf8a64e243ae46ebb439aa398bc97",
+      "output_sha256": "c4a37523067eb5fb939fdd1a0d1f49165c2d37ab716e614af8bd6269ef642304",
+      "size": [
+        512,
+        512
+      ],
+      "has_alpha": true,
+      "removed_outer_white_pixels": 8822,
+      "alpha_nonzero": 151803,
+      "alpha_partial": 700
+    },
+    "chore_premium_clean_stove": {
+      "source_sha256": "6686ea6438763b2b297fadc90dcbe070bd51a483140171781a0ee7065692ba5b",
+      "output_sha256": "328f94554e9314c67915af2a076c047596ebf1e89ec4bf3b70ada82768382544",
+      "size": [
+        512,
+        512
+      ],
+      "has_alpha": true,
+      "removed_outer_white_pixels": 9904,
+      "alpha_nonzero": 166661,
+      "alpha_partial": 35
+    },
+    "chore_premium_walk_dog": {
+      "source_sha256": "4fbd661cafc2fd37df1228872c5f251c467f0eaea31f970005e2424686ca54ff",
+      "output_sha256": "fca5ea8553c6d1e5a17d44dddf756eabbca9fffac959067cb053292d0e21dfa8",
+      "size": [
+        512,
+        512
+      ],
+      "has_alpha": true,
+      "removed_outer_white_pixels": 9199,
+      "alpha_nonzero": 144020,
+      "alpha_partial": 364
+    },
+    "monthly_enemy_care": {
+      "source_sha256": "906e6a94bbb38248eb681173b849a1c4eee128de3ad255a43f7c2260020cf1dd",
+      "output_sha256": "fcb69883814268309400cefde6c021a63b03a5c7a90635a84be445dbd64a963c",
+      "size": [
+        900,
+        900
+      ],
+      "has_alpha": true,
+      "removed_outer_white_pixels": 19,
+      "alpha_nonzero": 279816,
+      "alpha_partial": 5251
+    },
+    "monthly_enemy_clutter": {
+      "source_sha256": "3a3576f12469e22efe7e791953ee20e787eb3dff10c7711ecf75d75e457ec5f2",
+      "output_sha256": "a1bfe5c800e570414cedcddcbba26e251f7df6aff4c9045df5d2b699be0284c6",
+      "size": [
+        900,
+        900
+      ],
+      "has_alpha": true,
+      "removed_outer_white_pixels": 657,
+      "alpha_nonzero": 357565,
+      "alpha_partial": 355319
+    },
+    "monthly_enemy_dust": {
+      "source_sha256": "42d8e7ceb6d781191513280967cc625be9c4f239da425bbc3408bf47b4e245e1",
+      "output_sha256": "8fdab617114f048c84af9f7966eda14f96f1efb92dfe14311fb4e8fc10b72ab6",
+      "size": [
+        900,
+        900
+      ],
+      "has_alpha": true,
+      "removed_outer_white_pixels": 0,
+      "alpha_nonzero": 371886,
+      "alpha_partial": 7449
+    },
+    "monthly_enemy_errands": {
+      "source_sha256": "b122faaa43b78b1882de0e5c0c48ac24a02a0c36a1eec10cc12dd2b9d732aaec",
+      "output_sha256": "1e41caa38fc171d4ee58d54419a28dc4da543c35a3130c98362fa7f532a624ea",
+      "size": [
+        900,
+        900
+      ],
+      "has_alpha": true,
+      "removed_outer_white_pixels": 4,
+      "alpha_nonzero": 309395,
+      "alpha_partial": 41182
+    },
+    "monthly_enemy_hunger": {
+      "source_sha256": "b20309df5658847ae9c3ae2d0cd91cde02c9ad3629fd39bb7a7246d4397548f8",
+      "output_sha256": "70a2c6a6752cdcf126a98130192df728374497f78a4599c4f95664569bd09442",
+      "size": [
+        900,
+        900
+      ],
+      "has_alpha": true,
+      "removed_outer_white_pixels": 0,
+      "alpha_nonzero": 325016,
+      "alpha_partial": 6048
+    },
+    "monthly_enemy_laundry": {
+      "source_sha256": "c4b2c9a67e044b3afc6b6db65f1c0ebdec2352db792085f05f0327fbc9fe9b62",
+      "output_sha256": "224e263bff0d085652d27a2da7ff12faac6483cbad4ff9d9682dd913661da62b",
+      "size": [
+        900,
+        900
+      ],
+      "has_alpha": true,
+      "removed_outer_white_pixels": 282,
+      "alpha_nonzero": 349238,
+      "alpha_partial": 348028
+    },
+    "monthly_leader_watering": {
+      "source_sha256": "6cdccd6cfbc9eafb4e774f5b33e25e32d6f4db4b6514506c272ce12418e33974",
+      "output_sha256": "97788a271b4b340d51457857cefc3c1ba9ea2701a9af2c5ca329355c9e5cbc06",
+      "size": [
+        461,
+        768
+      ],
+      "has_alpha": true,
+      "removed_outer_white_pixels": 12,
+      "alpha_nonzero": 149913,
+      "alpha_partial": 37402
+    }
+  }
+}
