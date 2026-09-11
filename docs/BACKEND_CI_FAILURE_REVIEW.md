@@ -48,3 +48,8 @@ TypeScript test compilation passed. No tests or assertions were skipped.
 These failures should be fixed, not ignored or marked skipped. This change
 addresses the test isolation issue only; it does not resolve the separately
 identified website deployment output-directory mismatch or deploy production.
+
+Follow-up (2026-09-11): the user confirmed the live douxiaolang.com version is
+canonical. The repository now mounts `website/release`, matching its production
+builder; the obsolete generator and standalone Caddy configuration were removed.
+Legacy policy URLs still redirect to current pages. No live deployment was made.

@@ -1,4 +1,4 @@
-// Review-only content. The approved production content remains in content.mjs.
+// Shared content for the current production website and local review builds.
 export function reviewPages(c, en) {
   const privacy = en ? [
     ['Your information', 'You can configure a trial household and record chores on your device without signing in. Signing in and upgrading that household uploads its configuration and records to your account. Unsynced data may be lost if you uninstall the app.', 'Email addresses, verification challenges and their digests, Apple identifiers and authorization credentials support authentication and account security. Names, household roles and preset avatars identify members in the interface, not account ownership.', 'Household names, memberships, invitations, chore details, timestamps, duration, points, multipliers, notes, reactions, achievements and layouts support household collaboration and reports. Session identifiers, device descriptions, token digests, request IP addresses, timestamps and necessary error information support communications, sessions and security. Avoid putting sensitive information in notes.'],
