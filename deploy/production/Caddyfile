@@ -1,0 +1,43 @@
+api.douxiaolang.com {
+    encode zstd gzip
+    reverse_proxy api:3000
+
+    header {
+        Strict-Transport-Security "max-age=31536000; includeSubDomains"
+        X-Content-Type-Options "nosniff"
+        Referrer-Policy "no-referrer"
+        -Server
+    }
+}
+
+www.douxiaolang.com {
+    redir https://douxiaolang.com{uri} permanent
+}
+
+douxiaolang.com {
+    root * /srv/familyguard-site
+    encode zstd gzip
+
+    @privacy path /privacy /privacy/ /privacy.html
+    redir @privacy /familyguard/privacy/ permanent
+
+    @terms path /terms /terms/ /terms.html
+    redir @terms /familyguard/terms/ permanent
+
+    @subscription path /subscription /subscription/ /subscription.html
+    redir @subscription /familyguard/subscription/ permanent
+
+    @support path /support /support/ /support.html
+    redir @support /familyguard/support/ permanent
+
+    file_server
+
+    header {
+        Strict-Transport-Security "max-age=31536000; includeSubDomains"
+        X-Content-Type-Options "nosniff"
+        Referrer-Policy "no-referrer"
+        Content-Security-Policy "default-src 'none'; img-src 'self'; style-src 'self'; script-src 'self'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'"
+        Cache-Control "no-cache"
+        -Server
+    }
+}

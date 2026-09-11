@@ -2,11 +2,17 @@ import AudioToolbox
 import SwiftUI
 import UIKit
 
+enum ChoreDurationPickerMode {
+    case create
+    case edit
+}
+
 struct ChoreDurationPickerSheet: View {
     @EnvironmentObject private var viewModel: AppViewModel
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
 
     let chore: ChoreItem
+    let mode: ChoreDurationPickerMode
     let onCancel: () -> Void
     let onConfirm: (_ actualMinutes: Int, _ calculatedPoints: Int, _ pointsMultiplier: Double?) -> Void
 
@@ -18,15 +24,18 @@ struct ChoreDurationPickerSheet: View {
     init(
         chore: ChoreItem,
         initialMinutes: Int? = nil,
+        initialPointsMultiplier: Double? = nil,
+        mode: ChoreDurationPickerMode = .create,
         onCancel: @escaping () -> Void,
         onConfirm: @escaping (_ actualMinutes: Int, _ calculatedPoints: Int, _ pointsMultiplier: Double?) -> Void
     ) {
         self.chore = chore
+        self.mode = mode
         self.onCancel = onCancel
         self.onConfirm = onConfirm
         _selectedMinutes = State(initialValue: max(1, min(180, initialMinutes ?? chore.minutes)))
         _selectedPointsMultiplier = State(
-            initialValue: AppViewModel.defaultPointsMultiplier(for: chore)
+            initialValue: initialPointsMultiplier ?? AppViewModel.defaultPointsMultiplier(for: chore)
         )
     }
 
@@ -69,7 +78,7 @@ struct ChoreDurationPickerSheet: View {
 
     private var sheetHeader: some View {
         ZStack {
-            Text("记录家务")
+            Text(mode == .edit ? "编辑记录" : "记录家务")
                 .font(.headline)
                 .foregroundStyle(DSColor.ink)
 
@@ -151,7 +160,7 @@ struct ChoreDurationPickerSheet: View {
                 viewModel.hasPremiumAccess ? selectedPointsMultiplier : nil
             )
         } label: {
-            Label("记录 \(selectedMinutes) 分钟 · +\(estimatedPoints) 分", systemImage: "checkmark")
+            Label(confirmTitle, systemImage: "checkmark")
                 .font(.headline)
                 .foregroundStyle(DSColor.ink)
                 .lineLimit(1)
@@ -165,7 +174,7 @@ struct ChoreDurationPickerSheet: View {
         .padding(.top, 10)
         .padding(.bottom, 8)
         .background(DSColor.pureSurface.opacity(reduceTransparency ? 1 : 0.92))
-        .accessibilityLabel("记录 \(selectedMinutes) 分钟，获得 \(estimatedPoints) 分")
+        .accessibilityLabel(confirmAccessibilityLabel)
     }
 
     private func multiplierControl(accentColor: Color) -> some View {
@@ -226,6 +235,16 @@ struct ChoreDurationPickerSheet: View {
             )
         }
         return AppViewModel.estimatedPoints(for: chore, selectedMinutes: selectedMinutes)
+    }
+
+    private var confirmTitle: String {
+        let action = mode == .edit ? "保存修改" : "记录"
+        return "\(action) \(selectedMinutes) 分钟 · +\(estimatedPoints) 分"
+    }
+
+    private var confirmAccessibilityLabel: String {
+        let action = mode == .edit ? "保存修改" : "记录"
+        return "\(action) \(selectedMinutes) 分钟，积分 \(estimatedPoints) 分"
     }
 }
 

@@ -37,5 +37,7 @@
 	</array>
 	<key>WDDLocalNetworkBaseURL</key>
 	<string>http://192.168.1.30:3000</string>
+	<key>WDDDistributionRegion</key>
+	<string>CN</string>
 </dict>
 </plist>

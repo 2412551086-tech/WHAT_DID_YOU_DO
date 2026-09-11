@@ -1,4 +1,5 @@
 import { prisma } from "./client";
+import { achievementDefinitions } from "./achievement-definitions";
 import { additionalChoreCatalog } from "../src/chores/premium-chore-catalog";
 import { themedChoreCatalog } from "../src/chores/themed-chore-catalog";
 
@@ -153,7 +154,22 @@ async function main() {
     });
   }
 
+  for (const definition of achievementDefinitions) {
+    await prisma.achievementDefinition.upsert({
+      where: {
+        key_tier_definitionVersion: {
+          key: definition.key,
+          tier: definition.tier,
+          definitionVersion: definition.definitionVersion,
+        },
+      },
+      update: definition,
+      create: definition,
+    });
+  }
+
   console.log(`Seeded ${coreChores.length + additionalChoreCatalog.length + themedChoreCatalog.length} themed system chores.`);
+  console.log(`Seeded ${achievementDefinitions.length} achievement definitions.`);
 }
 
 main()

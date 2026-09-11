@@ -338,7 +338,7 @@
 1. 顶部：大标题 “你今天干啥啦”。
 2. 副标题：一句短口语文案。
 3. 中部：大圆角漫画 hero 卡片。
-4. 下部：登录卡片，包含手机号、微信、Apple 登录按钮。
+4. 下部：按需 Auth Gate，包含 Apple、微信或 Google、邮箱验证码按钮。
 
 登录按钮：
 
@@ -492,7 +492,7 @@ Style: Candy Pop Brutal Chore Comic, bold flat comic illustration, neo-brutalism
 Top title text: “你今天干啥啦”.
 Subtitle text: “家务不是没人做，只是还没记上功劳簿。”
 Middle hero: a wife and husband in a funny exaggerated housework battle, no violence, no injury, cute dramatic expressions, flying pots, bowls, mop, broom, clothes, rag, sponge, speed lines, explosion cloud, comic sound effects.
-Bottom login card with three large tappable buttons: “手机号登录”, “微信登录”, “Apple 登录”.
+Bottom Auth Gate with three large tappable buttons: “Apple 登录”, regional “微信登录 / Google 登录”, and “邮箱验证码”.
 Palette: cream white background, bright yellow primary button, sky blue secondary button, tomato red comic accents, mint green, candy pink, black outlines.
 Clear mobile UI hierarchy, not a poster, buttons readable, polished fashionable composition, uncluttered lower third.
 Avoid blood, weapons, horror, realistic injury, cluttered text, watermark, glassmorphism, 3D render.
@@ -620,4 +620,3 @@ UI 不够清楚时：
 ## 16. 一句话风格定义
 
 **用粗黑线和糖果色，把家庭家务画成一场轻松、夸张、好笑、可操作的 App 漫画战报。**
-

@@ -1,0 +1,2 @@
+DROP TABLE IF EXISTS "AuthRefreshToken";
+DROP TABLE IF EXISTS "AuthSession";

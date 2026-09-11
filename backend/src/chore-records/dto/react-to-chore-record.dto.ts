@@ -6,6 +6,7 @@ export const CHORE_REACTION_KEYS = [
   'moon_face',
   'laugh_cry',
   'tease',
+  'doubt',
 ] as const;
 
 export type ChoreReactionKey = (typeof CHORE_REACTION_KEYS)[number];

@@ -4,6 +4,7 @@ import UIKit
 enum AvatarPresentation {
     case sticker
     case quiet
+    /// Undecorated portrait for onboarding; selection belongs to the surrounding control.
     case flat
 }
 
@@ -15,7 +16,29 @@ struct AvatarView: View {
 
     var body: some View {
         Group {
-            if let avatarKey, UIImage(named: avatarKey) != nil {
+            if presentation == .flat {
+                portrait
+            } else {
+                portrait
+                    .overlay(Circle().stroke(strokeColor, lineWidth: strokeWidth))
+                    .shadow(
+                        color: shadowColor,
+                        radius: shadowRadius,
+                        x: shadowOffset.width,
+                        y: shadowOffset.height
+                    )
+            }
+        }
+        .accessibilityLabel("头像 \(fallbackText)")
+    }
+
+    private var portrait: some View {
+        Group {
+            if let avatarKey, CollectibleCharacter.contains(avatarKey) {
+                V2CharacterArt(avatarKey: avatarKey)
+                    .frame(width: size * 0.75, height: size)
+                    .frame(width: size, height: size)
+            } else if let avatarKey, UIImage(named: avatarKey) != nil {
                 Image(avatarKey)
                     .resizable()
                     .scaledToFill()
@@ -29,14 +52,6 @@ struct AvatarView: View {
         }
         .frame(width: size, height: size)
         .clipShape(Circle())
-        .overlay(Circle().stroke(strokeColor, lineWidth: strokeWidth))
-        .shadow(
-            color: shadowColor,
-            radius: shadowRadius,
-            x: shadowOffset.width,
-            y: shadowOffset.height
-        )
-        .accessibilityLabel("头像 \(fallbackText)")
     }
 
     private var strokeColor: Color {
@@ -110,6 +125,22 @@ struct AvatarView: View {
         default: return DSColor.surface
         }
     }
+}
+
+#Preview("Onboarding - undecorated portraits") {
+    LazyVGrid(columns: Array(repeating: GridItem(.fixed(52)), count: 4), spacing: 16) {
+        ForEach(1...13, id: \.self) { index in
+            AvatarView(
+                avatarKey: String(format: "avatar_%02d", index),
+                fallbackText: "\(index)",
+                size: 52,
+                presentation: .flat
+            )
+        }
+        AvatarView(avatarKey: nil, fallbackText: "新", size: 52, presentation: .flat)
+    }
+    .padding(24)
+    .background(DSColor.background)
 }
 
 #Preview {

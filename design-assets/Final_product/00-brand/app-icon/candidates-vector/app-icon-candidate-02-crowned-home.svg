@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#64c8ff"/>
+      <stop offset="1" stop-color="#269de9"/>
+    </linearGradient>
+    <linearGradient id="cream" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#fffef9"/>
+      <stop offset="1" stop-color="#fff1ce"/>
+    </linearGradient>
+    <linearGradient id="gold" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffe24e"/>
+      <stop offset="1" stop-color="#ffb800"/>
+    </linearGradient>
+    <filter id="shadow" x="-35%" y="-35%" width="180%" height="190%">
+      <feDropShadow dx="0" dy="18" stdDeviation="16" flood-color="#075c94" flood-opacity=".35"/>
+    </filter>
+    <filter id="smallShadow" x="-40%" y="-40%" width="180%" height="190%">
+      <feDropShadow dx="0" dy="9" stdDeviation="8" flood-color="#614900" flood-opacity=".28"/>
+    </filter>
+  </defs>
+  <rect width="1024" height="1024" fill="url(#sky)"/>
+  <path d="M260 514c0-48 19-91 54-123l146-133c30-27 74-27 104 0l146 133c35 32 54 75 54 123v241c0 47-38 85-85 85H590c-27 0-49-22-49-49V676c0-22-12-34-29-34s-29 12-29 34v115c0 27-22 49-49 49h-89c-47 0-85-38-85-85Z" fill="url(#cream)" filter="url(#shadow)"/>
+  <path d="M495 293 478 185l69 51 68-72 26 94 91-43-45 118Z" fill="url(#gold)" stroke="#efad00" stroke-width="6" stroke-linejoin="round" filter="url(#smallShadow)" transform="rotate(15 604 250)"/>
+  <circle cx="492" cy="174" r="18" fill="url(#gold)"/>
+  <circle cx="589" cy="156" r="18" fill="url(#gold)"/>
+  <circle cx="688" cy="181" r="18" fill="url(#gold)"/>
+  <path d="M783 341c8 0 15 28 22 36 7 7 36 14 36 22s-29 14-36 22c-7 7-14 36-22 36s-15-29-22-36c-7-8-36-14-36-22s29-15 36-22c7-8 14-36 22-36Z" fill="#ff6e57" filter="url(#smallShadow)"/>
+</svg>
+

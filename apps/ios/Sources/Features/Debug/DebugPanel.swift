@@ -31,6 +31,7 @@ struct DebugPanel: View {
             DSDebugPanel.Row(title: "baseURL", value: viewModel.debugBaseURL, allowsWrapping: true),
             DSDebugPanel.Row(title: "家庭时区", value: viewModel.debugFamilyTimezone, allowsWrapping: true),
             DSDebugPanel.Row(title: "Token", value: viewModel.hasAccessToken ? "已保存" : "不存在"),
+            DSDebugPanel.Row(title: "待同步记录", value: "\(viewModel.pendingUploadCount)"),
             DSDebugPanel.Row(title: "最后请求", value: viewModel.lastRequestPath ?? "无", allowsWrapping: true),
             DSDebugPanel.Row(title: "状态码", value: viewModel.lastStatusCode.map(String.init) ?? "无"),
             DSDebugPanel.Row(title: "最后错误", value: viewModel.lastAPIErrorMessage ?? "无", allowsWrapping: true),

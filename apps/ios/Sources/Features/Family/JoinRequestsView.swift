@@ -164,7 +164,7 @@ struct JoinRequestsView: View {
                     .fixedSize(horizontal: true, vertical: false)
                     .foregroundStyle(DSColor.ink)
                     .padding(.horizontal, 7)
-                    .frame(height: 32)
+                    .frame(minHeight: 44)
                     .background(DSColor.choreMintSurface)
                     .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
                     .overlay(
@@ -183,7 +183,7 @@ struct JoinRequestsView: View {
                     .fixedSize(horizontal: true, vertical: false)
                     .foregroundStyle(DSColor.coral)
                     .padding(.horizontal, 7)
-                    .frame(height: 32)
+                    .frame(minHeight: 44)
                     .background(DSColor.pureSurface)
                     .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
                     .overlay(

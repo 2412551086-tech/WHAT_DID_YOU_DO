@@ -16,7 +16,6 @@ const [
   battle,
   bottomLeft,
   bottomRight,
-  phoneIcon,
   wechatIcon,
   appleIcon,
 ] = await Promise.all([
@@ -26,7 +25,6 @@ const [
   imageData("public/assets/housework-battle.png"),
   imageData("public/assets/bottom-left.png"),
   imageData("public/assets/bottom-right.png"),
-  imageData("public/assets/standalone-icons/phone.png"),
   imageData("public/assets/standalone-icons/wechat.png"),
   imageData("public/assets/standalone-icons/apple.png"),
 ]);
@@ -49,6 +47,12 @@ ${styles}
         width: 34px;
         height: 34px;
       }
+      .login-button__icon--email {
+        display: grid;
+        place-items: center;
+        font-size: 27px;
+        line-height: 1;
+      }
     </style>
   </head>
   <body>
@@ -65,9 +69,9 @@ ${styles}
         <img class="battle-illustration" src="${battle}" alt="两位家庭成员展开夸张幽默的家务大战" />
 
         <div class="login-actions" aria-label="登录方式">
-          <button class="login-button login-button--phone" type="button" data-login="phone">
-            <img class="login-button__icon" src="${phoneIcon}" alt="" />
-            <span>手机号登录</span>
+          <button class="login-button login-button--email" type="button" data-login="email">
+            <span class="login-button__icon login-button__icon--email" aria-hidden="true">✉</span>
+            <span>邮箱验证码</span>
           </button>
           <button class="login-button login-button--wechat" type="button" data-login="wechat">
             <img class="login-button__icon" src="${wechatIcon}" alt="" />
@@ -117,7 +121,7 @@ ${styles}
             return;
           }
 
-          showNotice(button.dataset.login === "phone" ? "手机号登录入口已开启" : "该登录方式即将支持");
+          showNotice(button.dataset.login === "email" ? "邮箱验证码入口正在接入" : "该登录方式即将支持");
         });
       });
 

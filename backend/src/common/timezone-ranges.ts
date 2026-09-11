@@ -25,6 +25,17 @@ export function normalizeTimeZone(timezone?: string | null): string {
   return isValidTimeZone(normalized) ? normalized : DEFAULT_FAMILY_TIMEZONE;
 }
 
+export function getLocalDateKeyForTimeZone(date: Date, timezone: string): string {
+  const parts = getZonedDateParts(date, normalizeTimeZone(timezone));
+  return [parts.year, parts.month, parts.day]
+    .map((part, index) => (index === 0 ? String(part) : String(part).padStart(2, '0')))
+    .join('-');
+}
+
+export function getLocalHourForTimeZone(date: Date, timezone: string): number {
+  return getZonedDateParts(date, normalizeTimeZone(timezone)).hour;
+}
+
 export function getDayRangeForTimeZone(timezone: string, now = new Date()) {
   const safeTimeZone = normalizeTimeZone(timezone);
   const parts = getZonedDateParts(now, safeTimeZone);

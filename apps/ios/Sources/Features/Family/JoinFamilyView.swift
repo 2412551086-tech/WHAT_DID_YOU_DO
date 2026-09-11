@@ -3,6 +3,10 @@ import UIKit
 
 struct JoinFamilyView: View {
     @EnvironmentObject private var viewModel: AppViewModel
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    private var step: Int { viewModel.joinFamilyStep }
+    private var keys: [String] { ["invite", "nickname", "avatar", "identity", "ready"] }
+    private var titles: [String] { ["加入家人的小家", "在家里，怎么称呼你？", "今天，你是哪位主角？", "你在家里的身份是？", "加入这个家"] }
 
     private var inviteCodeBinding: Binding<String> {
         Binding(
@@ -20,57 +24,51 @@ struct JoinFamilyView: View {
 
     private var canSubmit: Bool {
         guard case .valid = viewModel.inviteValidationState else { return false }
-        return !viewModel.isLoading
+        return !viewModel.isLoading && !viewModel.isFamilyFlowSubmitting
     }
 
     var body: some View {
-        ZStack {
-            DSColor.quietBackground.ignoresSafeArea()
-
-            VStack(spacing: 0) {
-                FamilyFlowTopBar(title: "加入家庭") {
-                    viewModel.showCreateFamily()
-                }
-
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 22) {
-                        Text("输入家人分享的邀请码，申请加入家庭")
-                            .font(.system(size: 13))
-                            .foregroundStyle(DSColor.mutedInk)
-
-                        invitationSection
-                        nicknameSection
-
-                        FamilyIdentityPicker(
-                            identityLabel: $viewModel.selectedIdentityLabel,
-                            customIdentity: $viewModel.customIdentity,
-                            avatarKey: $viewModel.selectedAvatarKey
-                        )
-
-                        statusBanner
-
-                        FamilyFlowPrimaryButton(
-                            title: "提交加入申请",
-                            isEnabled: canSubmit
-                        ) {
-                            viewModel.submitJoinRequest()
+        FamilyWizardPage(
+            title: titles[step], illustration: keys[step], step: step + 1, total: 5,
+            actionTitle: step == 4 ? (viewModel.hasAccessToken ? "提交加入申请" : "登录并继续") : (step == 0 ? "确认家庭" : "下一步"),
+            isBusy: viewModel.isLoading || viewModel.isFamilyFlowSubmitting,
+            canContinue: (step == 0 || step == 4) ? canSubmit : true,
+            onBack: { viewModel.goBackInFamilyWizard(joining: true) },
+            onNext: { viewModel.advanceJoinFamilyWizard() }
+        ) {
+            Group {
+                switch step {
+                case 0: invitationSection
+                case 1: nicknameSection
+                case 2: FamilyWizardAvatarPicker(avatarKey: $viewModel.selectedAvatarKey)
+                case 3:
+                    FamilyIdentityPicker(
+                        identityLabel: $viewModel.selectedIdentityLabel,
+                        customIdentity: $viewModel.customIdentity,
+                        avatarKey: $viewModel.selectedAvatarKey,
+                        showsAvatar: false
+                    )
+                default:
+                    inviteValidationView
+                    HStack(spacing: 16) {
+                        AvatarView(avatarKey: viewModel.selectedAvatarKey, fallbackText: viewModel.displayName, size: 64, presentation: .flat)
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text(viewModel.displayName).font(.title3.bold())
+                            Text(viewModel.selectedIdentityLabel == "自定义" ? viewModel.customIdentity : viewModel.selectedIdentityLabel)
+                                .font(.body).foregroundStyle(.secondary)
                         }
-
-                        Button("切换账号") {
-                            viewModel.logout()
-                        }
-                        .font(.system(size: 14, weight: .medium))
-                        .foregroundStyle(DSColor.mutedInk)
-                        .frame(maxWidth: .infinity)
-                        .disabled(viewModel.isLoading)
                     }
-                    .padding(.horizontal, 20)
-                    .padding(.top, 20)
-                    .padding(.bottom, 30)
                 }
             }
+            .id(step)
+            .transition(.opacity)
+            statusBanner
         }
-        .navigationBarBackButtonHidden(true)
+        .animation(reduceMotion ? nil : .easeOut(duration: 0.2), value: step)
+        .onChange(of: viewModel.familyWizardSnapshot(joining: true)) { _, _ in
+            viewModel.persistFamilyWizard(joining: true)
+        }
+        .onDisappear { viewModel.persistFamilyWizard(joining: true) }
         .task(id: viewModel.joinInviteCode) {
             guard viewModel.joinInviteCode.count == 8 else {
                 viewModel.validateJoinInviteCode()
@@ -89,7 +87,7 @@ struct JoinFamilyView: View {
 
             HStack(spacing: 8) {
                 TextField("8 位邀请码", text: inviteCodeBinding)
-                    .font(.system(size: 19, weight: .medium, design: .monospaced))
+                    .font(.body.monospaced().weight(.medium))
                     .textInputAutocapitalization(.characters)
                     .autocorrectionDisabled()
 
@@ -100,6 +98,7 @@ struct JoinFamilyView: View {
                 }
                 .font(.system(size: 13, weight: .medium))
                 .foregroundStyle(DSColor.infoBlue)
+                .frame(minWidth: 44, minHeight: 44)
 
                 if !viewModel.joinInviteCode.isEmpty {
                     Button {
@@ -107,13 +106,15 @@ struct JoinFamilyView: View {
                     } label: {
                         Image(systemName: "xmark.circle.fill")
                             .foregroundStyle(DSColor.mutedInk.opacity(0.45))
+                            .frame(width: 44, height: 44)
+                            .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
                     .accessibilityLabel("清空邀请码")
                 }
             }
             .padding(.horizontal, 14)
-            .frame(height: 48)
+            .frame(minHeight: 48)
             .background(DSColor.pureSurface)
             .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
             .overlay(
@@ -269,13 +270,19 @@ struct JoinStatusView: View {
     private func applicationCard(_ application: JoinApplication) -> some View {
         DSQuietCard(cornerRadius: 10, padding: 18) {
             VStack(spacing: 14) {
-                Image(
-                    application.status == .pending
-                        ? "join_status_pending_illustration"
-                        : FamilyIdentityOptions.actionAsset(for: application.avatarKey ?? "avatar_01")
-                )
-                    .resizable()
-                    .scaledToFit()
+                Group {
+                    if application.status != .pending, let key = application.avatarKey, CollectibleCharacter.contains(key) {
+                        V2CharacterArt(avatarKey: key)
+                    } else {
+                        Image(
+                            application.status == .pending
+                                ? "join_status_pending_illustration"
+                                : FamilyIdentityOptions.actionAsset(for: application.avatarKey ?? "avatar_01")
+                        )
+                        .resizable()
+                        .scaledToFit()
+                    }
+                }
                     .frame(height: 220)
                     .accessibilityHidden(true)
 

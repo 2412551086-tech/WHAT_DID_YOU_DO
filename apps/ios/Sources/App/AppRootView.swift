@@ -8,12 +8,8 @@ struct AppRootView: View {
             switch viewModel.sessionState {
             case .restoringSession:
                 LaunchLoadingView()
-            case .unauthenticated:
-                NavigationStack {
-                    LoginView()
-                }
-            case .authenticated:
-                authenticatedRoot
+            case .unauthenticated, .authenticated:
+                activeRoot
             }
         }
         .tint(DSColor.ink)
@@ -22,11 +18,19 @@ struct AppRootView: View {
     }
 
     @ViewBuilder
-    private var authenticatedRoot: some View {
+    private var activeRoot: some View {
         switch viewModel.rootScreen {
+        case .onboarding:
+            NavigationStack {
+                OnboardingChoiceView()
+            }
         case .login:
             NavigationStack {
                 LoginView()
+            }
+        case .workspaceChoice:
+            NavigationStack {
+                LoginWorkspaceChoiceView()
             }
         case .createFamily:
             NavigationStack {
@@ -86,7 +90,9 @@ private struct LaunchLoadingView: View {
 }
 
 enum AppScreen: Hashable {
+    case onboarding
     case login
+    case workspaceChoice
     case createFamily
     case familyCreated
     case choreSetup
