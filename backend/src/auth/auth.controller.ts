@@ -10,12 +10,15 @@ import { SendEmailCodeDto } from './dto/send-email-code.dto';
 import { UpdateCurrentUserDto } from './dto/update-current-user.dto';
 import { VerifyEmailCodeDto } from './dto/verify-email-code.dto';
 import { EmailOtpService } from './email-otp.service';
+import { AppleAuthService } from './apple-auth.service';
+import { AppleLoginDto } from './dto/apple-login.dto';
 
 @Controller('auth')
 export class AuthController {
   constructor(
     private readonly authService: AuthService,
     private readonly emailOtp: EmailOtpService,
+    private readonly appleAuth: AppleAuthService,
   ) {}
 
   @Get('config')
@@ -41,6 +44,16 @@ export class AuthController {
   @Post('refresh')
   refresh(@Body() dto: RefreshTokenDto) {
     return this.authService.refresh(dto.refreshToken);
+  }
+
+  @Post('apple/challenge')
+  appleChallenge() {
+    return this.appleAuth.challenge();
+  }
+
+  @Post('apple/login')
+  appleLogin(@Body() dto: AppleLoginDto) {
+    return this.appleAuth.login(dto);
   }
 
   @UseGuards(DevAuthGuard)
@@ -84,7 +97,8 @@ export class AuthController {
 
   @UseGuards(DevAuthGuard)
   @Delete('me')
-  deleteCurrentUser(@CurrentUser() user: AuthUser) {
+  async deleteCurrentUser(@CurrentUser() user: AuthUser) {
+    await this.appleAuth.revokeForUser(user.id);
     return this.authService.deleteCurrentUser(user);
   }
 }
