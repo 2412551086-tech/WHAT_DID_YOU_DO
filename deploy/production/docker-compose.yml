@@ -23,6 +23,8 @@ services:
     restart: unless-stopped
     env_file:
       - production.env
+    volumes:
+      - ./.secrets:/run/familyguard-secrets:ro
     depends_on:
       database:
         condition: service_healthy
@@ -56,6 +58,7 @@ services:
       - "443:443"
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - ../../website/dist:/srv/familyguard-site:ro
       - caddy_data:/data
       - caddy_config:/config
     networks:
