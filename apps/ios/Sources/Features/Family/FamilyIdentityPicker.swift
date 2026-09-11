@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 enum FamilyIdentityOptions {
     static let identities = [
@@ -50,7 +51,7 @@ struct FamilyFlowTopBar: View {
             Button(action: onBack) {
                 Image(systemName: "chevron.left")
                     .font(.system(size: 17, weight: .semibold))
-                    .frame(width: 36, height: 36)
+                    .frame(width: 44, height: 44)
             }
             .buttonStyle(.plain)
             .accessibilityLabel("返回")
@@ -62,7 +63,7 @@ struct FamilyFlowTopBar: View {
 
             Spacer()
 
-            Color.clear.frame(width: 36, height: 36)
+            Color.clear.frame(width: 44, height: 44)
         }
         .foregroundStyle(DSColor.ink)
         .padding(.horizontal, 12)
@@ -104,12 +105,12 @@ struct FamilyFlowTextField: View {
             }
 
             TextField(placeholder, text: $text)
-                .font(.system(size: 16, weight: .regular))
+                .font(.body)
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled()
         }
         .padding(.horizontal, 14)
-        .frame(height: 48)
+        .frame(minHeight: 48)
         .background(DSColor.pureSurface)
         .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
         .overlay(
@@ -176,10 +177,12 @@ struct FamilyFlowSecondaryButton: View {
 }
 
 struct FamilyAvatarCarousel: View {
+    @EnvironmentObject private var viewModel: AppViewModel
     @Binding var avatarKey: String
     @GestureState private var dragTranslation: CGFloat = 0
 
-    private var selectedIndex: Int { FamilyIdentityOptions.index(for: avatarKey) }
+    private var avatarKeys: [String] { viewModel.selectableAvatarKeys }
+    private var selectedIndex: Int { avatarKeys.firstIndex(of: avatarKey) ?? 0 }
 
     var body: some View {
         HStack(spacing: 2) {
@@ -217,7 +220,8 @@ struct FamilyAvatarCarousel: View {
             .animation(.interactiveSpring(response: 0.22, dampingFraction: 0.82), value: dragTranslation)
             .highPriorityGesture(avatarSwipeGesture)
         .accessibilityElement(children: .contain)
-        .accessibilityLabel("选择家庭形象，第 \(selectedIndex + 1) 个，共 \(FamilyIdentityOptions.avatarKeys.count) 个")
+        .accessibilityLabel("选择家庭形象，第 \(selectedIndex + 1) 个，共 \(avatarKeys.count) 个")
+        .task { await viewModel.refreshAchievementCharacters() }
     }
 
     private var avatarSwipeGesture: some Gesture {
@@ -241,13 +245,19 @@ struct FamilyAvatarCarousel: View {
         height: CGFloat,
         opacity: Double
     ) -> some View {
-        let key = FamilyIdentityOptions.avatarKeys[index]
+        let key = avatarKeys[index]
         return Button {
             avatarKey = key
         } label: {
-            Image(FamilyIdentityOptions.actionAsset(for: key))
-                .resizable()
-                .scaledToFit()
+            Group {
+                if CollectibleCharacter.contains(key) {
+                    V2CharacterArt(avatarKey: key)
+                } else {
+                    Image(FamilyIdentityOptions.actionAsset(for: key))
+                        .resizable()
+                        .scaledToFit()
+                }
+            }
                 .frame(width: width, height: height)
                 .opacity(opacity)
         }
@@ -268,11 +278,11 @@ struct FamilyAvatarCarousel: View {
     }
 
     private func move(by offset: Int) {
-        avatarKey = FamilyIdentityOptions.avatarKeys[wrappedIndex(selectedIndex + offset)]
+        avatarKey = avatarKeys[wrappedIndex(selectedIndex + offset)]
     }
 
     private func wrappedIndex(_ index: Int) -> Int {
-        let count = FamilyIdentityOptions.avatarKeys.count
+        let count = avatarKeys.count
         return (index % count + count) % count
     }
 }
@@ -281,15 +291,23 @@ struct FamilyIdentityPicker: View {
     @Binding var identityLabel: String
     @Binding var customIdentity: String
     @Binding var avatarKey: String
+    var showsAvatar = true
 
     var body: some View {
         VStack(alignment: .leading, spacing: 22) {
-            VStack(alignment: .leading, spacing: 12) {
+            if showsAvatar {
+              VStack(alignment: .leading, spacing: 12) {
                 FamilyFlowSectionLabel(title: "选择你的形象")
                 FamilyAvatarCarousel(avatarKey: $avatarKey)
+              }
             }
 
             VStack(alignment: .leading, spacing: 10) {
+              if !showsAvatar {
+                FamilyIdentityWheel(selection: $identityLabel, options: FamilyIdentityOptions.identities)
+                .padding(.top, 24)
+                .accessibilityLabel("家庭身份")
+              } else {
                 FamilyFlowSectionLabel(title: "家庭身份")
 
                 Menu {
@@ -301,7 +319,7 @@ struct FamilyIdentityPicker: View {
                 } label: {
                     HStack {
                         Text(identityLabel)
-                            .font(.system(size: 16, weight: .medium))
+                            .font(.body.weight(.medium))
                         Spacer()
                         Image(systemName: "chevron.up.chevron.down")
                             .font(.system(size: 12, weight: .semibold))
@@ -309,7 +327,7 @@ struct FamilyIdentityPicker: View {
                     }
                     .foregroundStyle(DSColor.ink)
                     .padding(.horizontal, 14)
-                    .frame(height: 48)
+                    .frame(minHeight: 48)
                     .background(DSColor.pureSurface)
                     .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
                     .overlay(
@@ -317,6 +335,7 @@ struct FamilyIdentityPicker: View {
                             .stroke(DSColor.subtleStroke, lineWidth: 1)
                     )
                 }
+              }
 
                 if identityLabel == "自定义" {
                     FamilyFlowTextField(
@@ -326,12 +345,146 @@ struct FamilyIdentityPicker: View {
                     )
                 }
 
-                Text("上下滑动选择")
-                    .font(.system(size: 10))
-                    .foregroundStyle(DSColor.mutedInk.opacity(0.72))
-                    .frame(maxWidth: .infinity, alignment: .center)
             }
         }
+    }
+}
+
+/// Shared only by the native family onboarding pages.
+struct FamilyWizardPage<Content: View>: View {
+    @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.dynamicTypeSize) private var typeSize
+    @State private var keyboardVisible = false
+    let title: String
+    let illustration: String
+    let step: Int
+    let total: Int
+    let actionTitle: String
+    let isBusy: Bool
+    var canContinue = true
+    var allowsBack = true
+    let onBack: () -> Void
+    let onNext: () -> Void
+    @ViewBuilder let content: () -> Content
+
+    var body: some View {
+        ZStack {
+            V3OnboardingBackdrop()
+            ScrollView {
+                VStack(alignment: .leading, spacing: 24) {
+                    if illustration != "avatar" {
+                      V3StepIllustration(step: illustration)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: keyboardVisible || typeSize.isAccessibilitySize ? 88 : 260)
+                        .accessibilityHidden(true)
+                    }
+                    Text(title)
+                        .font(.largeTitle.bold())
+                        .foregroundStyle(.primary)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .accessibilityAddTraits(.isHeader)
+                    content()
+                        .disabled(isBusy)
+                }
+                .frame(maxWidth: 520)
+                .padding(.horizontal, 24)
+                .padding(.vertical, 16)
+                .frame(maxWidth: .infinity)
+            }
+            .scrollDismissesKeyboard(.interactively)
+        }
+        .tint(.primary)
+        .navigationBarBackButtonHidden(true)
+        .toolbar(.hidden, for: .navigationBar)
+        .safeAreaInset(edge: .top, spacing: 0) {
+            HStack(spacing: 16) {
+                Button(action: onBack) {
+                    Image(systemName: "chevron.left")
+                        .font(.body.weight(.semibold))
+                        .frame(width: 44, height: 44)
+                }
+                .accessibilityLabel("返回")
+                .foregroundStyle(.primary)
+                .disabled(isBusy || !allowsBack)
+                ProgressView(value: Double(step), total: Double(total))
+                    .tint(V3OnboardingColor.butter)
+                    .scaleEffect(x: 1, y: 2.3)
+                    .frame(height: 10)
+                    .accessibilityLabel("设置进度")
+                    .accessibilityValue("第 \(step) 步，共 \(total) 步")
+                    .padding(.trailing, 28)
+            }
+            .padding(.horizontal, 16)
+            .background(V3OnboardingColor.surface(colorScheme))
+        }
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            Button {
+                guard !isBusy else { return }
+                UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+                onNext()
+            } label: {
+                HStack {
+                    if isBusy { ProgressView().tint(V3OnboardingColor.buttonInk) }
+                    Text(actionTitle)
+                }
+                .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(V3PrimaryButtonStyle())
+            .disabled(isBusy || !canContinue)
+            .frame(maxWidth: 520)
+            .padding(.horizontal, 24)
+            .padding(.vertical, 12)
+            .frame(maxWidth: .infinity)
+            .background(V3OnboardingColor.surface(colorScheme))
+        }
+        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { _ in
+            withAnimation(reduceMotion ? nil : .easeOut(duration: 0.2)) { keyboardVisible = true }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in
+            withAnimation(reduceMotion ? nil : .easeOut(duration: 0.2)) { keyboardVisible = false }
+        }
+    }
+}
+
+struct FamilyWizardAvatarPicker: View {
+    @EnvironmentObject private var viewModel: AppViewModel
+    @Environment(\.dynamicTypeSize) private var typeSize
+    @Binding var avatarKey: String
+
+    var body: some View {
+        VStack(spacing: 20) {
+            Group {
+                if CollectibleCharacter.contains(avatarKey) {
+                    V2CharacterArt(avatarKey: avatarKey)
+                } else {
+                    Image(FamilyIdentityOptions.actionAsset(for: avatarKey)).resizable().scaledToFit()
+                }
+            }
+            .frame(maxWidth: .infinity)
+            .frame(height: typeSize.isAccessibilitySize ? 180 : 290)
+            .accessibilityHidden(true)
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: typeSize.isAccessibilitySize ? 76 : 60), spacing: 12)], spacing: 12) {
+                ForEach(viewModel.selectableAvatarKeys, id: \.self) { key in
+                    Button { avatarKey = key } label: {
+                        AvatarView(avatarKey: key, fallbackText: "", size: 52, presentation: .flat)
+                            .overlay(alignment: .bottomTrailing) {
+                                Image(systemName: "checkmark.circle.fill")
+                                    .font(.system(size: 18, weight: .bold))
+                                    .symbolRenderingMode(.palette)
+                                    .foregroundStyle(V3OnboardingColor.buttonInk, V3OnboardingColor.butter)
+                                    .opacity(avatarKey == key ? 1 : 0)
+                                    .accessibilityHidden(true)
+                            }
+                            .frame(maxWidth: .infinity, minHeight: 64)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("家庭形象 \((viewModel.selectableAvatarKeys.firstIndex(of: key) ?? 0) + 1)")
+                    .accessibilityAddTraits(avatarKey == key ? .isSelected : [])
+                }
+            }
+        }
+        .task { await viewModel.refreshAchievementCharacters() }
     }
 }
 
@@ -345,4 +498,5 @@ struct FamilyIdentityPicker: View {
         .padding(20)
     }
     .background(DSColor.quietBackground)
+    .environmentObject(AppViewModel.previewLoggedIn())
 }

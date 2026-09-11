@@ -197,7 +197,7 @@ enum MockData {
     ]
 
     static let achievementCapacity = AchievementCapacity(
-        common: AchievementCapacityBucket(base: 6, earned: 0, limit: 6),
+        common: AchievementCapacityBucket(base: 8, earned: 0, limit: 8),
         custom: AchievementCapacityBucket(base: 2, earned: 0, limit: 2)
     )
 

@@ -45,7 +45,7 @@ struct CreateFamilyRequest: Encodable {
     let timezone: String?
 }
 
-struct ClaimLocalDraftChoreRequest: Encodable {
+struct ClaimLocalDraftChoreRequest: Codable {
     let localId: String
     let source: String
     let catalogKey: String?
@@ -56,7 +56,7 @@ struct ClaimLocalDraftChoreRequest: Encodable {
     let icon: String
 }
 
-struct ClaimLocalDraftRecordRequest: Encodable {
+struct ClaimLocalDraftRecordRequest: Codable {
     let id: String
     let choreLocalId: String
     let actualMinutes: Int
@@ -64,7 +64,7 @@ struct ClaimLocalDraftRecordRequest: Encodable {
     let occurredAt: Date
 }
 
-struct ClaimLocalDraftRequest: Encodable {
+struct ClaimLocalDraftRequest: Codable {
     let draftId: String
     let draftCreatedAt: Date
     let familyName: String
@@ -146,6 +146,21 @@ struct LoginResponse: Decodable {
             refreshTokenExpiresAt: refreshTokenExpiresAt
         )
     }
+}
+
+struct AppleLoginChallengeResponse: Decodable {
+    let challengeId: String
+    let nonce: String
+}
+
+struct AppleLoginRequest: Encodable {
+    let challengeId: String
+    let identityToken: String
+    let authorizationCode: String
+    let deviceId: String?
+    let deviceName: String?
+    let platform: String
+    let appVersion: String?
 }
 
 struct RefreshTokenResponse: Decodable, Sendable {
@@ -352,6 +367,7 @@ struct ChoreRecordDTO: Decodable {
     let likedByMe: Bool?
     let reactionCounts: [String: Int]?
     let myReaction: String?
+    let reactionConsensus: ReactionConsensus?
     let canDelete: Bool?
     let canEdit: Bool?
     let createdAt: Date
@@ -377,6 +393,7 @@ struct ActivityItemDTO: Decodable {
     let likedByMe: Bool?
     let reactionCounts: [String: Int]?
     let myReaction: String?
+    let reactionConsensus: ReactionConsensus?
     let canDelete: Bool?
     let canEdit: Bool?
     let createdAt: Date
@@ -407,6 +424,7 @@ struct LikeResponseDTO: Decodable {
     let likedByMe: Bool
     let reactionCounts: [String: Int]?
     let myReaction: String?
+    let reactionConsensus: ReactionConsensus?
 }
 
 struct ReactionRequestDTO: Encodable, Sendable {
@@ -553,6 +571,16 @@ struct AchievementItemDTO: Decodable, Sendable {
     let unlockedAt: Date?
     let visibility: String
     let reward: AchievementRewardDTO?
+    var ownerType: String? = nil
+    var ownerKey: String? = nil
+    var familyId: String? = nil
+    var userId: String? = nil
+    var relationshipId: String? = nil
+    var familyAchievementId: String? = nil
+    var pairAchievementId: String? = nil
+    var participantUserIds: [String]? = nil
+    var minimumMemberCount: Int? = nil
+    var isHidden: Bool? = nil
 }
 
 struct AchievementSummaryDTO: Decodable, Sendable {
@@ -573,6 +601,11 @@ struct AchievementCollectionDTO: Decodable, Sendable {
     let achievements: [AchievementItemDTO]
     let capacity: AchievementCapacityDTO
     let updatedAt: Date
+    var undiscoveredHiddenCount: Int? = nil
+}
+
+struct AchievementCharactersDTO: Decodable, Sendable {
+    let characters: [AchievementCharacter]
 }
 
 struct UpdateAchievementVisibilityRequest: Encodable, Sendable {

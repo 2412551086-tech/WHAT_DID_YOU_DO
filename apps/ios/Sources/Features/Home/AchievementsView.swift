@@ -2,7 +2,8 @@ import SwiftUI
 
 struct AchievementsView: View {
     @EnvironmentObject private var viewModel: AppViewModel
-    @State private var selectedAchievement: AchievementItem?
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @State private var selectedAchievement: AchievementSeries?
     @State private var sharingUpdateInFlight = false
 
     var body: some View {
@@ -27,15 +28,17 @@ struct AchievementsView: View {
             }
             .refreshable {
                 await viewModel.refreshAchievements()
+                await viewModel.refreshAchievementCharacters()
             }
         }
         .navigationTitle("成就")
         .navigationBarTitleDisplayMode(.inline)
         .task {
             await viewModel.refreshAchievements()
+            await viewModel.refreshAchievementCharacters()
         }
         .sheet(item: $selectedAchievement) { achievement in
-            AchievementDetailSheet(achievement: achievement)
+            AchievementDetailSheet(series: achievement)
                 .environmentObject(viewModel)
                 .presentationDetents([.medium, .large])
                 .presentationDragIndicator(.visible)
@@ -51,7 +54,7 @@ struct AchievementsView: View {
 
             Spacer(minLength: 4)
 
-            compactSharingToggle
+            if !viewModel.isGuestWorkspace { compactSharingToggle }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -102,6 +105,11 @@ struct AchievementsView: View {
 
     private var loadedContent: some View {
         VStack(alignment: .leading, spacing: 16) {
+            if viewModel.isGuestWorkspace {
+                Label("成就保存在本机", systemImage: "iphone")
+                    .font(.caption)
+                    .foregroundStyle(DSColor.floatingSecondaryText)
+            }
             if viewModel.achievementDataState == .cached {
                 DSOfflineStatusView(lastUpdatedAt: viewModel.achievementLastUpdatedAt)
             } else if case let .failed(message) = viewModel.achievementDataState {
@@ -120,9 +128,20 @@ struct AchievementsView: View {
                     AchievementNextEntry(
                         achievements: viewModel.upcomingAchievements,
                         syncState: viewModel.achievementSyncState,
-                        onSelect: { selectedAchievement = $0 }
+                        onSelect: { item in selectedAchievement = displayedAchievements.first { $0.id == item.seriesIdentity } }
                     )
                 }
+            }
+
+            AchievementCharacterCollectionLink()
+
+            HStack {
+                Text("我的收藏")
+                    .font(.headline)
+                Spacer()
+                Text("\(displayedAchievements.filter { $0.highestUnlocked != nil }.count) 个系列 · \(viewModel.unlockedAchievements.count) 个等级")
+                    .font(.caption)
+                    .foregroundStyle(DSColor.floatingSecondaryText)
             }
 
             if displayedAchievements.isEmpty {
@@ -135,7 +154,7 @@ struct AchievementsView: View {
                 LazyVGrid(
                     columns: Array(
                         repeating: GridItem(.flexible(minimum: 0), spacing: 10, alignment: .top),
-                        count: 3
+                        count: dynamicTypeSize.isAccessibilitySize ? 2 : 3
                     ),
                     spacing: 24
                 ) {
@@ -143,9 +162,38 @@ struct AchievementsView: View {
                         Button {
                             selectedAchievement = achievement
                         } label: {
-                            AchievementTile(achievement: achievement)
+                            AchievementTile(series: achievement)
                         }
                         .buttonStyle(.plain)
+                    }
+                }
+            }
+
+            if let count = viewModel.undiscoveredHiddenAchievementCount, count > 0 {
+                Text("神秘收藏")
+                    .font(.headline)
+                    .padding(.top, 8)
+                LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 10), count: dynamicTypeSize.isAccessibilitySize ? 2 : 3), spacing: 16) {
+                    ForEach(0..<count, id: \.self) { _ in
+                        VStack(spacing: 7) {
+                            ZStack {
+                                if V2ArtworkCatalog.hasAchievement(key: "MYSTERY") {
+                                    V2AchievementArt(key: "MYSTERY")
+                                } else {
+                                    Image(systemName: "seal.fill")
+                                        .font(.system(size: 64))
+                                        .foregroundStyle(DSColor.floatingDivider)
+                                }
+                                Text("?")
+                                    .font(.system(size: 28, weight: .bold))
+                                    .foregroundStyle(V2ArtworkCatalog.hasAchievement(key: "MYSTERY") ? Color.white : DSColor.floatingPrimaryText)
+                            }
+                            .frame(width: 88, height: 100)
+                            Text("未发现").font(.subheadline)
+                        }
+                        .frame(maxWidth: .infinity)
+                        .accessibilityElement(children: .ignore)
+                        .accessibilityLabel("神秘收藏，未发现")
                     }
                 }
             }
@@ -185,12 +233,159 @@ struct AchievementsView: View {
         .accessibilityHint("重新获取成就进度")
     }
 
-    private var displayedAchievements: [AchievementItem] {
-        viewModel.orderedAchievements
+    private var displayedAchievements: [AchievementSeries] {
+        viewModel.achievementSeries
+    }
+}
+
+struct AchievementCharacterCollectionLink: View {
+    @EnvironmentObject private var viewModel: AppViewModel
+
+    var body: some View {
+        NavigationLink {
+            AchievementCharacterGallery()
+        } label: {
+            HStack(spacing: 12) {
+                HStack(spacing: -8) {
+                    ForEach(CollectibleCharacter.all.prefix(2)) { character in
+                        AvatarView(avatarKey: character.key, fallbackText: character.name, size: 40, presentation: .flat)
+                    }
+                }
+                .accessibilityHidden(true)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("人物收藏").font(.headline)
+                    Text("\(viewModel.achievementCharacters.filter(\.isOwned).count)/4 已拥有")
+                        .font(.caption)
+                        .foregroundStyle(DSColor.floatingSecondaryText)
+                }
+                Spacer()
+                Image(systemName: "chevron.right").font(.caption.weight(.semibold))
+            }
+            .foregroundStyle(DSColor.floatingPrimaryText)
+            .padding(.vertical, 10)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+struct AchievementCharacterGallery: View {
+    @EnvironmentObject private var viewModel: AppViewModel
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @State private var showsPremium = false
+    @State private var applyingKey: String?
+    var selection: Binding<String>? = nil
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 20) {
+                if viewModel.characterDataState == .loading {
+                    ProgressView("正在同步人物收藏")
+                } else if viewModel.characterDataState == .cached {
+                    DSOfflineStatusView(lastUpdatedAt: viewModel.characterLastUpdatedAt)
+                }
+                if let message = viewModel.characterErrorMessage {
+                    Button { Task { await viewModel.refreshAchievementCharacters() } } label: {
+                        DSErrorBanner(message: "\(message) 点按刷新。")
+                    }
+                    .buttonStyle(.plain)
+                }
+                if let message = viewModel.errorMessage, applyingKey == nil {
+                    DSErrorBanner(message: message)
+                }
+                LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 20), count: dynamicTypeSize.isAccessibilitySize ? 1 : 2), alignment: .leading, spacing: 28) {
+                    ForEach(CollectibleCharacter.all) { character in
+                        characterTile(character)
+                    }
+                }
+            }
+            .padding(20)
+        }
+        .background(DSColor.floatingPageBackground.ignoresSafeArea())
+        .navigationTitle("人物收藏")
+        .navigationBarTitleDisplayMode(.inline)
+        .task { await viewModel.refreshAchievementCharacters() }
+        .refreshable { await viewModel.refreshAchievementCharacters() }
+        .sheet(isPresented: $showsPremium, onDismiss: {
+            Task { await viewModel.refreshAchievementCharacters() }
+        }) {
+            PremiumUpgradeSheet(trigger: .profile)
+        }
+    }
+
+    private func characterTile(_ character: CollectibleCharacter) -> some View {
+        let state = viewModel.achievementCharacters.first { $0.key == character.key }
+        return VStack(alignment: .leading, spacing: 9) {
+            V2CharacterArt(avatarKey: character.key)
+                .frame(height: dynamicTypeSize.isAccessibilitySize ? 180 : 160)
+                .frame(maxWidth: .infinity)
+                .accessibilityHidden(true)
+            Text(character.name).font(.headline)
+            Text("\(AchievementCopy.name(for: character.achievementKey)) · 银级 25 次")
+                .font(.caption)
+                .foregroundStyle(DSColor.floatingSecondaryText)
+                .fixedSize(horizontal: false, vertical: true)
+            if let state {
+                if state.isOwned {
+                    Label("已拥有", systemImage: "checkmark.seal.fill")
+                        .font(.caption).foregroundStyle(DSColor.infoBlue)
+                    if let date = state.claimedAt {
+                        Text(date.formatted(date: .abbreviated, time: .omitted)).font(.caption2)
+                    }
+                    Button {
+                        if let selection {
+                            selection.wrappedValue = character.key
+                        } else {
+                            applyingKey = character.key
+                            Task {
+                                _ = await viewModel.updateAppearance(avatarKey: character.key)
+                                applyingKey = nil
+                            }
+                        }
+                    } label: {
+                        Label(isSelected(character.key) ? "已选择" : "使用形象", systemImage: isSelected(character.key) ? "checkmark" : "person.crop.circle")
+                    }
+                    .disabled(isSelected(character.key) || applyingKey != nil || (selection == nil && viewModel.isOffline))
+                } else {
+                    Label(state.achievementUnlocked ? "银级已达成" : "待达成银级", systemImage: state.achievementUnlocked ? "checkmark.circle" : "lock")
+                        .font(.caption)
+                    Label(viewModel.isGuestWorkspace ? "登录后验证高级资格" : (state.hasPremium ? "高级资格有效" : "领取需高级资格"), systemImage: "crown")
+                        .font(.caption)
+                        .foregroundStyle(DSColor.floatingSecondaryText)
+                    if state.canClaim {
+                        Button {
+                            Task { _ = await viewModel.claimAchievementCharacter(character.key) }
+                        } label: {
+                            Label(viewModel.claimingCharacterKey == character.key ? "正在领取" : "领取人物", systemImage: "gift")
+                        }
+                        .disabled(viewModel.claimingCharacterKey != nil || viewModel.characterDataState != .loaded || viewModel.isOffline)
+                    } else if viewModel.isGuestWorkspace {
+                        Button(action: viewModel.requireAuthenticationForLocalFamily) {
+                            Label("登录验证资格", systemImage: "person.crop.circle")
+                        }
+                    } else if !state.hasPremium {
+                        Button { showsPremium = true } label: {
+                            Label("查看高级版", systemImage: "crown")
+                        }
+                    }
+                }
+            } else {
+                Text("领取资格待同步").font(.caption).foregroundStyle(DSColor.floatingSecondaryText)
+            }
+        }
+        .buttonStyle(.bordered)
+        .tint(DSColor.floatingPrimaryText)
+        .font(.subheadline)
+        .frame(maxWidth: .infinity, alignment: .topLeading)
+    }
+
+    private func isSelected(_ key: String) -> Bool {
+        (selection?.wrappedValue ?? viewModel.currentMembership?.avatarKey) == key
     }
 }
 
 struct AchievementNextEntry: View {
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     let achievements: [AchievementItem]
     let syncState: AchievementSyncState
     var onSelect: ((AchievementItem) -> Void)?
@@ -225,7 +420,7 @@ struct AchievementNextEntry: View {
                 }
                 .tabViewStyle(.page(indexDisplayMode: achievements.count > 1 ? .always : .never))
                 .indexViewStyle(.page(backgroundDisplayMode: .interactive))
-                .frame(height: 116)
+                .frame(height: dynamicTypeSize.isAccessibilitySize ? 150 : 112)
             }
         }
         .contentShape(Rectangle())
@@ -257,9 +452,9 @@ struct AchievementNextEntry: View {
                     }
                 }
                 Text(achievement.name)
-                    .font(.system(size: 16, weight: .semibold, design: .rounded))
+                    .font(.headline)
                     .foregroundStyle(DSColor.floatingPrimaryText)
-                    .lineLimit(1)
+                    .fixedSize(horizontal: false, vertical: true)
                 HStack(spacing: 8) {
                     ProgressView(value: achievement.clampedProgress)
                         .tint(DSColor.infoBlue)
@@ -293,7 +488,7 @@ struct AchievementCelebrationOverlay: View {
                 Button(action: dismiss) {
                     Image(systemName: "xmark")
                         .font(.system(size: 14, weight: .bold))
-                        .frame(width: 36, height: 36)
+                        .frame(width: 44, height: 44)
                         .background(DSColor.floatingPageBackground)
                         .clipShape(Circle())
                 }
@@ -309,7 +504,7 @@ struct AchievementCelebrationOverlay: View {
             } else {
                 TabView(selection: $selectedPage) {
                     ForEach(Array(celebration.achievements.enumerated()), id: \.element.id) { index, achievement in
-                        celebrationPage(achievement)
+                        ScrollView { celebrationPage(achievement) }
                             .tag(index)
                     }
                 }
@@ -334,13 +529,15 @@ struct AchievementCelebrationOverlay: View {
                 .padding(.top, 2)
             }
 
-            Button("收下成就", action: dismiss)
+            Button(action: dismiss) {
+              Text("收下成就")
                 .font(.system(size: 16, weight: .semibold))
                 .foregroundStyle(DSColor.ink)
                 .frame(maxWidth: .infinity, minHeight: 48)
                 .background(DSColor.yellow)
                 .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-                .buttonStyle(.plain)
+            }
+            .buttonStyle(.plain)
         }
         .foregroundStyle(DSColor.floatingPrimaryText)
         .padding(17)
@@ -353,7 +550,6 @@ struct AchievementCelebrationOverlay: View {
         )
         .shadow(color: DSColor.shadow.opacity(0.13), radius: 22, x: 0, y: 10)
         .contentShape(Rectangle())
-        .onTapGesture(perform: dismiss)
         .accessibilityElement(children: .contain)
     }
 
@@ -367,10 +563,10 @@ struct AchievementCelebrationOverlay: View {
                 .multilineTextAlignment(.center)
 
             Text(achievement.unlockCopy)
-                .font(.system(size: 14, weight: .regular))
+                .font(.subheadline)
                 .foregroundStyle(DSColor.floatingSecondaryText)
                 .multilineTextAlignment(.center)
-                .lineLimit(2)
+                .fixedSize(horizontal: false, vertical: true)
         }
         .frame(maxWidth: .infinity)
         .accessibilityElement(children: .combine)
@@ -390,59 +586,41 @@ struct AchievementCelebrationOverlay: View {
 }
 
 private struct AchievementTile: View {
-    let achievement: AchievementItem
+    let series: AchievementSeries
 
     var body: some View {
         VStack(spacing: 7) {
-            AchievementArtwork(achievement: achievement, size: 88)
+            AchievementArtwork(achievement: series.main, size: 88)
 
-            Text(achievement.name)
+            Text(series.name)
                 .font(.system(size: 14, weight: .semibold, design: .rounded))
                 .foregroundStyle(DSColor.floatingPrimaryText)
                 .multilineTextAlignment(.center)
-                .lineLimit(2)
                 .frame(minHeight: 34, alignment: .top)
 
-            if !achievement.isUnlocked {
-                HStack(spacing: 4) {
-                    if achievement.reward != nil {
-                        Image(systemName: "gift.fill")
-                            .foregroundStyle(DSColor.infoBlue)
-                    }
-                    Text("\(achievement.displayCurrentValue)/\(achievement.targetValue)")
-                        .monospacedDigit()
-                }
-                .font(.system(size: 12, weight: .semibold, design: .rounded))
+            Text(series.statusText)
+                .font(.caption)
                 .foregroundStyle(DSColor.floatingSecondaryText)
-            } else if let reward = achievement.reward {
-                Label(reward.displayText, systemImage: "checkmark.seal.fill")
-                    .font(.system(size: 10, weight: .semibold))
-                    .foregroundStyle(DSColor.infoBlue)
-                    .lineLimit(1)
-            } else {
-                Text("已获得")
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(DSColor.floatingSecondaryText)
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
+            if let next = series.nextLevel {
+                ProgressView(value: next.clampedProgress)
+                    .tint(DSColor.infoBlue)
+                    .padding(.horizontal, 6)
             }
         }
         .frame(maxWidth: .infinity, minHeight: 146, alignment: .top)
         .contentShape(Rectangle())
         .accessibilityElement(children: .combine)
-        .accessibilityLabel(accessibilityLabel)
-    }
-
-    private var accessibilityLabel: String {
-        if achievement.isUnlocked {
-            return "已解锁，\(achievement.name)"
-        }
-        return "进行中，\(achievement.name)，进度 \(achievement.displayCurrentValue) 共 \(achievement.targetValue)"
+        .accessibilityLabel("\(series.name)，\(series.statusText)")
     }
 }
 
 private struct AchievementDetailSheet: View {
     @EnvironmentObject private var viewModel: AppViewModel
     @Environment(\.dismiss) private var dismiss
-    let achievement: AchievementItem
+    let series: AchievementSeries
+    private var achievement: AchievementItem { series.main }
 
     var body: some View {
         NavigationStack {
@@ -451,7 +629,7 @@ private struct AchievementDetailSheet: View {
                     AchievementArtwork(achievement: achievement, size: 140)
 
                     VStack(spacing: 8) {
-                        Text(achievement.name)
+                        Text(series.name)
                             .font(.system(size: 28, weight: .bold, design: .rounded))
 
                         Text(achievement.description)
@@ -460,7 +638,16 @@ private struct AchievementDetailSheet: View {
                             .multilineTextAlignment(.center)
                     }
 
-                    if achievement.isUnlocked {
+                    if viewModel.isGuestWorkspace, series.levels.contains(where: { $0.reward != nil }) {
+                        Text("家务位等奖励需将本机家庭保存到账号后，由云端确认。")
+                            .font(.caption)
+                            .foregroundStyle(DSColor.mutedInk)
+                            .multilineTextAlignment(.center)
+                    }
+
+                    if series.isTiered {
+                        tierLadder
+                    } else if achievement.isUnlocked {
                         unlockedContent
                     } else {
                         progressContent
@@ -478,8 +665,43 @@ private struct AchievementDetailSheet: View {
         }
     }
 
+    private var tierLadder: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            ForEach(series.levels) { level in
+                HStack(alignment: .top, spacing: 12) {
+                    Image(systemName: level.isUnlocked ? "checkmark.seal.fill" : "seal")
+                        .foregroundStyle(level.isUnlocked ? DSColor.infoBlue : DSColor.floatingSecondaryText)
+                    VStack(alignment: .leading, spacing: 5) {
+                        Text("\(AchievementCopy.tierName(level.tier) ?? "成就") · 累计 \(level.targetValue)")
+                            .font(.headline)
+                        if level.isUnlocked, let date = level.unlockedAt {
+                            Text("获得于 \(date.formatted(date: .abbreviated, time: .omitted))")
+                                .font(.caption)
+                        } else if !level.isUnlocked {
+                            Text("\(level.displayCurrentValue)/\(level.targetValue)")
+                                .font(.caption).monospacedDigit()
+                            ProgressView(value: level.clampedProgress).tint(DSColor.infoBlue)
+                        }
+                        if let reward = level.reward {
+                            Label(reward.displayText, systemImage: "gift")
+                                .font(.caption)
+                        }
+                    }
+                    Spacer(minLength: 0)
+                }
+                .accessibilityElement(children: .combine)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
     private var progressContent: some View {
         VStack(spacing: 10) {
+            if viewModel.isGuestWorkspace, achievement.progressStatus == "SYNC_REQUIRED" {
+                Label("需要家人参与，登录后统计", systemImage: "person.2")
+                    .font(.subheadline)
+                    .foregroundStyle(DSColor.mutedInk)
+            }
             ProgressView(value: achievement.clampedProgress)
                 .tint(DSColor.infoBlue)
             Text("当前 \(achievement.displayCurrentValue) / \(achievement.targetValue)")
@@ -527,7 +749,11 @@ private struct AchievementArtwork: View {
 
     var body: some View {
         Group {
-            if let assetName = achievement?.artworkAssetName {
+            if let achievement, V2ArtworkCatalog.hasAchievement(key: achievement.key) {
+                V2AchievementArt(key: achievement.key)
+                    .saturation(!achievement.isUnlocked && desaturatesLocked ? 0 : 1)
+                    .opacity(!achievement.isUnlocked && desaturatesLocked ? 0.48 : 1)
+            } else if let assetName = achievement?.artworkAssetName {
                 Image(assetName)
                     .resizable()
                     .scaledToFit()
@@ -544,6 +770,16 @@ private struct AchievementArtwork: View {
             }
         }
         .frame(width: size, height: size)
+        .overlay(alignment: .bottomLeading) {
+            if let achievement, let tier = AchievementCopy.tierName(achievement.tier) {
+                Text(tier)
+                    .font(.system(size: max(10, size * 0.10), weight: .semibold))
+                    .padding(.horizontal, 5)
+                    .padding(.vertical, 3)
+                    .background(DSColor.floatingSurface, in: Capsule())
+                    .foregroundStyle(DSColor.floatingPrimaryText)
+            }
+        }
         .overlay(alignment: .bottomTrailing) {
             if achievement?.isUnlocked == false {
                 Image(systemName: "lock.fill")

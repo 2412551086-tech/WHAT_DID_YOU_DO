@@ -718,27 +718,12 @@ struct DSActivityRow: View {
                 .font(.system(size: 12, weight: .regular, design: .default))
                 .foregroundStyle(DSColor.floatingSecondaryText)
 
-                if !record.likedBy.isEmpty {
-                    HStack(spacing: 1) {
-                        ForEach(Array(record.likedBy.prefix(3))) { liker in
-                            DSReactionAvatarBadge(liker: liker)
-                        }
-
-                        if remainingLikeCount > 0 {
-                            Text("+\(remainingLikeCount)")
-                                .font(.system(size: 11, weight: .regular, design: .default))
-                                .foregroundStyle(DSColor.floatingSecondaryText)
-                                .padding(.leading, 8)
-                        }
-                    }
-                    .accessibilityElement(children: .ignore)
-                    .accessibilityLabel("\(record.likeCount) 人回应")
-                    .transition(.opacity.combined(with: .scale(scale: 0.94)))
-                } else {
-                    Color.clear
-                        .frame(height: 18)
-                        .accessibilityHidden(true)
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: 8) { reactionSummary }
+                        .fixedSize(horizontal: true, vertical: false)
+                    VStack(alignment: .leading, spacing: 4) { reactionSummary }
                 }
+                .frame(minHeight: 22, alignment: .leading)
             }
             .layoutPriority(1)
 
@@ -764,6 +749,31 @@ struct DSActivityRow: View {
             }
         }
         .foregroundStyle(DSColor.floatingPrimaryText)
+    }
+
+    @ViewBuilder
+    private var reactionSummary: some View {
+        if !record.likedBy.isEmpty {
+            HStack(spacing: 1) {
+                ForEach(Array(record.likedBy.prefix(3))) { liker in
+                    DSReactionAvatarBadge(liker: liker)
+                }
+                if remainingLikeCount > 0 {
+                    Text("+\(remainingLikeCount)")
+                        .font(.system(size: 11))
+                        .foregroundStyle(DSColor.floatingSecondaryText)
+                        .padding(.leading, 8)
+                }
+            }
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel("\(record.likeCount) 人回应")
+        }
+        if let consensus = displayedConsensus {
+            DSReactionConsensusBadge(consensus: consensus)
+        }
+        if record.likedBy.isEmpty && displayedConsensus == nil {
+            Color.clear.frame(height: 18).accessibilityHidden(true)
+        }
     }
 
     private func groupedBackground(isFirst: Bool, isLast: Bool) -> some View {
@@ -809,17 +819,25 @@ struct DSActivityRow: View {
         max(0, record.likeCount - min(record.likedBy.count, 3))
     }
 
+    private var displayedConsensus: ReactionConsensus? {
+        guard let consensus = record.reactionConsensus,
+              consensus.status == "appreciated" || consensus.status == "questioned" else {
+            return nil
+        }
+        return consensus
+    }
+
     private var selectedReaction: ChoreReaction? {
         record.myReaction ?? (record.likedByMe ? .like : nil)
     }
 
     private var reactionControl: some View {
         DSReactionIcon(reaction: selectedReaction ?? .like, size: 21, isMuted: selectedReaction == nil)
-            .frame(width: 42, height: 42)
+            .frame(width: 44, height: 44)
             .background {
                 Circle()
                     .fill(selectedReaction == nil ? DSColor.floatingPageBackground : DSColor.yellow.opacity(0.9))
-                    .frame(width: 34, height: 34)
+                    .frame(width: 36, height: 36)
             }
             .overlay {
                 Circle()
@@ -827,7 +845,7 @@ struct DSActivityRow: View {
                         selectedReaction == nil ? DSColor.subtleStroke : DSColor.yellow,
                         lineWidth: 1
                     )
-                    .frame(width: 34, height: 34)
+                        .frame(width: 36, height: 36)
             }
             .contentShape(Circle())
             .opacity(isLoading ? 0.52 : 1)
@@ -933,34 +951,96 @@ private struct DSReactionAvatarBadge: View {
     }
 }
 
-private struct DSReactionPickerBar: View {
+struct DSReactionPickerBar: View {
     let selectedReaction: ChoreReaction?
     let onSelect: (ChoreReaction) -> Void
 
     var body: some View {
-        HStack(spacing: 5) {
+        HStack(spacing: 0) {
             ForEach(ChoreReaction.allCases) { reaction in
                 Button {
                     UISelectionFeedbackGenerator().selectionChanged()
                     onSelect(reaction)
                 } label: {
                     DSReactionIcon(reaction: reaction, size: 28)
-                        .frame(width: 38, height: 38)
+                        .frame(width: 44, height: 44)
                         .background {
                             Circle()
                                 .fill(selectedReaction == reaction ? DSColor.yellow.opacity(0.45) : Color.clear)
+                                .frame(width: 40, height: 40)
                         }
                 }
                 .buttonStyle(.plain)
+                .contentShape(Circle())
                 .accessibilityLabel(reaction.title)
                 .accessibilityAddTraits(selectedReaction == reaction ? .isSelected : [])
             }
         }
         .padding(8)
+        .fixedSize(horizontal: true, vertical: false)
         .background(.ultraThinMaterial, in: Capsule(style: .continuous))
         .overlay(Capsule(style: .continuous).stroke(DSColor.subtleStroke.opacity(0.75), lineWidth: 0.8))
         .shadow(color: Color.black.opacity(0.12), radius: 12, y: 6)
     }
+}
+
+private struct DSReactionConsensusBadge: View {
+    let consensus: ReactionConsensus
+
+    private var isQuestioned: Bool {
+        consensus.status == "questioned"
+    }
+
+    var body: some View {
+        HStack(spacing: 4) {
+            if isQuestioned {
+                Image(systemName: "questionmark")
+                    .font(.system(size: 11, weight: .bold))
+                    .foregroundStyle(DSReactionBrand.yellow)
+            } else {
+                ZStack {
+                    ForEach(0..<5) { petal in
+                        Circle()
+                            .fill(Color(red: 0.93, green: 0.29, blue: 0.40))
+                            .frame(width: 7, height: 7)
+                            .offset(y: -3.5)
+                            .rotationEffect(.degrees(Double(petal) * 72))
+                    }
+                    Circle().fill(DSReactionBrand.yellow).frame(width: 4, height: 4)
+                }.frame(width: 15, height: 15)
+            }
+
+            Text(isQuestioned ? "待确认" : "点赞达标")
+                .font(.caption2.weight(.semibold))
+                .foregroundStyle(DSColor.ink)
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
+        }
+        .padding(.horizontal, 7)
+        .frame(minHeight: 22)
+        .background(
+            Capsule(style: .continuous)
+                .fill(isQuestioned ? DSReactionBrand.yellow.opacity(0.32) : DSReactionBrand.pink.opacity(0.25))
+        )
+        .overlay(
+            Capsule(style: .continuous)
+                .stroke(DSColor.outline.opacity(0.75), lineWidth: 0.8)
+        )
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(accessibilityLabel)
+    }
+
+    private var accessibilityLabel: String {
+        let leadingCount = isQuestioned ? consensus.doubtCount : consensus.likeCount
+        let reaction = isQuestioned ? "质疑" : "点赞"
+        return "\(isQuestioned ? "待确认" : "点赞达标")，\(leadingCount) 人\(reaction)，达到 \(consensus.requiredCount) 人阈值，共 \(consensus.eligibleMemberCount) 位可回应成员"
+    }
+}
+
+private enum DSReactionBrand {
+    static let yellow = Color(red: 254.0 / 255.0, green: 207.0 / 255.0, blue: 46.0 / 255.0)
+    static let pink = Color(red: 249.0 / 255.0, green: 151.0 / 255.0, blue: 192.0 / 255.0)
+    static let ink = Color(red: 0.08, green: 0.08, blue: 0.07)
 }
 
 struct DSReactionIcon: View {
@@ -982,6 +1062,8 @@ struct DSReactionIcon: View {
         switch reaction {
         case .like:
             drawLike(in: &context)
+        case .doubt:
+            drawDoubt(in: &context)
         case .highFive:
             drawHighFive(in: &context)
         case .moonFace:
@@ -995,22 +1077,44 @@ struct DSReactionIcon: View {
 
     private func drawLike(in context: inout GraphicsContext) {
         var hand = Path()
-        hand.move(to: CGPoint(x: 8, y: 15))
-        hand.addLine(to: CGPoint(x: 12, y: 15))
-        hand.addLine(to: CGPoint(x: 16, y: 6))
-        hand.addCurve(to: CGPoint(x: 19, y: 8), control1: CGPoint(x: 18, y: 5), control2: CGPoint(x: 20, y: 6))
-        hand.addLine(to: CGPoint(x: 18, y: 13))
+        hand.move(to: CGPoint(x: 9, y: 15))
+        hand.addLine(to: CGPoint(x: 13, y: 15))
+        hand.addLine(to: CGPoint(x: 16, y: 8))
+        hand.addCurve(to: CGPoint(x: 19, y: 5), control1: CGPoint(x: 16, y: 5), control2: CGPoint(x: 18, y: 4))
+        hand.addCurve(to: CGPoint(x: 21, y: 8), control1: CGPoint(x: 21, y: 5), control2: CGPoint(x: 21, y: 6))
+        hand.addLine(to: CGPoint(x: 19.5, y: 13))
         hand.addLine(to: CGPoint(x: 25, y: 13))
-        hand.addCurve(to: CGPoint(x: 27, y: 17), control1: CGPoint(x: 28, y: 13), control2: CGPoint(x: 28, y: 15))
-        hand.addLine(to: CGPoint(x: 24, y: 26))
-        hand.addCurve(to: CGPoint(x: 20, y: 28), control1: CGPoint(x: 24, y: 28), control2: CGPoint(x: 22, y: 28))
-        hand.addLine(to: CGPoint(x: 12, y: 27))
-        hand.addLine(to: CGPoint(x: 8, y: 25))
+        hand.addCurve(to: CGPoint(x: 28, y: 16), control1: CGPoint(x: 28, y: 13), control2: CGPoint(x: 28.5, y: 14.5))
+        hand.addCurve(to: CGPoint(x: 25, y: 25), control1: CGPoint(x: 27, y: 20), control2: CGPoint(x: 26, y: 23))
+        hand.addCurve(to: CGPoint(x: 21, y: 28), control1: CGPoint(x: 24.5, y: 28), control2: CGPoint(x: 22.5, y: 28.5))
+        hand.addLine(to: CGPoint(x: 13, y: 27.5))
+        hand.addCurve(to: CGPoint(x: 9, y: 25), control1: CGPoint(x: 11, y: 27.5), control2: CGPoint(x: 9, y: 27))
         hand.closeSubpath()
-        fillAndStroke(hand, fill: Color(red: 1, green: 0.78, blue: 0.12), in: &context)
+        fillAndStroke(hand, fill: DSReactionBrand.yellow, in: &context)
 
-        let cuff = Path(roundedRect: CGRect(x: 3, y: 14, width: 7, height: 13), cornerRadius: 2)
-        fillAndStroke(cuff, fill: Color(red: 0.23, green: 0.61, blue: 0.98), in: &context)
+        let cuff = Path(roundedRect: CGRect(x: 3, y: 14, width: 7, height: 13), cornerRadius: 2.5)
+        fillAndStroke(cuff, fill: DSReactionBrand.pink, in: &context)
+    }
+
+    private func drawDoubt(in context: inout GraphicsContext) {
+        var hand = Path()
+        hand.move(to: CGPoint(x: 9, y: 17))
+        hand.addLine(to: CGPoint(x: 13, y: 17))
+        hand.addLine(to: CGPoint(x: 16, y: 24))
+        hand.addCurve(to: CGPoint(x: 19, y: 27), control1: CGPoint(x: 16, y: 27), control2: CGPoint(x: 18, y: 28))
+        hand.addCurve(to: CGPoint(x: 21, y: 24), control1: CGPoint(x: 21, y: 27), control2: CGPoint(x: 21, y: 26))
+        hand.addLine(to: CGPoint(x: 19.5, y: 19))
+        hand.addLine(to: CGPoint(x: 25, y: 19))
+        hand.addCurve(to: CGPoint(x: 28, y: 16), control1: CGPoint(x: 28, y: 19), control2: CGPoint(x: 28.5, y: 17.5))
+        hand.addCurve(to: CGPoint(x: 25, y: 7), control1: CGPoint(x: 27, y: 12), control2: CGPoint(x: 26, y: 9))
+        hand.addCurve(to: CGPoint(x: 21, y: 4), control1: CGPoint(x: 24.5, y: 4), control2: CGPoint(x: 22.5, y: 3.5))
+        hand.addLine(to: CGPoint(x: 13, y: 4.5))
+        hand.addCurve(to: CGPoint(x: 9, y: 7), control1: CGPoint(x: 11, y: 4.5), control2: CGPoint(x: 9, y: 5))
+        hand.closeSubpath()
+        fillAndStroke(hand, fill: DSReactionBrand.yellow, in: &context)
+
+        let cuff = Path(roundedRect: CGRect(x: 3, y: 5, width: 7, height: 13), cornerRadius: 2.5)
+        fillAndStroke(cuff, fill: DSReactionBrand.pink, in: &context)
     }
 
     private func drawHighFive(in context: inout GraphicsContext) {
@@ -1025,7 +1129,7 @@ struct DSReactionIcon: View {
         left.addLine(to: CGPoint(x: 14, y: 21))
         left.addLine(to: CGPoint(x: 12, y: 28))
         left.closeSubpath()
-        fillAndStroke(left, fill: Color(red: 1, green: 0.69, blue: 0.2), in: &context)
+        fillAndStroke(left, fill: DSReactionBrand.yellow, in: &context)
 
         var right = Path()
         right.move(to: CGPoint(x: 28, y: 27))
@@ -1038,45 +1142,45 @@ struct DSReactionIcon: View {
         right.addLine(to: CGPoint(x: 18, y: 21))
         right.addLine(to: CGPoint(x: 20, y: 28))
         right.closeSubpath()
-        fillAndStroke(right, fill: Color(red: 0.98, green: 0.43, blue: 0.45), in: &context)
+        fillAndStroke(right, fill: DSReactionBrand.pink, in: &context)
     }
 
     private func drawMoonFace(in context: inout GraphicsContext) {
         let face = Path(ellipseIn: CGRect(x: 3, y: 3, width: 26, height: 26))
-        fillAndStroke(face, fill: Color(red: 0.12, green: 0.13, blue: 0.17), in: &context)
-        drawEye(at: CGPoint(x: 11, y: 13), color: Color(red: 0.82, green: 0.83, blue: 0.86), in: &context)
-        drawEye(at: CGPoint(x: 21, y: 13), color: Color(red: 0.82, green: 0.83, blue: 0.86), in: &context)
+        fillAndStroke(face, fill: DSReactionBrand.pink, in: &context)
+        drawEye(at: CGPoint(x: 11, y: 13), color: DSReactionBrand.ink, in: &context)
+        drawEye(at: CGPoint(x: 21, y: 13), color: DSReactionBrand.ink, in: &context)
         var smile = Path()
         smile.move(to: CGPoint(x: 10, y: 21))
         smile.addCurve(to: CGPoint(x: 23, y: 19), control1: CGPoint(x: 15, y: 24), control2: CGPoint(x: 20, y: 23))
-        context.stroke(smile, with: .color(Color.white.opacity(0.82)), style: strokeStyle(width: 1.8))
+        context.stroke(smile, with: .color(DSReactionBrand.ink), style: strokeStyle(width: 2))
     }
 
     private func drawLaughCry(in context: inout GraphicsContext) {
         let face = Path(ellipseIn: CGRect(x: 4, y: 4, width: 24, height: 24))
-        fillAndStroke(face, fill: Color(red: 1, green: 0.79, blue: 0.13), in: &context)
+        fillAndStroke(face, fill: DSReactionBrand.yellow, in: &context)
         drawHappyEye(from: CGPoint(x: 9, y: 13), to: CGPoint(x: 14, y: 11), in: &context)
         drawHappyEye(from: CGPoint(x: 18, y: 11), to: CGPoint(x: 23, y: 13), in: &context)
         let mouth = Path(roundedRect: CGRect(x: 10, y: 17, width: 12, height: 7), cornerRadius: 4)
-        fillAndStroke(mouth, fill: Color(red: 0.18, green: 0.12, blue: 0.13), in: &context, lineWidth: 1.5)
+        fillAndStroke(mouth, fill: DSReactionBrand.ink, in: &context)
         drawTear(at: CGPoint(x: 4, y: 18), mirrored: false, in: &context)
         drawTear(at: CGPoint(x: 28, y: 18), mirrored: true, in: &context)
     }
 
     private func drawTease(in context: inout GraphicsContext) {
         let face = Path(ellipseIn: CGRect(x: 4, y: 4, width: 24, height: 24))
-        fillAndStroke(face, fill: Color(red: 1, green: 0.45, blue: 0.55), in: &context)
-        drawEye(at: CGPoint(x: 11, y: 14), color: .black, in: &context)
+        fillAndStroke(face, fill: DSReactionBrand.pink, in: &context)
+        drawEye(at: CGPoint(x: 11, y: 14), color: DSReactionBrand.ink, in: &context)
         var wink = Path()
         wink.move(to: CGPoint(x: 18, y: 14))
         wink.addCurve(to: CGPoint(x: 24, y: 13), control1: CGPoint(x: 20, y: 11), control2: CGPoint(x: 22, y: 11))
-        context.stroke(wink, with: .color(.black), style: strokeStyle(width: 2.1))
+        context.stroke(wink, with: .color(DSReactionBrand.ink), style: strokeStyle(width: 2))
         var mouth = Path()
         mouth.move(to: CGPoint(x: 10, y: 20))
         mouth.addCurve(to: CGPoint(x: 22, y: 20), control1: CGPoint(x: 14, y: 24), control2: CGPoint(x: 19, y: 24))
-        context.stroke(mouth, with: .color(.black), style: strokeStyle(width: 2))
+        context.stroke(mouth, with: .color(DSReactionBrand.ink), style: strokeStyle(width: 2))
         let tongue = Path(ellipseIn: CGRect(x: 14, y: 21, width: 7, height: 6))
-        fillAndStroke(tongue, fill: Color(red: 0.91, green: 0.16, blue: 0.35), in: &context, lineWidth: 1.2)
+        fillAndStroke(tongue, fill: DSReactionBrand.yellow, in: &context)
     }
 
     private func fillAndStroke(
@@ -1086,7 +1190,7 @@ struct DSReactionIcon: View {
         lineWidth: CGFloat = 2
     ) {
         context.fill(path, with: .color(fill))
-        context.stroke(path, with: .color(Color(red: 0.08, green: 0.08, blue: 0.07)), style: strokeStyle(width: lineWidth))
+        context.stroke(path, with: .color(DSReactionBrand.ink), style: strokeStyle(width: lineWidth))
     }
 
     private func drawEye(at point: CGPoint, color: Color, in context: inout GraphicsContext) {
@@ -1102,7 +1206,7 @@ struct DSReactionIcon: View {
             control1: CGPoint(x: start.x + 1.5, y: start.y - 2),
             control2: CGPoint(x: end.x - 1.5, y: end.y - 2)
         )
-        context.stroke(eye, with: .color(.black), style: strokeStyle(width: 1.8))
+        context.stroke(eye, with: .color(DSReactionBrand.ink), style: strokeStyle(width: 2))
     }
 
     private func drawTear(at point: CGPoint, mirrored: Bool, in context: inout GraphicsContext) {
@@ -1118,7 +1222,7 @@ struct DSReactionIcon: View {
             control1: CGPoint(x: point.x + (mirrored ? -2 : 2), y: point.y + 5),
             control2: CGPoint(x: point.x + (mirrored ? -2 : 2), y: point.y)
         )
-        fillAndStroke(tear, fill: Color(red: 0.25, green: 0.67, blue: 1), in: &context, lineWidth: 1.2)
+        fillAndStroke(tear, fill: DSReactionBrand.pink, in: &context)
     }
 
     private func strokeStyle(width: CGFloat) -> StrokeStyle {

@@ -16,6 +16,8 @@ struct LocalDraftFamily: Codable, Equatable, Identifiable {
     var selectedChores: [LocalDraftChore]
     var records: [LocalDraftChoreRecord]
     var claimState: LocalDraftClaimState
+    var achievementUnlocks: [String: Date]? = nil
+    var timeZoneIdentifier: String? = nil
 
     init(
         id: UUID = UUID(),
@@ -43,6 +45,7 @@ struct LocalDraftFamily: Codable, Equatable, Identifiable {
         self.selectedChores = selectedChores
         self.records = records
         self.claimState = claimState
+        timeZoneIdentifier = TimeZone.current.identifier
     }
 }
 
@@ -50,6 +53,19 @@ enum LocalDraftClaimState: String, Codable, Equatable {
     case local
     case claiming
     case claimed
+}
+
+struct LoginWorkspaceChoice: Equatable {
+    let accountName: String
+    let cloudFamilyNames: [String]
+    let localFamilyName: String
+    let localRecordCount: Int
+}
+
+struct LocalCloudImportReceipt: Codable {
+    let sourceUpdatedAt: Date
+    let request: ClaimLocalDraftRequest
+    var familyID: String?
 }
 
 struct LocalDraftChore: Codable, Equatable, Identifiable {
@@ -114,6 +130,10 @@ struct LocalDraftChoreRecord: Codable, Equatable, Identifiable {
     let pointsMultiplier: Double?
     let note: String
     let occurredAt: Date
+    var catalogKeySnapshot: String? = nil
+    var themeKeySnapshot: String? = nil
+    var isCustomSnapshot: Bool? = nil
+    var reactionKey: String? = nil
 }
 
 protocol LocalWorkspaceStoreProtocol {

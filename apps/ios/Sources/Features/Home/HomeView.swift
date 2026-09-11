@@ -18,7 +18,19 @@ struct HomeView: View {
             List {
                 header.homeListRow(top: 10, bottom: 10)
                 familyScoreCard.homeListRow(top: 4, bottom: 14)
-                personalStatsCard.homeListRow(top: 2, bottom: 16)
+                if !displayedActivity.isEmpty {
+                    personalStatsCard.homeListRow(top: 2, bottom: 16)
+                } else if !viewModel.isLoading && viewModel.errorMessage == nil {
+                    Button {
+                        viewModel.selectedTab = .record
+                    } label: {
+                        Label("记下一项家务", systemImage: "plus.circle.fill")
+                            .font(.headline)
+                            .frame(maxWidth: .infinity, minHeight: 52)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .homeListRow(top: 2, bottom: 16)
+                }
                 achievementEntry.homeListRow(top: 0, bottom: 12)
 
                 Section {

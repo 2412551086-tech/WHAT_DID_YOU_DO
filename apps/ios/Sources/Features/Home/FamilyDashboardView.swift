@@ -2,6 +2,13 @@ import Foundation
 import Charts
 import SwiftUI
 
+private struct BattlePageHeightKey: PreferenceKey {
+    static var defaultValue: [Int: CGFloat] { [:] }
+    static func reduce(value: inout [Int: CGFloat], nextValue: () -> [Int: CGFloat]) {
+        value.merge(nextValue(), uniquingKeysWith: { _, next in next })
+    }
+}
+
 struct FamilyDashboardView: View {
     @EnvironmentObject private var viewModel: AppViewModel
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
@@ -9,6 +16,7 @@ struct FamilyDashboardView: View {
     @ScaledMetric(relativeTo: .body) private var leaderIllustrationWidth: CGFloat = 166
     @State private var copySeed = Int.random(in: 0..<10_000)
     @State private var selectedBattleIndex = 0
+    @State private var battlePageHeights: [Int: CGFloat] = [:]
 
     var body: some View {
         ZStack {
@@ -242,9 +250,15 @@ struct FamilyDashboardView: View {
     }
 
     private var leaderIllustration: some View {
-        Image(viewModel.monthlyLeaderIllustrationAsset)
-            .resizable()
-            .scaledToFit()
+        Group {
+            if CollectibleCharacter.contains(viewModel.monthlyLeaderAvatarKey) {
+                V2CharacterArt(avatarKey: viewModel.monthlyLeaderAvatarKey)
+            } else {
+                Image(viewModel.monthlyLeaderIllustrationAsset)
+                    .resizable()
+                    .scaledToFit()
+            }
+        }
             .frame(
                 width: dynamicTypeSize.isAccessibilitySize ? 190 : min(184, leaderIllustrationWidth),
                 height: 202
@@ -950,15 +964,39 @@ struct FamilyDashboardView: View {
                 TabView(selection: $selectedBattleIndex) {
                     ForEach(Array(battleCategories.enumerated()), id: \.element.category) { index, category in
                         battleReportPage(category)
-                            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-                            .tag(index)
                             .padding(.horizontal, 12)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .background {
+                                GeometryReader { proxy in
+                                    Color.clear.preference(key: BattlePageHeightKey.self, value: [index: proxy.size.height])
+                                }
+                            }
+                            .frame(maxHeight: .infinity, alignment: .top)
+                            .tag(index)
                     }
                 }
-                .tabViewStyle(.page(indexDisplayMode: battleCategories.count > 1 ? .always : .never))
-                .frame(height: 206)
+                .tabViewStyle(.page(indexDisplayMode: .never))
+                .frame(height: max(220, battlePageHeights.values.max() ?? 220))
+                .onPreferenceChange(BattlePageHeightKey.self) { battlePageHeights = $0 }
                 .onChange(of: battleCategories.count) {
                     selectedBattleIndex = 0
+                    battlePageHeights = [:]
+                }
+                if battleCategories.count > 1 {
+                    HStack(spacing: 0) {
+                        ForEach(battleCategories.indices, id: \.self) { index in
+                            Button { selectedBattleIndex = index } label: {
+                                Circle().fill(index == selectedBattleIndex ? DSColor.ink : DSColor.subtleStroke)
+                                    .frame(width: 6, height: 6)
+                                    .frame(width: 44, height: 44)
+                                    .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityLabel("第 \(index + 1) 条战报解读")
+                            .accessibilityAddTraits(index == selectedBattleIndex ? .isSelected : [])
+                        }
+                    }
+                    .frame(maxWidth: .infinity)
                 }
             }
         }
@@ -971,29 +1009,27 @@ struct FamilyDashboardView: View {
         let categoryTitle = category.category.replacingOccurrences(of: "类", with: "")
 
         return VStack(spacing: 4) {
-            HStack(alignment: .bottom, spacing: 2) {
+            VStack(spacing: 8) {
+              HStack(alignment: .center, spacing: 10) {
                 neutralPortrait(for: contributor)
-
-                VStack(spacing: 7) {
                     MonthlySpeechBubble(side: .leading) {
                         Text("这个月\(categoryTitle)阵地，我守住了。")
                     }
-
+              }
+              HStack(alignment: .center, spacing: 10) {
                     MonthlySpeechBubble(side: .trailing) {
                         Text(enemyRetreatLine(enemy: enemy, category: category))
                     }
-                }
-                .font(.caption)
-                .foregroundStyle(DSColor.ink)
-                .frame(maxWidth: .infinity)
-
                 Image(enemy.assetName)
                     .resizable()
                     .scaledToFit()
-                    .frame(width: 82, height: 126, alignment: .bottom)
+                    .frame(width: 64, height: 72, alignment: .bottom)
                     .accessibilityHidden(true)
+              }
             }
-            .frame(maxWidth: .infinity, minHeight: 148, alignment: .bottom)
+            .font(.subheadline)
+            .foregroundStyle(DSColor.ink)
+            .frame(maxWidth: .infinity)
 
             HStack(spacing: 6) {
                 Image(systemName: "sparkles")
@@ -1001,8 +1037,7 @@ struct FamilyDashboardView: View {
                 Text(battleResultLine(contributor: contributor, enemy: enemy, category: category))
                     .font(.caption.weight(.medium))
                     .foregroundStyle(DSColor.mutedInk)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.78)
+                    .fixedSize(horizontal: false, vertical: true)
             }
             .frame(maxWidth: .infinity, alignment: .center)
             .accessibilityElement(children: .combine)
@@ -1014,12 +1049,18 @@ struct FamilyDashboardView: View {
     private func neutralPortrait(for contributor: MonthlyMemberContribution?) -> some View {
         let avatarKey = battleAvatarKey(for: contributor)
 
-        return Image(FamilyIdentityOptions.neutralAsset(for: avatarKey))
-            .resizable()
-            .scaledToFit()
-            .scaleEffect(1.58, anchor: .top)
-            .offset(y: -2)
-            .frame(width: 82, height: 142, alignment: .top)
+        return Group {
+            if CollectibleCharacter.contains(avatarKey) {
+                V2CharacterArt(avatarKey: avatarKey)
+            } else {
+                Image(FamilyIdentityOptions.neutralAsset(for: avatarKey))
+                    .resizable()
+                    .scaledToFit()
+                    .scaleEffect(1.58, anchor: .top)
+                    .offset(y: -2)
+            }
+        }
+            .frame(width: 64, height: 82, alignment: .top)
             .clipped()
             .accessibilityHidden(true)
     }

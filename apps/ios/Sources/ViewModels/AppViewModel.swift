@@ -12,6 +12,16 @@ enum AppSessionState: Equatable {
     case unauthenticated
 }
 
+struct FamilyWizardDraft: Codable, Equatable {
+    var step: Int
+    var familyName: String
+    var displayName: String
+    var avatarKey: String
+    var identity: String
+    var customIdentity: String
+    var inviteCode: String
+}
+
 private struct PendingChoreRecordUpload: Codable, Identifiable, Hashable {
     let id: String
     let userId: String
@@ -47,7 +57,17 @@ final class AppViewModel: ObservableObject {
     @Published var selectedIdentityLabel = "家庭成员"
     @Published var customIdentity = ""
     @Published var selectedAvatarKey = "avatar_07"
-    @Published var joinInviteCode = ""
+    @Published var joinInviteCode = "" {
+        didSet {
+            if oldValue != joinInviteCode { inviteValidationState = .idle }
+        }
+    }
+    @Published private(set) var createFamilyStep = 0
+    @Published private(set) var joinFamilyStep = 0
+    @Published private(set) var isFamilyFlowSubmitting = false
+    @Published private(set) var hasSubmittedFamilyWizard = false
+    @Published var onboardingChoreIDs: [String] = []
+    @Published var onboardingPinnedIDs: Set<String> = []
     @Published private(set) var joinRequestSubmitted = false
     @Published private(set) var inviteValidationState: InviteValidationState = .idle
     @Published private(set) var currentJoinApplication: JoinApplication?
@@ -69,7 +89,7 @@ final class AppViewModel: ObservableObject {
     @Published private(set) var choreLayoutScope = "family"
     @Published private(set) var choreLayoutIsPersonalized = false
     @Published private(set) var followsFamilyChoreLayout = true
-    @Published private(set) var serverCommonChoreSelectionLimit: Int? = 6
+    @Published private(set) var serverCommonChoreSelectionLimit: Int? = 8
     @Published private(set) var serverCustomChoreLimit = 2
     @Published private(set) var weekRecords = MockData.todayRecords
     @Published private(set) var recentRecords = MockData.todayRecords
@@ -94,6 +114,12 @@ final class AppViewModel: ObservableObject {
     @Published var selectedChore: ChoreItem?
     @Published private(set) var achievementSummary: AchievementSummary?
     @Published private(set) var achievementItems: [AchievementItem] = []
+    @Published private(set) var undiscoveredHiddenAchievementCount: Int?
+    @Published private(set) var achievementCharacters: [AchievementCharacter] = []
+    @Published private(set) var characterDataState: AchievementDataState = .idle
+    @Published private(set) var characterLastUpdatedAt: Date?
+    @Published private(set) var claimingCharacterKey: String?
+    @Published private(set) var characterErrorMessage: String?
     @Published private(set) var showAchievementsToFamily = true
     @Published private(set) var achievementDataState: AchievementDataState = .idle
     @Published private(set) var achievementSyncState: AchievementSyncState = .idle
@@ -104,6 +130,7 @@ final class AppViewModel: ObservableObject {
     @Published private(set) var recordUndoErrorMessage: String?
     @Published private(set) var localDraftFamily: LocalDraftFamily?
     @Published private(set) var pendingAuthAction: PendingAuthAction?
+    @Published private(set) var loginWorkspaceChoice: LoginWorkspaceChoice?
 
     private let apiClient: any APIClientProtocol
     private let tokenStore: any SecureTokenStore
@@ -116,8 +143,10 @@ final class AppViewModel: ObservableObject {
     private var accountHasPremiumAccess = false
     private var achievementSyncTask: Task<Void, Never>?
     private var dismissedAchievementCelebrationIDs: Set<String> = []
+    private var characterRequestVersion = 0
     private var deletionUndoTask: Task<Void, Never>?
     private var pendingRecordUploads: [PendingChoreRecordUpload] = []
+    private var createdFamilyWizardID: String?
 
     init(
         apiClient: any APIClientProtocol = APIClient(),
@@ -206,6 +235,10 @@ final class AppViewModel: ObservableObject {
     }
 
     var monthlyLeaderIllustrationAsset: String {
+        FamilyIdentityOptions.actionAsset(for: monthlyLeaderAvatarKey)
+    }
+
+    var monthlyLeaderAvatarKey: String {
         let leadingMember = monthlyRanking
             .filter { $0.monthlyPoints > 0 }
             .sorted {
@@ -228,7 +261,7 @@ final class AppViewModel: ObservableObject {
             avatarKey = FamilyIdentityOptions.avatarKeys[0]
         }
 
-        return FamilyIdentityOptions.actionAsset(for: avatarKey)
+        return avatarKey
     }
 
     var modeLabel: String {
@@ -263,8 +296,8 @@ final class AppViewModel: ObservableObject {
 
     var upcomingAchievements: [AchievementItem] {
         Array(
-            achievementItems
-                .filter { !$0.isUnlocked }
+            achievementSeries.compactMap(\.nextLevel)
+                .filter { !$0.isHidden && $0.progressStatus == "ACTIVE" && ($0.minimumMemberCount ?? ($0.key == "FAMILY_RELAY" ? 3 : 1)) <= max(1, orderedActiveFamilyMembers.count) }
                 .sorted { left, right in
                     if left.clampedProgress != right.clampedProgress {
                         return left.clampedProgress > right.clampedProgress
@@ -288,6 +321,107 @@ final class AppViewModel: ObservableObject {
         unlockedAchievements + achievementItems
             .filter { !$0.isUnlocked }
             .sorted(by: achievementPriority)
+    }
+
+    var achievementSeries: [AchievementSeries] {
+        AchievementSeries.grouped(orderedAchievements)
+    }
+
+    var selectableAvatarKeys: [String] {
+        FamilyIdentityOptions.avatarKeys + CollectibleCharacter.all.compactMap { character in
+            achievementCharacters.contains { $0.key == character.key && $0.isOwned } ? character.key : nil
+        }
+    }
+
+    func refreshAchievementCharacters() async {
+        if isGuestWorkspace {
+            refreshLocalAchievements()
+            return
+        }
+        guard !usesMockData, !isGuestWorkspace, let userId = currentUser?.id,
+              characterDataState != .loading, claimingCharacterKey == nil else { return }
+        if achievementCharacters.isEmpty { loadCharacterCache(userId: userId) }
+        characterDataState = .loading
+        characterErrorMessage = nil
+        characterRequestVersion += 1
+        let version = characterRequestVersion
+        do {
+            let response: AchievementCharactersDTO = try await apiClient.get("users/me/achievement-characters")
+            let snapshot = await apiClient.currentDebugSnapshot()
+            guard currentUser?.id == userId, characterRequestVersion == version else { return }
+            let received = response.characters.filter { CollectibleCharacter.contains($0.key) }
+            if snapshot.usedCachedResponse {
+                // An older HTTP cache must not erase a more recent confirmed claim.
+                achievementCharacters = received.map { item in
+                    achievementCharacters.first { $0.key == item.key && $0.isOwned } ?? item
+                }
+                characterDataState = .cached
+            } else {
+                achievementCharacters = received
+                characterDataState = .loaded
+                characterLastUpdatedAt = Date()
+            }
+            saveCharacterCache(userId: userId)
+        } catch {
+            guard currentUser?.id == userId, characterRequestVersion == version else { return }
+            if let apiError = error as? APIError, apiError.isUnauthorized {
+                await clearInvalidSession()
+                errorMessage = "登录已失效，请重新登录。"
+                return
+            }
+            characterDataState = achievementCharacters.isEmpty ? .failed("角色收藏暂时无法加载") : .cached
+            characterErrorMessage = APIError.isConnectivityError(error) ? "离线中，联网后可刷新和领取。" : "角色收藏暂时无法同步，请重试。"
+        }
+    }
+
+    func claimAchievementCharacter(_ key: String) async -> Bool {
+        guard !isGuestWorkspace, !usesMockData, !isOffline, characterDataState == .loaded,
+              claimingCharacterKey == nil, let userId = currentUser?.id,
+              achievementCharacters.contains(where: { $0.key == key && $0.canClaim && !$0.isOwned }),
+              CollectibleCharacter.contains(key) else { return false }
+        claimingCharacterKey = key
+        characterErrorMessage = nil
+        characterRequestVersion += 1
+        let version = characterRequestVersion
+        defer { if version == characterRequestVersion { claimingCharacterKey = nil } }
+        do {
+            let claimed: AchievementCharacter = try await apiClient.post("users/me/achievement-characters/\(key)/claim")
+            guard currentUser?.id == userId, characterRequestVersion == version else { return false }
+            guard claimed.key == key, claimed.isOwned else { throw APIError.invalidResponse }
+            achievementCharacters.removeAll { $0.key == key }
+            achievementCharacters.append(claimed)
+            characterLastUpdatedAt = Date()
+            saveCharacterCache(userId: userId)
+            return true
+        } catch {
+            guard currentUser?.id == userId, characterRequestVersion == version else { return false }
+            characterErrorMessage = "尚未确认领取成功，请刷新后重试。"
+            return false
+        }
+    }
+
+    private func loadCharacterCache(userId: String) {
+        guard let data = userDefaults.data(forKey: "\(Self.characterCacheKeyPrefix)-\(userId)"),
+              let cache = try? JSONDecoder().decode(AchievementCharacterCache.self, from: data),
+              cache.userId == userId else { return }
+        achievementCharacters = cache.characters.filter { CollectibleCharacter.contains($0.key) }
+        characterLastUpdatedAt = cache.updatedAt
+        characterDataState = .cached
+    }
+
+    private func saveCharacterCache(userId: String) {
+        let cache = AchievementCharacterCache(userId: userId, characters: achievementCharacters, updatedAt: characterLastUpdatedAt ?? Date())
+        guard let data = try? JSONEncoder().encode(cache) else { return }
+        userDefaults.set(data, forKey: "\(Self.characterCacheKeyPrefix)-\(userId)")
+    }
+
+    private func clearCharacterState() {
+        characterRequestVersion += 1
+        achievementCharacters = []
+        characterDataState = .idle
+        characterLastUpdatedAt = nil
+        claimingCharacterKey = nil
+        characterErrorMessage = nil
     }
 
     private func achievementPriority(_ left: AchievementItem, _ right: AchievementItem) -> Bool {
@@ -403,9 +537,9 @@ final class AppViewModel: ObservableObject {
 
     var commonChoreSelectionLimit: Int? {
         if isGuestWorkspace {
-            return max(0, 6 - customChores.count)
+            return 8
         }
-        return usesMockData ? (hasPremiumAccess ? nil : 6) : serverCommonChoreSelectionLimit
+        return usesMockData ? (hasPremiumAccess ? nil : 8) : serverCommonChoreSelectionLimit
     }
 
     var isGuestWorkspace: Bool {
@@ -654,6 +788,8 @@ final class AppViewModel: ObservableObject {
         }
 
         sessionState = .restoringSession
+        resetFamilyContextAfterLeaving()
+        currentUser = nil
         await apiClient.setAuthTokens(storedTokens)
         await apiClient.setPreferCachedResponses(true)
         await performLoading("正在恢复登录状态") {
@@ -661,13 +797,13 @@ final class AppViewModel: ObservableObject {
             currentUser = mapUser(user)
             accountHasPremiumAccess = user.plan == "premium"
             hasPremiumAccess = accountHasPremiumAccess
-            var preferredFamilyId: String?
-            if localDraftFamily?.claimState == .claiming {
-                preferredFamilyId = try await claimLocalDraftWithAPI()
-                localDraftFamily = nil
-                try localWorkspaceStore.delete()
+            if userDefaults.string(forKey: Self.pendingWorkspaceChoiceKey) == user.id,
+               localDraftFamily?.selectedChores.isEmpty == false {
+                try await prepareLoginWorkspaceChoice()
+                sessionState = .authenticated
+                return
             }
-            let families = try await loadMyFamiliesFromAPI(preferredFamilyId: preferredFamilyId)
+            let families = try await loadMyFamiliesFromAPI()
             restoreCurrentUser(from: families)
             try await loadChoresFromAPI()
 
@@ -688,6 +824,11 @@ final class AppViewModel: ObservableObject {
             sessionState = .authenticated
         }
         await apiClient.setPreferCachedResponses(false)
+
+        if rootScreen == .workspaceChoice, accessToken != nil {
+            sessionState = .authenticated
+            return
+        }
 
         if sessionState == .restoringSession {
             if isOffline, currentUser != nil {
@@ -713,8 +854,155 @@ final class AppViewModel: ObservableObject {
         }
     }
 
+    var isFamilyWizardProfileCommitted: Bool {
+        hasSubmittedFamilyWizard || createdFamilyWizardID != nil
+    }
+
+    func familyWizardSnapshot(joining: Bool) -> FamilyWizardDraft {
+        FamilyWizardDraft(
+            step: joining ? joinFamilyStep : createFamilyStep,
+            familyName: familyName, displayName: displayName,
+            avatarKey: selectedAvatarKey, identity: selectedIdentityLabel,
+            customIdentity: customIdentity, inviteCode: joinInviteCode
+        )
+    }
+
+    private func familyWizardKey(joining: Bool) -> String {
+        let owner = accessToken != nil ? (currentUser?.id ?? "authenticated") : "guest"
+        let scope = !joining && accessToken == nil ? (localDraftFamily?.id.uuidString ?? owner) : owner
+        return "family-wizard-v3-\(joining ? "join" : "create")-\(scope)"
+    }
+
+    func persistFamilyWizard(joining: Bool) {
+        guard rootScreen == (joining ? .joinFamily : .createFamily) || rootScreen == .login || (!joining && rootScreen == .choreSetup) else { return }
+        if let data = try? JSONEncoder().encode(familyWizardSnapshot(joining: joining)) {
+            userDefaults.set(data, forKey: familyWizardKey(joining: joining))
+        }
+        if !joining, isGuestWorkspace, var draft = localDraftFamily {
+            draft.name = familyName
+            draft.displayName = displayName
+            draft.identityLabel = selectedIdentityLabel
+            draft.customIdentity = normalizedCustomIdentity
+            draft.avatarKey = selectedAvatarKey
+            draft.updatedAt = Date()
+            localDraftFamily = draft
+            persistLocalDraft(draft)
+        }
+    }
+
+    func restoreFamilyWizard(joining: Bool) {
+        guard let data = userDefaults.data(forKey: familyWizardKey(joining: joining)),
+              let draft = try? JSONDecoder().decode(FamilyWizardDraft.self, from: data) else { return }
+        if joining {
+            joinFamilyStep = min(4, max(0, draft.step))
+            joinInviteCode = draft.inviteCode
+            // An invite must be revalidated after a cold launch or an account change.
+            validateJoinInviteCode()
+        } else {
+            createFamilyStep = min(3, max(0, draft.step))
+            familyName = draft.familyName
+        }
+        displayName = draft.displayName
+        selectedAvatarKey = draft.avatarKey
+        selectedIdentityLabel = draft.identity
+        customIdentity = draft.customIdentity
+    }
+
+    func advanceCreateFamilyWizard() {
+        guard !isLoading, !isFamilyFlowSubmitting else { return }
+        clearError()
+        switch createFamilyStep {
+        case 0:
+            let name = familyName.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !name.isEmpty, name.count <= 30 else {
+                errorMessage = "家庭名称需要填写，且不能超过 30 个字。"
+                return
+            }
+        case 1:
+            guard validatedDisplayNameForFamilyFlow() != nil else { return }
+        case 3:
+            createFamily()
+            persistFamilyWizard(joining: false)
+            return
+        default: break
+        }
+        createFamilyStep = min(3, createFamilyStep + 1)
+        persistFamilyWizard(joining: false)
+    }
+
+    func advanceJoinFamilyWizard() {
+        guard !isLoading, !isFamilyFlowSubmitting else { return }
+        clearError()
+        switch joinFamilyStep {
+        case 0:
+            guard case .valid = inviteValidationState else {
+                errorMessage = "请先输入有效的家庭邀请码。"
+                return
+            }
+        case 1:
+            guard validatedDisplayNameForFamilyFlow() != nil else { return }
+        case 3:
+            guard validateIdentitySelection() else { return }
+        case 4:
+            persistFamilyWizard(joining: true)
+            if hasAccessToken { submitJoinRequest() }
+            else { requireAuthenticationForJoin() }
+            return
+        default: break
+        }
+        joinFamilyStep = min(4, joinFamilyStep + 1)
+        persistFamilyWizard(joining: true)
+    }
+
+    func goBackInFamilyWizard(joining: Bool) {
+        guard !isLoading, !isFamilyFlowSubmitting else { return }
+        clearError()
+        if joining && joinFamilyStep > 0 {
+            joinFamilyStep -= 1
+        } else if !joining && createFamilyStep > 0 {
+            createFamilyStep -= 1
+        } else {
+            persistFamilyWizard(joining: joining)
+            rootScreen = .onboarding
+            return
+        }
+        persistFamilyWizard(joining: joining)
+    }
+
+    func returnFromInitialChoreSetup() {
+        guard isGuestWorkspace || hasSubmittedFamilyWizard else { return }
+        if isGuestWorkspace, var draft = localDraftFamily {
+            draft.profileConfigured = false
+            localDraftFamily = draft
+            persistLocalDraft(draft)
+        }
+        createFamilyStep = 3
+        rootScreen = .createFamily
+        persistFamilyWizard(joining: false)
+    }
+
+    func persistOnboardingChores() {
+        guard let familyID = currentFamily?.id else { return }
+        userDefaults.set(onboardingChoreIDs, forKey: "onboarding-chores-v3-\(familyID)")
+        userDefaults.set(Array(onboardingPinnedIDs), forKey: "onboarding-pins-v3-\(familyID)")
+    }
+
+    func restoreOnboardingChores() {
+        guard let familyID = currentFamily?.id else { return }
+        let available = Set(routineCatalogChores.map(\.id))
+        onboardingChoreIDs = (userDefaults.stringArray(forKey: "onboarding-chores-v3-\(familyID)") ?? []).filter(available.contains)
+        onboardingPinnedIDs = Set(userDefaults.stringArray(forKey: "onboarding-pins-v3-\(familyID)") ?? []).intersection(Set(onboardingChoreIDs))
+    }
+
     func beginLocalFamilyOnboarding() {
         clearError()
+        if let localDraftFamily {
+            applyLocalDraft(localDraftFamily)
+            restoreFamilyWizard(joining: false)
+            rootScreen = localDraftDestination
+            return
+        }
+        createFamilyStep = 0
         let draft = LocalDraftFamily(
             name: "",
             displayName: "",
@@ -753,8 +1041,8 @@ final class AppViewModel: ObservableObject {
 
     func beginJoinFamilyOnboarding() {
         clearError()
-        joinInviteCode = ""
         inviteValidationState = .idle
+        restoreFamilyWizard(joining: true)
         rootScreen = .joinFamily
         sessionState = .unauthenticated
     }
@@ -794,7 +1082,7 @@ final class AppViewModel: ObservableObject {
     func selectAuthProvider(_ provider: ClientAuthProvider) {
         clearError()
         errorMessage = switch provider {
-        case .apple: "Apple 登录接口正在接入，当前开发包可使用开发登录验证流程。"
+        case .apple: nil
         case .wechat: "微信登录接口正在接入。"
         case .email: nil
         case .google: "Google 登录接口正在接入。"
@@ -816,6 +1104,29 @@ final class AppViewModel: ObservableObject {
             )
         }
         return challenge
+    }
+
+    func requestAppleLoginChallenge() async -> AppleLoginChallengeResponse? {
+        var challenge: AppleLoginChallengeResponse?
+        await performLoading("正在连接 Apple 登录") {
+            challenge = try await apiClient.post("auth/apple/challenge", body: [String: String]())
+        }
+        return challenge
+    }
+
+    func completeAppleLogin(challengeId: String, identityToken: String, authorizationCode: String) async {
+        await performLoading("正在登录") {
+            let response: LoginResponse = try await apiClient.post(
+                "auth/apple/login",
+                body: AppleLoginRequest(
+                    challengeId: challengeId, identityToken: identityToken, authorizationCode: authorizationCode,
+                    deviceId: UIDevice.current.identifierForVendor?.uuidString,
+                    deviceName: UIDevice.current.name, platform: "iOS",
+                    appVersion: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String
+                )
+            )
+            try await completeAPILogin(response)
+        }
     }
 
     func verifyEmailLoginCode(
@@ -862,8 +1173,10 @@ final class AppViewModel: ObservableObject {
             return
         }
         joinRequestSubmitted = false
+        createdFamilyWizardID = nil
+        hasSubmittedFamilyWizard = false
         currentJoinApplication = nil
-        serverCommonChoreSelectionLimit = 6
+        serverCommonChoreSelectionLimit = 8
         serverCustomChoreLimit = 2
         inviteValidationState = .idle
         clearError()
@@ -875,6 +1188,7 @@ final class AppViewModel: ObservableObject {
         currentJoinApplication = nil
         inviteValidationState = .idle
         clearError()
+        restoreFamilyWizard(joining: true)
         rootScreen = .joinFamily
     }
 
@@ -1004,7 +1318,18 @@ final class AppViewModel: ObservableObject {
     }
 
     func createFamily() {
+        guard !isFamilyFlowSubmitting, !isLoading else { return }
         clearError()
+        if hasSubmittedFamilyWizard, !isGuestWorkspace {
+            rootScreen = .choreSetup
+            return
+        }
+
+        let normalizedName = familyName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedName.isEmpty, normalizedName.count <= 30 else {
+            errorMessage = "家庭名称需要填写，且不能超过 30 个字。"
+            return
+        }
 
         guard validateIdentitySelection(),
               let nickname = validatedDisplayNameForFamilyFlow()
@@ -1037,16 +1362,24 @@ final class AppViewModel: ObservableObject {
         guard !usesMockData else {
             applyMockDisplayName(nickname)
             createFamilyWithMock()
+            hasSubmittedFamilyWizard = true
             return
         }
 
+        isFamilyFlowSubmitting = true
         Task {
+            defer { isFamilyFlowSubmitting = false }
             guard await saveDisplayNameIfNeeded(nickname) else { return }
             await createFamilyWithAPI()
         }
     }
 
     func submitJoinRequest() {
+        guard !isFamilyFlowSubmitting, !isLoading, !joinRequestSubmitted else { return }
+        guard hasAccessToken || usesMockData else {
+            requireAuthenticationForJoin()
+            return
+        }
         clearError()
 
         guard !joinInviteCode.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
@@ -1082,7 +1415,9 @@ final class AppViewModel: ObservableObject {
             return
         }
 
+        isFamilyFlowSubmitting = true
         Task {
+            defer { isFamilyFlowSubmitting = false }
             guard await saveDisplayNameIfNeeded(nickname) else { return }
             await submitJoinRequestWithAPI()
         }
@@ -1145,7 +1480,7 @@ final class AppViewModel: ObservableObject {
         }
 
         guard commonChoreSelectionLimit.map({ choreIDs.count <= $0 }) ?? true else {
-            errorMessage = "免费版最多选择 6 项常用家务。"
+            errorMessage = "当前家庭最多选择 \(commonChoreSelectionLimit ?? 8) 项常用家务。"
             return false
         }
 
@@ -1157,8 +1492,8 @@ final class AppViewModel: ObservableObject {
 
         let normalizedPinned = pinnedIDs.intersection(Set(choreIDs))
         if isGuestWorkspace {
-            guard choreIDs.count + customChores.count <= 6 else {
-                errorMessage = "免费体验最多启用 6 项家务。"
+            guard choreIDs.count <= 8, customChores.count <= 2 else {
+                errorMessage = "免费体验支持 8 项常用家务和 2 项自定义家务。"
                 return false
             }
             choreOrder = choreIDs
@@ -1304,6 +1639,11 @@ final class AppViewModel: ObservableObject {
 
         let hasReaction = record.myReaction != nil || record.likedByMe
 
+        if isGuestWorkspace {
+            updateLocalReaction(record, reaction: hasReaction ? nil : .like)
+            return
+        }
+
         guard !usesMockData else {
             let liker = ActivityLiker(
                 id: currentUser?.id ?? MockData.currentUser.id,
@@ -1311,8 +1651,9 @@ final class AppViewModel: ObservableObject {
                 avatarKey: currentMembership?.avatarKey
             )
             let reaction: ChoreReaction? = hasReaction ? nil : .like
-            Self.updateMockReaction(in: &weekRecords, recordID: record.id, reaction: reaction, liker: liker)
-            Self.updateMockReaction(in: &recentRecords, recordID: record.id, reaction: reaction, liker: liker)
+            let eligible = Set(familyMembers.filter { $0.status == .active }.map(\.userId))
+            Self.updateMockReaction(in: &weekRecords, recordID: record.id, reaction: reaction, liker: liker, eligibleMemberIDs: eligible)
+            Self.updateMockReaction(in: &recentRecords, recordID: record.id, reaction: reaction, liker: liker, eligibleMemberIDs: eligible)
             return
         }
 
@@ -1331,6 +1672,19 @@ final class AppViewModel: ObservableObject {
     func react(to record: ChoreRecord, with reaction: ChoreReaction) {
         clearError()
 
+        if isGuestWorkspace {
+            updateLocalReaction(record, reaction: record.myReaction == reaction ? nil : reaction)
+            return
+        }
+        if record.myReaction == reaction {
+            toggleLike(record)
+            return
+        }
+        if !usesMockData && reaction == .doubt && record.reactionConsensus == nil {
+            errorMessage = "当前服务器尚未启用质疑功能，普通点赞仍可使用。"
+            return
+        }
+
         guard !usesMockData else {
             let liker = ActivityLiker(
                 id: currentUser?.id ?? MockData.currentUser.id,
@@ -1338,8 +1692,9 @@ final class AppViewModel: ObservableObject {
                 avatarKey: currentMembership?.avatarKey,
                 reaction: reaction
             )
-            Self.updateMockReaction(in: &weekRecords, recordID: record.id, reaction: reaction, liker: liker)
-            Self.updateMockReaction(in: &recentRecords, recordID: record.id, reaction: reaction, liker: liker)
+            let eligible = Set(familyMembers.filter { $0.status == .active }.map(\.userId))
+            Self.updateMockReaction(in: &weekRecords, recordID: record.id, reaction: reaction, liker: liker, eligibleMemberIDs: eligible)
+            Self.updateMockReaction(in: &recentRecords, recordID: record.id, reaction: reaction, liker: liker, eligibleMemberIDs: eligible)
             return
         }
 
@@ -1352,6 +1707,21 @@ final class AppViewModel: ObservableObject {
                 )
                 try await refreshActivityFromAPI()
             }
+        }
+    }
+
+    private func updateLocalReaction(_ record: ChoreRecord, reaction: ChoreReaction?) {
+        guard var draft = localDraftFamily,
+              let id = localDraftRecordID(from: record.id),
+              let index = draft.records.firstIndex(where: { $0.id == id }) else { return }
+        draft.records[index].reactionKey = reaction?.rawValue
+        draft.updatedAt = Date()
+        do {
+            try localWorkspaceStore.save(draft)
+            localDraftFamily = draft
+            applyLocalDraft(draft)
+        } catch {
+            errorMessage = "本机回应保存失败，请重试。"
         }
     }
 
@@ -1594,11 +1964,16 @@ final class AppViewModel: ObservableObject {
     }
 
     func refreshAchievements() async {
+        if isGuestWorkspace {
+            refreshLocalAchievements()
+            return
+        }
         guard achievementDataState != .loading else { return }
 
         if usesMockData {
             achievementSummary = MockData.achievementSummary
             achievementItems = MockData.achievementCollection.achievements
+            undiscoveredHiddenAchievementCount = MockData.achievementCollection.undiscoveredHiddenCount
             showAchievementsToFamily = MockData.achievementCollection.showAchievementsToFamily
             achievementLastUpdatedAt = MockData.achievementCollection.updatedAt
             achievementDataState = .loaded
@@ -1631,6 +2006,7 @@ final class AppViewModel: ObservableObject {
     }
 
     func updateAchievementSharing(showToFamily: Bool) async {
+        guard !isGuestWorkspace else { return }
         if usesMockData {
             applyAchievementSharing(showToFamily)
             return
@@ -1911,7 +2287,7 @@ final class AppViewModel: ObservableObject {
     func updateAppearance(avatarKey: String) async -> Bool {
         clearError()
 
-        guard FamilyIdentityOptions.avatarKeys.contains(avatarKey) else {
+        guard selectableAvatarKeys.contains(avatarKey) else {
             errorMessage = "请选择有效的家庭形象。"
             return false
         }
@@ -1971,10 +2347,6 @@ final class AppViewModel: ObservableObject {
     @discardableResult
     func saveCustomChore(_ draft: CustomChoreDraft, editing chore: ChoreItem? = nil) async -> Bool {
         clearError()
-        if isGuestWorkspace, chore == nil, localOnboardingSelectionCount >= 6 {
-            errorMessage = "免费体验最多启用 6 项家务。"
-            return false
-        }
         guard chore != nil || availableCustomChoreSlots > 0 else {
             errorMessage = "免费版最多可以创建 2 个自定义家务。"
             return false
@@ -2193,6 +2565,7 @@ final class AppViewModel: ObservableObject {
         let accountScopedPrefixes = [
             Self.commonChoreGridDefaultsKeyPrefix,
             Self.achievementCacheKeyPrefix,
+            Self.characterCacheKeyPrefix,
             "test-premium-access-",
             "chore_last_duration_",
         ]
@@ -2222,6 +2595,15 @@ final class AppViewModel: ObservableObject {
     }
 
     private func resetSessionState() {
+        loginWorkspaceChoice = nil
+        pendingAuthAction = nil
+        userDefaults.removeObject(forKey: Self.pendingWorkspaceChoiceKey)
+        createdFamilyWizardID = nil
+        hasSubmittedFamilyWizard = false
+        createFamilyStep = 0
+        joinFamilyStep = 0
+        onboardingChoreIDs = []
+        onboardingPinnedIDs = []
         achievementSyncTask?.cancel()
         achievementSyncTask = nil
         deletionUndoTask?.cancel()
@@ -2267,6 +2649,8 @@ final class AppViewModel: ObservableObject {
         monthlyReport = usesMockData ? MockData.monthlyReport : nil
         achievementSummary = nil
         achievementItems = []
+        undiscoveredHiddenAchievementCount = nil
+        clearCharacterState()
         showAchievementsToFamily = true
         achievementDataState = .idle
         achievementSyncState = .idle
@@ -2318,6 +2702,8 @@ final class AppViewModel: ObservableObject {
         monthlyReport = nil
         achievementSummary = nil
         achievementItems = []
+        undiscoveredHiddenAchievementCount = nil
+        clearCharacterState()
         showAchievementsToFamily = true
         achievementDataState = .idle
         achievementSyncState = .idle
@@ -2374,7 +2760,7 @@ final class AppViewModel: ObservableObject {
             name: draft.name,
             inviteCode: "",
             requiresPhotoProof: false,
-            timezone: TimeZone.current.identifier
+            timezone: draft.timeZoneIdentifier ?? TimeZone.current.identifier
         )
         currentMembership = FamilyMembership(
             id: "local-membership-\(draft.id.uuidString.lowercased())",
@@ -2416,13 +2802,18 @@ final class AppViewModel: ObservableObject {
         choreLayoutScope = "local"
         choreLayoutIsPersonalized = false
         followsFamilyChoreLayout = true
-        serverCommonChoreSelectionLimit = 6
+        serverCommonChoreSelectionLimit = 8
         serverCustomChoreLimit = 2
 
         let mappedRecords = draft.records
             .sorted { $0.occurredAt > $1.occurredAt }
             .map { localRecord in
-                ChoreRecord(
+                let reaction = localRecord.reactionKey.flatMap(ChoreReaction.init(rawValue:))
+                let likers = reaction.map {
+                    [ActivityLiker(id: localUserID, displayName: localDisplayName,
+                                   avatarKey: selectedAvatarKey, reaction: $0)]
+                } ?? []
+                return ChoreRecord(
                     id: "local-record-\(localRecord.id.uuidString.lowercased())",
                     memberName: localDisplayName,
                     choreName: localRecord.choreName,
@@ -2438,6 +2829,12 @@ final class AppViewModel: ObservableObject {
                     identityLabel: selectedIdentityLabel,
                     customIdentity: draft.customIdentity,
                     avatarKey: selectedAvatarKey,
+                    likeCount: likers.count,
+                    likedBy: likers,
+                    likedByMe: reaction != nil,
+                    reactionCounts: Self.reactionCounts(for: likers),
+                    myReaction: reaction,
+                    reactionConsensus: ReactionConsensus.evaluate(eligibleMemberIDs: [localUserID], reactions: likers),
                     canDelete: true,
                     canEdit: true,
                     choreId: localRecord.choreID,
@@ -2460,6 +2857,7 @@ final class AppViewModel: ObservableObject {
         familyName = draft.name
         displayName = localDisplayName
         synchronizeCommonChoreGridOrder()
+        refreshLocalAchievements()
     }
 
     private func localChoreItem(_ local: LocalDraftChore) -> ChoreItem {
@@ -2521,7 +2919,10 @@ final class AppViewModel: ObservableObject {
                 points: record.points,
                 pointsMultiplier: pointsMultiplier,
                 note: record.note,
-                occurredAt: record.createdAt
+                occurredAt: record.createdAt,
+                catalogKeySnapshot: LocalDraftChore(chore: chore).catalogKey,
+                themeKeySnapshot: chore.themeKey,
+                isCustomSnapshot: chore.isCustom
             ),
             at: 0
         )
@@ -2564,7 +2965,9 @@ final class AppViewModel: ObservableObject {
     }
 
     private func localDraftRecord(from record: ChoreRecord, id: UUID) -> LocalDraftChoreRecord {
-        LocalDraftChoreRecord(
+        let previous = localDraftFamily?.records.first { $0.id == id }
+        let chore = chores.first { $0.id == record.choreId }
+        return LocalDraftChoreRecord(
             id: id,
             choreID: record.choreId ?? record.id,
             choreName: record.choreName,
@@ -2576,7 +2979,11 @@ final class AppViewModel: ObservableObject {
             points: record.points,
             pointsMultiplier: record.pointsMultiplier,
             note: record.note,
-            occurredAt: record.createdAt
+            occurredAt: record.createdAt,
+            catalogKeySnapshot: previous?.catalogKeySnapshot ?? chore.map { LocalDraftChore(chore: $0).catalogKey } ?? nil,
+            themeKeySnapshot: previous?.themeKeySnapshot ?? chore?.themeKey,
+            isCustomSnapshot: previous?.isCustomSnapshot ?? chore?.isCustom,
+            reactionKey: record.myReaction?.rawValue ?? previous?.reactionKey
         )
     }
 
@@ -2589,8 +2996,49 @@ final class AppViewModel: ObservableObject {
     private func persistLocalDraft(_ draft: LocalDraftFamily) {
         do {
             try localWorkspaceStore.save(draft)
+            refreshLocalAchievements(celebrate: true)
         } catch {
             errorMessage = "本机体验数据保存失败：\(error.localizedDescription)"
+        }
+    }
+
+    private func refreshLocalAchievements(celebrate: Bool = false) {
+        guard isGuestWorkspace, var draft = localDraftFamily else { return }
+        let previous = draft.achievementUnlocks ?? [:]
+        let result = LocalAchievementEvaluator.evaluate(
+            family: draft,
+            timeZone: draft.timeZoneIdentifier.flatMap(TimeZone.init(identifier:)) ?? .current,
+            previousUnlocks: previous
+        )
+        achievementSummary = result.summary
+        achievementItems = result.collection.achievements
+        undiscoveredHiddenAchievementCount = result.hiddenUndiscoveredCount
+        achievementLastUpdatedAt = result.evaluatedAt
+        achievementDataState = .loaded
+        achievementSyncState = .idle
+        showAchievementsToFamily = false
+        achievementCharacters = result.characterQualifications.map { qualification in
+            AchievementCharacter(key: qualification.character.key, achievementKey: qualification.character.achievementKey,
+                                 requiredTier: qualification.requiredTier, achievementUnlocked: qualification.achievementUnlocked,
+                                 hasPremium: false, isOwned: false, canClaim: false, claimedAt: nil)
+        }
+        characterDataState = .loaded
+        characterLastUpdatedAt = result.evaluatedAt
+        characterErrorMessage = nil
+        if result.updatedUnlocks != previous {
+            draft.achievementUnlocks = result.updatedUnlocks
+            localDraftFamily = draft
+            do { try localWorkspaceStore.save(draft) }
+            catch { errorMessage = "本机成就保存失败，请重试。" }
+        }
+        if celebrate {
+            let newlyUnlocked = achievementItems.filter { $0.isUnlocked && previous["\($0.key):\($0.tier)"] == nil }
+            if !newlyUnlocked.isEmpty {
+                pendingAchievementCelebration = AchievementCelebration(
+                    id: "local-\(UUID().uuidString)",
+                    achievements: AchievementSeries.grouped(newlyUnlocked).map(\.main), rewards: []
+                )
+            }
         }
     }
 
@@ -2618,6 +3066,11 @@ final class AppViewModel: ObservableObject {
     private func validateIdentitySelection() -> Bool {
         if selectedIdentityLabel == "自定义" && normalizedCustomIdentity == nil {
             errorMessage = AppStateError.missingCustomIdentity.localizedDescription
+            return false
+        }
+
+        if selectedIdentityLabel == "自定义" && (normalizedCustomIdentity?.count ?? 0) > 30 {
+            errorMessage = "家庭身份不能超过 30 个字。"
             return false
         }
 
@@ -3065,7 +3518,8 @@ final class AppViewModel: ObservableObject {
         in records: inout [ChoreRecord],
         recordID: String,
         reaction: ChoreReaction?,
-        liker: ActivityLiker
+        liker: ActivityLiker,
+        eligibleMemberIDs: Set<String>
     ) {
         guard let index = records.firstIndex(where: { $0.id == recordID }) else { return }
 
@@ -3084,6 +3538,7 @@ final class AppViewModel: ObservableObject {
         }
         records[index].likeCount = records[index].likedBy.count
         records[index].reactionCounts = Self.reactionCounts(for: records[index].likedBy)
+        records[index].reactionConsensus = ReactionConsensus.evaluate(eligibleMemberIDs: eligibleMemberIDs, reactions: records[index].likedBy)
     }
 
     private static func reactionCounts(for likers: [ActivityLiker]) -> [ChoreReaction: Int] {
@@ -3360,66 +3815,97 @@ final class AppViewModel: ObservableObject {
             validateJoinInviteCode()
             return
         }
-        if pendingAuthAction == .claimLocalDraft {
-            if let draftName = localDraftFamily?.displayName,
-               draftName != response.user.displayName {
-                let user: UserDTO = try await apiClient.patch(
-                    "auth/me",
-                    body: UpdateCurrentUserRequest(displayName: draftName)
-                )
-                currentUser = mapUser(user)
-                displayName = user.displayName
-            }
-            let familyId = try await claimLocalDraftWithAPI()
-            pendingAuthAction = nil
-            localDraftFamily = nil
-            try localWorkspaceStore.delete()
-            let families = try await loadMyFamiliesFromAPI(preferredFamilyId: familyId)
-            guard !families.isEmpty else {
-                throw AppStateError.missingFamily
-            }
-            try await loadChoresFromAPI()
-            selectedTab = .today
-            rootScreen = .home
-            try await refreshHomeDataFromAPI(includeChores: false)
+        resetFamilyContextAfterLeaving()
+        pendingAuthAction = nil
+        if localDraftFamily?.selectedChores.isEmpty == false {
+            userDefaults.set(response.user.id, forKey: Self.pendingWorkspaceChoiceKey)
             sessionState = .authenticated
+            try await prepareLoginWorkspaceChoice()
             return
         }
 
-        let families = try await loadMyFamiliesFromAPI()
+        try await finishCloudLogin()
+    }
+
+    private func finishCloudLogin(preferredFamilyID: String? = nil) async throws {
+        let families = try await loadMyFamiliesFromAPI(preferredFamilyId: preferredFamilyID)
+        if let preferredFamilyID, !families.contains(where: { $0.id == preferredFamilyID }) {
+            throw AppStateError.missingFamily
+        }
         try await loadChoresFromAPI()
+        let destination: AppScreen
         if families.isEmpty {
             if try await loadMyJoinApplicationFromAPI() != nil {
-                rootScreen = .joinStatus
+                destination = .joinStatus
             } else {
-                rootScreen = .createFamily
+                destination = .createFamily
             }
         } else {
             selectedTab = .today
-            rootScreen = .home
             try await refreshHomeDataFromAPI()
+            destination = .home
         }
+        loginWorkspaceChoice = nil
+        userDefaults.removeObject(forKey: Self.pendingWorkspaceChoiceKey)
+        rootScreen = destination
         sessionState = .authenticated
     }
 
+    private func prepareLoginWorkspaceChoice() async throws {
+        rootScreen = .workspaceChoice
+        guard let draft = localDraftFamily else { return }
+        let families: [FamilyDTO] = try await apiClient.get("families/me")
+        loginWorkspaceChoice = LoginWorkspaceChoice(
+            accountName: currentUser?.displayName ?? "当前账号",
+            cloudFamilyNames: families.map(\.name),
+            localFamilyName: draft.name,
+            localRecordCount: draft.records.count
+        )
+    }
+
+    func retryLoginWorkspaceChoice() async {
+        guard accessToken != nil, !isLoading else { return }
+        await performLoading("正在读取账号信息") {
+            try await prepareLoginWorkspaceChoice()
+        }
+    }
+
+    func useCloudWorkspace() async {
+        guard accessToken != nil, loginWorkspaceChoice != nil, !isLoading else { return }
+        await performLoading("正在读取云端家庭") {
+            try await finishCloudLogin()
+        }
+    }
+
+    func importLocalWorkspaceToAccount() async {
+        guard accessToken != nil, loginWorkspaceChoice != nil, !isLoading else { return }
+        await performLoading("正在保存本机家庭") {
+            let familyID = try await claimLocalDraftWithAPI()
+            try await finishCloudLogin(preferredFamilyID: familyID)
+        }
+    }
+
     private func claimLocalDraftWithAPI() async throws -> String {
-        guard var draft = localDraftFamily else {
+        guard let draft = localDraftFamily, let userID = currentUser?.id, accessToken != nil else {
             throw AppStateError.missingFamily
         }
-        draft.claimState = .claiming
-        localDraftFamily = draft
-        persistLocalDraft(draft)
-
-        let response: ClaimLocalDraftResponse = try await apiClient.post(
-            "families/claim-local-draft",
-            body: ClaimLocalDraftRequest(
-                draftId: draft.id.uuidString.lowercased(),
+        let receiptKey = "local-cloud-import-v1-\(userID)-\(draft.id.uuidString)"
+        let storedReceipt = userDefaults.data(forKey: receiptKey).flatMap {
+            try? JSONDecoder().decode(LocalCloudImportReceipt.self, from: $0)
+        }
+        // Keep the exact request across a timeout. Never retry an import into another account.
+        var receipt: LocalCloudImportReceipt
+        if let storedReceipt, storedReceipt.sourceUpdatedAt == draft.updatedAt {
+            receipt = storedReceipt
+        } else {
+            receipt = LocalCloudImportReceipt(sourceUpdatedAt: draft.updatedAt, request: ClaimLocalDraftRequest(
+                draftId: UUID().uuidString.lowercased(),
                 draftCreatedAt: draft.createdAt,
                 familyName: draft.name,
-                identityLabel: selectedIdentityLabel,
-                customIdentity: normalizedCustomIdentity,
-                avatarKey: selectedAvatarKey,
-                timezone: TimeZone.current.identifier,
+                identityLabel: draft.identityLabel ?? "家庭成员",
+                customIdentity: draft.customIdentity,
+                avatarKey: FamilyIdentityOptions.avatarKeys.contains(draft.avatarKey ?? "") ? draft.avatarKey! : "avatar_07",
+                timezone: draft.timeZoneIdentifier ?? TimeZone.current.identifier,
                 chores: draft.selectedChores.map { chore in
                     ClaimLocalDraftChoreRequest(
                         localId: chore.id,
@@ -3441,13 +3927,20 @@ final class AppViewModel: ObservableObject {
                         occurredAt: record.occurredAt
                     )
                 }
-            )
-        )
+            ), familyID: nil)
+            userDefaults.set(try JSONEncoder().encode(receipt), forKey: receiptKey)
+        }
+        if let familyID = receipt.familyID { return familyID }
+        let response: ClaimLocalDraftResponse = try await apiClient.post("families/claim-local-draft", body: receipt.request)
+        receipt.familyID = response.familyId
+        userDefaults.set(try JSONEncoder().encode(receipt), forKey: receiptKey)
         return response.familyId
     }
 
     private func createFamilyWithAPI() async {
         await performLoading("正在创建家庭空间") {
+          // Retry catalog loading without creating a second household after a successful POST.
+          if createdFamilyWizardID == nil {
             let family: FamilyDTO = try await apiClient.post(
                 "families",
                 body: CreateFamilyRequest(
@@ -3461,8 +3954,11 @@ final class AppViewModel: ObservableObject {
             )
 
             applyCurrentFamily(family)
+            createdFamilyWizardID = family.id
+          }
             try await loadChoresFromAPI()
             prepareInitialChoreSetup()
+            hasSubmittedFamilyWizard = true
             rootScreen = .choreSetup
             sessionState = .authenticated
         }
@@ -3652,10 +4148,13 @@ final class AppViewModel: ObservableObject {
                         achievementSyncState = .idle
 
                         let unlocks = sync.unlockBatch?.unlocks ?? []
-                        let unlocked = unlocks.compactMap { unlock in
-                            achievementItems.first {
-                                $0.key == unlock.achievementKey && $0.tier == unlock.tier
+                        let unlocked = unlocks.compactMap { unlock -> AchievementItem? in
+                            let candidates = achievementItems.filter {
+                                $0.key == unlock.achievementKey && $0.tier == unlock.tier && $0.isUnlocked
                             }
+                            return candidates.first {
+                                [$0.memberAchievementId, $0.familyAchievementId, $0.pairAchievementId].contains(unlock.id)
+                            } ?? (candidates.count == 1 ? candidates.first : nil)
                         }
                         let rewards = sync.unlockBatch?.rewards.map {
                             AchievementReward(type: $0.rewardType, value: $0.rewardValue)
@@ -3665,7 +4164,7 @@ final class AppViewModel: ObservableObject {
                             if !dismissedAchievementCelebrationIDs.contains(celebrationID) {
                                 pendingAchievementCelebration = AchievementCelebration(
                                     id: celebrationID,
-                                    achievements: unlocked,
+                                    achievements: AchievementSeries.grouped(unlocked).map(\.main),
                                     rewards: rewards
                                 )
                             }
@@ -3923,6 +4422,7 @@ final class AppViewModel: ObservableObject {
         if shouldChangeAchievementScope {
             achievementSummary = nil
             achievementItems = []
+            undiscoveredHiddenAchievementCount = nil
             showAchievementsToFamily = true
             achievementLastUpdatedAt = nil
             achievementDataState = loadAchievementCache() ? .cached : .idle
@@ -3981,7 +4481,7 @@ final class AppViewModel: ObservableObject {
     }
 
     private func loadAchievementsFromAPI() async throws {
-        guard let familyId = currentFamily?.id else {
+        guard let familyId = currentFamily?.id, let userId = currentUser?.id else {
             throw AppStateError.missingFamily
         }
 
@@ -3992,9 +4492,13 @@ final class AppViewModel: ObservableObject {
             "families/\(familyId)/achievements/me"
         )
         let (summaryDTO, collectionDTO) = try await (summaryResponse, collectionResponse)
+        guard currentFamily?.id == familyId, currentUser?.id == userId,
+              summaryDTO.familyId == familyId, collectionDTO.familyId == familyId,
+              summaryDTO.userId == userId, collectionDTO.userId == userId else { throw CancellationError() }
 
         achievementSummary = mapAchievementSummary(summaryDTO)
         achievementItems = collectionDTO.achievements.map(mapAchievement)
+        undiscoveredHiddenAchievementCount = collectionDTO.undiscoveredHiddenCount.map { max(0, $0) }
         showAchievementsToFamily = collectionDTO.showAchievementsToFamily
         achievementLastUpdatedAt = collectionDTO.updatedAt
         saveAchievementCache()
@@ -4003,13 +4507,16 @@ final class AppViewModel: ObservableObject {
     private func loadAchievementCache() -> Bool {
         guard let key = achievementCacheKey,
               let data = userDefaults.data(forKey: key),
-              let envelope = try? JSONDecoder().decode(AchievementCacheEnvelope.self, from: data)
+              let envelope = try? JSONDecoder().decode(AchievementCacheEnvelope.self, from: data),
+              envelope.collection.familyId == currentFamily?.id,
+              envelope.collection.userId == currentUser?.id
         else {
             return false
         }
 
         achievementSummary = envelope.summary
         achievementItems = envelope.collection.achievements
+        undiscoveredHiddenAchievementCount = envelope.collection.undiscoveredHiddenCount.map { max(0, $0) }
         showAchievementsToFamily = envelope.collection.showAchievementsToFamily
         achievementLastUpdatedAt = envelope.cachedAt
         return true
@@ -4033,7 +4540,8 @@ final class AppViewModel: ObservableObject {
                 showAchievementsToFamily: showAchievementsToFamily,
                 achievements: achievementItems,
                 capacity: summary.capacity,
-                updatedAt: achievementLastUpdatedAt ?? cachedAt
+                updatedAt: achievementLastUpdatedAt ?? cachedAt,
+                undiscoveredHiddenCount: undiscoveredHiddenAchievementCount
             ),
             cachedAt: cachedAt
         )
@@ -4053,7 +4561,7 @@ final class AppViewModel: ObservableObject {
         achievementItems = achievementItems.map { item in
             guard item.memberAchievementId != nil else { return item }
             var updated = item
-            updated.visibility = visibility
+            updated.visibility = item.isHidden ? .privateOnly : visibility
             return updated
         }
 
@@ -4068,7 +4576,7 @@ final class AppViewModel: ObservableObject {
             recentUnlocks: summary.recentUnlocks.map { item in
                 guard item.memberAchievementId != nil else { return item }
                 var updated = item
-                updated.visibility = visibility
+                updated.visibility = item.isHidden ? .privateOnly : visibility
                 return updated
             },
             capacity: summary.capacity
@@ -4518,6 +5026,7 @@ final class AppViewModel: ObservableObject {
             likedByMe: dto.likedByMe ?? false,
             reactionCounts: mapReactionCounts(dto.reactionCounts),
             myReaction: dto.myReaction.flatMap(ChoreReaction.init(rawValue:)),
+            reactionConsensus: dto.reactionConsensus,
             canDelete: dto.canDelete ?? true,
             canEdit: dto.canEdit ?? true,
             choreId: dto.chore.id,
@@ -4553,6 +5062,7 @@ final class AppViewModel: ObservableObject {
             likedByMe: dto.likedByMe ?? false,
             reactionCounts: mapReactionCounts(dto.reactionCounts),
             myReaction: dto.myReaction.flatMap(ChoreReaction.init(rawValue:)),
+            reactionConsensus: dto.reactionConsensus,
             canDelete: dto.canDelete ?? false,
             canEdit: dto.canEdit ?? false,
             choreId: dto.chore.id,
@@ -4588,7 +5098,17 @@ final class AppViewModel: ObservableObject {
             memberAchievementId: dto.memberAchievementId,
             unlockedAt: dto.unlockedAt,
             visibility: AchievementVisibility(rawValue: dto.visibility) ?? .family,
-            reward: dto.reward.map { AchievementReward(type: $0.type, value: $0.value) }
+            reward: dto.reward.map { AchievementReward(type: $0.type, value: $0.value) },
+            ownerType: dto.ownerType,
+            ownerKey: dto.ownerKey,
+            familyId: dto.familyId ?? currentFamily?.id,
+            userId: dto.userId ?? currentUser?.id,
+            relationshipId: dto.relationshipId,
+            familyAchievementId: dto.familyAchievementId,
+            pairAchievementId: dto.pairAchievementId,
+            participantUserIds: dto.participantUserIds,
+            minimumMemberCount: dto.minimumMemberCount,
+            serverIsHidden: dto.isHidden
         )
     }
 
@@ -4796,6 +5316,8 @@ final class AppViewModel: ObservableObject {
     private static let pinnedChoresDefaultsKey = "chore-card-pinned-v1"
     private static let commonChoreGridDefaultsKeyPrefix = "common-chore-grid-order-v1"
     private static let achievementCacheKeyPrefix = "achievement-cache-v1"
+    private static let pendingWorkspaceChoiceKey = "pending-workspace-choice-v1"
+    private static let characterCacheKeyPrefix = "achievement-character-cache-v2"
     private static let pendingRecordUploadsDefaultsKey = "pending-chore-record-uploads-v1"
     private static let hasAuthenticatedBeforeDefaultsKey = "has-authenticated-before-v1"
     private static let customChoreSlotPrefix = "custom-chore-slot-"

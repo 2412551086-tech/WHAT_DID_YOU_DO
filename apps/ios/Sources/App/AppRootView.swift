@@ -28,6 +28,10 @@ struct AppRootView: View {
             NavigationStack {
                 LoginView()
             }
+        case .workspaceChoice:
+            NavigationStack {
+                LoginWorkspaceChoiceView()
+            }
         case .createFamily:
             NavigationStack {
                 CreateFamilyView()
@@ -88,6 +92,7 @@ private struct LaunchLoadingView: View {
 enum AppScreen: Hashable {
     case onboarding
     case login
+    case workspaceChoice
     case createFamily
     case familyCreated
     case choreSetup

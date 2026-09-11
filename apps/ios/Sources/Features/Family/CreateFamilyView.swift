@@ -3,63 +3,50 @@ import UIKit
 
 struct CreateFamilyView: View {
     @EnvironmentObject private var viewModel: AppViewModel
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    private var step: Int { viewModel.createFamilyStep }
+    private var keys: [String] { ["family", "nickname", "avatar", "identity"] }
+    private var titles: [String] { ["给这个家起个名字", "在家里，怎么称呼你？", "今天，你是哪位主角？", "你在家里的身份是？"] }
 
     var body: some View {
-        ZStack {
-            DSColor.quietBackground.ignoresSafeArea()
-
-            VStack(spacing: 0) {
-                FamilyFlowTopBar(title: viewModel.isGuestWorkspace ? "设置家庭资料" : "创建家庭") {
-                    if viewModel.isGuestWorkspace {
-                        viewModel.cancelLocalFamilyOnboarding()
-                    } else {
-                        viewModel.logout()
-                    }
-                }
-
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 22) {
-                        if viewModel.isGuestWorkspace {
-                            Text("这些资料会保存在本机，稍后登录时会原样升级到正式家庭。")
-                                .font(.system(size: 13))
-                                .foregroundStyle(DSColor.mutedInk)
-                        }
-                        familyNameSection
-                        nicknameSection
-
-                        FamilyIdentityPicker(
-                            identityLabel: $viewModel.selectedIdentityLabel,
-                            customIdentity: $viewModel.customIdentity,
-                            avatarKey: $viewModel.selectedAvatarKey
-                        )
-
-                        photoProofNotice
-                        statusBanner
-
-                        FamilyFlowPrimaryButton(
-                            title: viewModel.isGuestWorkspace ? "下一步，选择家务" : "创建家庭",
-                            isEnabled: !viewModel.isLoading
-                        ) {
-                            viewModel.createFamily()
-                        }
-
-                        if !viewModel.isGuestWorkspace {
-                            Button("已有家庭？申请加入") {
-                                viewModel.showJoinFamily()
-                            }
-                            .font(.system(size: 14, weight: .medium))
-                            .foregroundStyle(DSColor.mutedInk)
-                            .frame(maxWidth: .infinity)
-                            .disabled(viewModel.isLoading)
-                        }
-                    }
-                    .padding(.horizontal, 20)
-                    .padding(.top, 22)
-                    .padding(.bottom, 32)
+        FamilyWizardPage(
+            title: titles[step], illustration: keys[step], step: step + 1, total: 5,
+            actionTitle: step == 3 ? (viewModel.isFamilyWizardProfileCommitted ? "继续选择家务" : (viewModel.isGuestWorkspace ? "下一步，选择家务" : "创建家庭并选择家务")) : "下一步",
+            isBusy: viewModel.isLoading || viewModel.isFamilyFlowSubmitting,
+            onBack: { viewModel.goBackInFamilyWizard(joining: false) },
+            onNext: { viewModel.advanceCreateFamilyWizard() }
+        ) {
+            Group {
+                switch step {
+                case 0: familyNameSection
+                case 1: nicknameSection
+                case 2: FamilyWizardAvatarPicker(avatarKey: $viewModel.selectedAvatarKey)
+                default:
+                    FamilyIdentityPicker(
+                        identityLabel: $viewModel.selectedIdentityLabel,
+                        customIdentity: $viewModel.customIdentity,
+                        avatarKey: $viewModel.selectedAvatarKey,
+                        showsAvatar: false
+                    )
                 }
             }
+            .disabled(viewModel.isFamilyWizardProfileCommitted)
+            .id(step)
+            .transition(.opacity)
+            if viewModel.isFamilyWizardProfileCommitted {
+                Label("家庭已创建", systemImage: "checkmark.circle")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            }
+            statusBanner
         }
-        .navigationBarBackButtonHidden(true)
+        .animation(reduceMotion ? nil : .easeOut(duration: 0.2), value: step)
+        .onChange(of: viewModel.familyWizardSnapshot(joining: false)) { _, _ in
+            viewModel.persistFamilyWizard(joining: false)
+        }
+        .onAppear { viewModel.restoreFamilyWizard(joining: false) }
+        .onDisappear { viewModel.persistFamilyWizard(joining: false) }
     }
 
     private var familyNameSection: some View {
@@ -119,6 +106,11 @@ struct CreateFamilySuccessView: View {
 
             ScrollView {
                 VStack(spacing: 18) {
+                    Image("subscription_teamwork")
+                        .resizable()
+                        .scaledToFit()
+                        .frame(maxWidth: 340)
+                        .accessibilityHidden(true)
                     successHeader
                     invitationCard
                     ownerCard

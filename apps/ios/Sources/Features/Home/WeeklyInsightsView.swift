@@ -1,5 +1,12 @@
 import SwiftUI
 
+private struct WeeklyCategoryHeightKey: PreferenceKey {
+    static var defaultValue: [Int: CGFloat] { [:] }
+    static func reduce(value: inout [Int: CGFloat], nextValue: () -> [Int: CGFloat]) {
+        value.merge(nextValue(), uniquingKeysWith: { _, next in next })
+    }
+}
+
 enum WeeklyInsightsScope {
     case family
     case member(userId: String?, name: String, avatarKey: String?)
@@ -9,6 +16,7 @@ struct WeeklyInsightsView: View {
     @EnvironmentObject private var viewModel: AppViewModel
     @State private var expandedCategoryID: String?
     @State private var categoryPage = 0
+    @State private var categoryMeasuredHeights: [Int: CGFloat] = [:]
     let scope: WeeklyInsightsScope
 
     var body: some View {
@@ -242,13 +250,24 @@ struct WeeklyInsightsView: View {
                 VStack(spacing: 12) {
                     TabView(selection: $categoryPage) {
                         categoryOverviewPage
+                            .fixedSize(horizontal: false, vertical: true)
+                            .background { GeometryReader { proxy in
+                                Color.clear.preference(key: WeeklyCategoryHeightKey.self, value: [0: proxy.size.height])
+                            } }
+                            .frame(maxHeight: .infinity, alignment: .top)
                             .tag(0)
 
                         categoryMemberPage
+                            .fixedSize(horizontal: false, vertical: true)
+                            .background { GeometryReader { proxy in
+                                Color.clear.preference(key: WeeklyCategoryHeightKey.self, value: [1: proxy.size.height])
+                            } }
+                            .frame(maxHeight: .infinity, alignment: .top)
                             .tag(1)
                     }
                     .tabViewStyle(.page(indexDisplayMode: .never))
-                    .frame(height: categoryPagerHeight)
+                    .frame(height: max(categoryPagerHeight, categoryMeasuredHeights.values.max() ?? 0))
+                    .onPreferenceChange(WeeklyCategoryHeightKey.self) { categoryMeasuredHeights = $0 }
                     .animation(.easeInOut(duration: 0.22), value: categoryPagerHeight)
 
                     HStack(spacing: 8) {
@@ -262,7 +281,7 @@ struct WeeklyInsightsView: View {
                                     Circle()
                                         .fill(page == categoryPage ? DSColor.infoBlue : DSColor.floatingDivider)
                                         .frame(width: page == categoryPage ? 8 : 6, height: page == categoryPage ? 8 : 6)
-                                        .frame(width: 24, height: 24)
+                                        .frame(width: 44, height: 44)
                                         .contentShape(Rectangle())
                                 }
                                 .buttonStyle(.plain)
@@ -396,7 +415,7 @@ struct WeeklyInsightsView: View {
                         .foregroundStyle(DSColor.floatingSecondaryText)
                         .frame(width: 14)
                 }
-                .frame(height: 40)
+                .frame(minHeight: 44)
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)

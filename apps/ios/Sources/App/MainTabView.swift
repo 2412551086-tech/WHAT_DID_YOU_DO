@@ -20,7 +20,7 @@ struct MainTabView: View {
                     HomeView()
                 }
                 .tabItem {
-                    Image(systemName: "calendar.badge.clock")
+                    Label("战况", systemImage: "calendar.badge.clock")
                         .accessibilityLabel("本周战况")
                 }
                 .tag(MainTab.today)
@@ -29,7 +29,7 @@ struct MainTabView: View {
                     ChoreSelectionView()
                 }
                 .tabItem {
-                    Image(systemName: "plus.circle.fill")
+                    Label("记一下", systemImage: "plus.circle.fill")
                         .accessibilityLabel("记一下")
                 }
                 .tag(MainTab.record)
@@ -38,7 +38,7 @@ struct MainTabView: View {
                     FamilyDashboardView()
                 }
                 .tabItem {
-                    Image(systemName: "trophy.fill")
+                    Label("月报", systemImage: "trophy.fill")
                         .accessibilityLabel("月度战报")
                 }
                 .tag(MainTab.family)
@@ -47,7 +47,7 @@ struct MainTabView: View {
                     ProfileView()
                 }
                 .tabItem {
-                    Image(systemName: "person.crop.circle.fill")
+                    Label("我的", systemImage: "person.crop.circle.fill")
                         .accessibilityLabel("我的")
                 }
                 .tag(MainTab.profile)

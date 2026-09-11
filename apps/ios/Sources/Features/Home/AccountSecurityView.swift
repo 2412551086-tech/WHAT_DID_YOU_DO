@@ -12,6 +12,10 @@ struct AccountSecurityView: View {
 
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
+                    if viewModel.isLoading {
+                        ProgressView("正在处理，请稍候…")
+                            .frame(maxWidth: .infinity)
+                    }
                     if let errorMessage = viewModel.errorMessage {
                         DSErrorBanner(message: errorMessage)
                     }
@@ -47,6 +51,15 @@ struct AccountSecurityView: View {
                     }
 
                     securitySection("数据与隐私") {
+                        Link("隐私政策", destination: AppWebsite.privacy)
+                            .frame(minHeight: 44)
+                        Divider()
+                        Link("用户协议", destination: AppWebsite.terms)
+                            .frame(minHeight: 44)
+                        Divider()
+                        Link("官方网站与支持", destination: AppWebsite.support)
+                            .frame(minHeight: 44)
+                        Divider()
                         NavigationLink {
                             DeleteAccountView()
                         } label: {
@@ -289,9 +302,10 @@ struct DeleteAccountView: View {
     private var consequenceCard: some View {
         VStack(alignment: .leading, spacing: 14) {
             consequence("删除账号资料、个人家务记录、点赞和个人成就", icon: "trash.fill")
-            consequence("清除本机 Keychain 登录凭证、缓存和待同步记录", icon: "iphone.gen3.slash")
+            consequence("清除本机登录信息、缓存和待同步记录", icon: "iphone.gen3.slash")
             consequence(ownershipConsequence, icon: "house.fill")
-            consequence("法律要求必须保留的数据除外；当前开发版没有此类保留项", icon: "doc.text.fill")
+            consequence("依法需留存的数据及备份处理方式，请查看隐私政策", icon: "doc.text.fill")
+            consequence("注销账户不会自动取消 Apple 订阅，请先在 Apple 账户管理订阅", icon: "creditcard")
         }
         .padding(18)
         .background(DSColor.redSoft)

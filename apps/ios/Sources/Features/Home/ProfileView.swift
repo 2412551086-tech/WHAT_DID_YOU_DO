@@ -74,7 +74,8 @@ struct ProfileView: View {
         Group {
             if dynamicTypeSize.isAccessibilitySize {
                 VStack(alignment: .leading, spacing: 16) {
-                    userIdentity
+                    profileAvatar
+                    identityCopy
                 }
             } else {
                 HStack(spacing: 16) {
@@ -144,18 +145,20 @@ struct ProfileView: View {
             } label: {
                 HStack(spacing: 6) {
                     Text(viewModel.currentUserName)
-                        .lineLimit(1)
+                        .fixedSize(horizontal: false, vertical: true)
                     Image(systemName: "pencil")
                         .font(.system(size: 11, weight: .semibold))
                 }
                 .font(.system(size: 15, weight: .regular, design: .default))
                 .foregroundStyle(DSColor.mutedInk)
+                .frame(minHeight: 44)
+                .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .accessibilityLabel("昵称，\(viewModel.currentUserName)，点击修改")
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .accessibilityElement(children: .combine)
+        .accessibilityElement(children: .contain)
     }
 
     @ViewBuilder
@@ -175,6 +178,8 @@ struct ProfileView: View {
                 .font(.system(size: 23, weight: .bold, design: .rounded))
                 .foregroundStyle(DSColor.ink)
                 .multilineTextAlignment(.leading)
+                .frame(minHeight: 44)
+                .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .accessibilityLabel("家庭名称，\(viewModel.familyDisplayName)，点击修改")
@@ -377,11 +382,11 @@ struct ProfileView: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
 
-            if !viewModel.hasPremiumAccess {
+            Group {
                 Button {
                     isShowingPremiumRedemption = true
                 } label: {
-                    Label("查看高级版权益", systemImage: "crown.fill")
+                    Label(viewModel.hasPremiumAccess ? "管理家庭高级版" : "查看高级版权益", systemImage: "crown.fill")
                         .font(.system(size: 15, weight: .semibold))
                         .foregroundStyle(DSColor.ink)
                         .frame(maxWidth: .infinity, minHeight: 46)
@@ -534,6 +539,14 @@ private struct AppearanceSelectionView: View {
                     }
 
                     pairedAvatarPreview
+
+                    NavigationLink {
+                        AchievementCharacterGallery(selection: $draftAvatarKey)
+                    } label: {
+                        Label("人物收藏", systemImage: "person.crop.rectangle.stack")
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.vertical, 10)
+                    }
 
                     if let errorMessage = viewModel.errorMessage {
                         DSErrorBanner(message: errorMessage)

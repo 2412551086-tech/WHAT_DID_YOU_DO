@@ -722,7 +722,7 @@ struct ChoreSelectionView: View {
             openCustomEditorAfterUpgrade()
         case .personalLayout:
             openRoutineEditorAfterUpgrade()
-        case .commonLimit, .profile, .pointsMultiplier:
+        case .commonLimit, .profile, .pointsMultiplier, .voiceInput:
             break
         }
     }
@@ -1289,6 +1289,56 @@ struct ChoreRoutineEditorView: View {
 
     var body: some View {
         ZStack {
+          if isInitialSetup {
+            FamilyWizardPage(
+                title: "从哪些小事开始？", illustration: "chores", step: 5, total: 5,
+                actionTitle: viewModel.isGuestWorkspace ? "开始体验" : "保存并进入家庭",
+                isBusy: isSaving || viewModel.isLoading,
+                canContinue: selectionCount > 0 || (viewModel.isGuestWorkspace && !viewModel.customChores.isEmpty),
+                allowsBack: viewModel.isGuestWorkspace || viewModel.hasSubmittedFamilyWizard,
+                onBack: { viewModel.returnFromInitialChoreSetup() },
+                onNext: saveInitialSelection
+            ) {
+                HStack(spacing: 8) {
+                    ForEach(ChoreTheme.allCases) { theme in
+                        Button {
+                            selectedTheme = theme
+                        } label: {
+                            VStack(spacing: 8) {
+                                Image(systemName: theme.systemImage).font(.title3)
+                                Text(theme.title).font(.subheadline.weight(.semibold))
+                            }
+                            .frame(maxWidth: .infinity, minHeight: 76)
+                            .foregroundStyle(selectedTheme == theme ? V3OnboardingColor.buttonInk : DSColor.ink)
+                            .background(selectedTheme == theme ? V3OnboardingColor.butter : DSColor.pureSurface, in: RoundedRectangle(cornerRadius: 8))
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityAddTraits(selectedTheme == theme ? .isSelected : [])
+                    }
+                }
+                Text("已选 \(selectionCount + (viewModel.isGuestWorkspace ? viewModel.customChores.count : 0)) 项")
+                    .font(.headline)
+                    .accessibilityAddTraits(.updatesFrequently)
+                onboardingCatalog
+                if viewModel.isGuestWorkspace {
+                    ForEach(viewModel.customChores) { chore in
+                        Label(chore.name, systemImage: "checkmark.circle.fill")
+                            .font(.body)
+                    }
+                    if viewModel.availableCustomChoreSlots > 0 {
+                        Button {
+                            customEditorContext = .init(id: "new-\(UUID().uuidString)", chore: nil)
+                        } label: {
+                            Label("添加自定义家务", systemImage: "plus.circle")
+                                .frame(minHeight: 44)
+                        }
+                    }
+                }
+                if let message = localMessage ?? viewModel.errorMessage {
+                    DSErrorBanner(message: message)
+                }
+            }
+          } else {
             DSColor.quietBackground.ignoresSafeArea()
 
             ScrollView {
@@ -1303,20 +1353,25 @@ struct ChoreRoutineEditorView: View {
                 .padding(.top, 12)
                 .padding(.bottom, 120)
             }
+          }
         }
         .navigationTitle(isInitialSetup ? "选择常用家务" : "家务库")
         .navigationBarTitleDisplayMode(.inline)
         .navigationBarBackButtonHidden(isInitialSetup)
         .safeAreaInset(edge: .bottom) {
-            saveBar
+            if !isInitialSetup { saveBar }
         }
         .task {
             guard !didInitialize else { return }
-            selectedIDs = initialSelection
-            pinnedIDs = viewModel.pinnedChoreIDs.intersection(Set(selectedIDs))
+            if isInitialSetup { viewModel.restoreOnboardingChores() }
+            selectedIDs = isInitialSetup && !viewModel.choreLayoutConfigured ? viewModel.onboardingChoreIDs : initialSelection
+            pinnedIDs = (isInitialSetup ? viewModel.onboardingPinnedIDs : viewModel.pinnedChoreIDs).intersection(Set(selectedIDs))
             normalizePinnedOrder()
             didInitialize = true
         }
+        .onChange(of: selectedIDs) { _, _ in persistInitialSelection() }
+        .onChange(of: pinnedIDs) { _, _ in persistInitialSelection() }
+        .onDisappear { persistInitialSelection() }
         .sheet(item: $customEditorContext) { context in
             CustomChoreEditorSheet(chore: context.chore) { draft in
                 let saved = await viewModel.saveCustomChore(draft, editing: context.chore)
@@ -1356,6 +1411,55 @@ struct ChoreRoutineEditorView: View {
         }
     }
 
+    private var onboardingCatalog: some View {
+        LazyVGrid(columns: gridColumns, spacing: 12) {
+            ForEach(themedChores) { chore in
+                let selected = selectedIDs.contains(chore.id)
+                Button {
+                    if selected || (selectionLimit.map({ selectedIDs.count < $0 }) ?? true) {
+                        toggleSelection(chore)
+                    } else {
+                        localMessage = "最多选择 \(selectionLimit ?? 8) 项常用家务。"
+                    }
+                } label: {
+                    HStack(spacing: 10) {
+                        routineIcon(chore, size: 44)
+                        Text(chore.name)
+                            .font(.body.weight(.medium))
+                            .fixedSize(horizontal: false, vertical: true)
+                        Spacer(minLength: 0)
+                        Image(systemName: selected ? "checkmark.circle.fill" : "circle")
+                            .foregroundStyle(selected ? Color.primary : Color.secondary)
+                    }
+                    .foregroundStyle(.primary)
+                    .padding(12)
+                    .frame(maxWidth: .infinity, minHeight: 72, alignment: .leading)
+                    .background(selected ? themeAccent(selectedTheme).opacity(0.16) : Color(uiColor: .secondarySystemBackground))
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                }
+                .buttonStyle(.plain)
+                .accessibilityAddTraits(selected ? .isSelected : [])
+            }
+        }
+    }
+
+    private func persistInitialSelection() {
+        guard isInitialSetup, didInitialize else { return }
+        viewModel.onboardingChoreIDs = selectedIDs
+        viewModel.onboardingPinnedIDs = pinnedIDs
+        viewModel.persistOnboardingChores()
+    }
+
+    private func saveInitialSelection() {
+        guard !isSaving, !viewModel.isLoading else { return }
+        isSaving = true
+        persistInitialSelection()
+        Task {
+            _ = await viewModel.saveChoreLayout(choreIDs: normalizedSelection, pinnedIDs: pinnedIDs)
+            isSaving = false
+        }
+    }
+
     private var themeHeader: some View {
         VStack(alignment: .leading, spacing: 6) {
             Text(isInitialSetup ? "先搭好你们家的常用区" : "重新挑选常用家务")
@@ -1363,10 +1467,10 @@ struct ChoreRoutineEditorView: View {
                 .foregroundStyle(DSColor.ink)
 
             Text(viewModel.hasPremiumAccess
-                ? "高级版常用家务不限数量，并可创建 10 项自定义家务。"
+                ? "高级版可自由选择常用家务，并定制个人布局。"
                 : (viewModel.isGuestWorkspace
-                    ? "先选最多 6 项家务，开始使用不需要登录。"
-                    : "可少选，免费版最多 6 项；一家之主的设置会同步给全家。"))
+                    ? "可选 8 项常用家务，另有 2 项自定义家务；开始使用不需要登录。"
+                    : "可选 \(selectionLimit ?? 8) 项常用家务；一家之主的设置会同步给全家。"))
                 .font(.system(size: 13))
                 .foregroundStyle(DSColor.mutedInk)
                 .fixedSize(horizontal: false, vertical: true)
@@ -1490,11 +1594,11 @@ struct ChoreRoutineEditorView: View {
     }
 
     private var selectionCount: Int {
-        selectedIDs.count + (viewModel.isGuestWorkspace ? viewModel.customChores.count : 0)
+        selectedIDs.count
     }
 
     private var selectionMaximum: Int {
-        viewModel.isGuestWorkspace ? 6 : (selectionLimit ?? selectionCount)
+        selectionLimit ?? selectionCount
     }
 
     private func themeAccent(_ theme: ChoreTheme) -> Color {
@@ -1675,7 +1779,7 @@ struct ChoreRoutineEditorView: View {
             }
 
             Text(viewModel.hasPremiumAccess
-                ? "高级版最多创建 10 项；常用页每次只展示接下来的 2 个空位。"
+                ? "自定义家务可按需添加，常用页展示接下来的 2 个空位。"
                 : "免费版最多创建 2 项；创建前可查看高级版权益。")
                 .font(.system(size: 12))
                 .foregroundStyle(DSColor.mutedInk)
@@ -1888,260 +1992,6 @@ struct ChoreRoutineEditorView: View {
     }
 }
 
-enum PremiumUpgradeTrigger: String, Identifiable, Equatable {
-    case profile
-    case commonLimit
-    case customChore
-    case personalLayout
-    case pointsMultiplier
-
-    var id: String { rawValue }
-
-    var title: String {
-        switch self {
-        case .profile: "解锁高级家庭空间"
-        case .commonLimit: "常用家务已经放满啦"
-        case .customChore: "把你们家的独门家务记下来"
-        case .personalLayout: "每个人都能有自己的常用区"
-        case .pointsMultiplier: "让积分更贴合家务难度"
-        }
-    }
-
-    var subtitle: String {
-        switch self {
-        case .profile: "把常用家务、自定义家务和家庭成员的个人偏好一起升级。"
-        case .commonLimit: "免费版最多放 6 项常用家务，高级版不限制数量。"
-        case .customChore: "免费版可创建 2 项，高级版可创建 10 项自定义家务。"
-        case .personalLayout: "免费版由一家之主统一设置；高级版每位成员都能单独定制。"
-        case .pointsMultiplier: "高级版可在每次记录时调整 0.5x...2.0x 积分倍率。"
-        }
-    }
-}
-
-struct PremiumUpgradeSheet: View {
-    @EnvironmentObject private var viewModel: AppViewModel
-    @Environment(\.dismiss) private var dismiss
-
-    let trigger: PremiumUpgradeTrigger
-    var onContinueFree: (() -> Void)? = nil
-    var onUnlocked: (() -> Void)? = nil
-
-    @State private var code = ""
-    @State private var errorMessage: String?
-    @State private var isRedeeming = false
-    @State private var isRedeemed = false
-    @FocusState private var isCodeFocused: Bool
-
-    var body: some View {
-        ScrollView {
-            VStack(spacing: 20) {
-                if isRedeemed {
-                    successContent
-                } else {
-                    upgradeContent
-                }
-            }
-            .padding(.horizontal, 20)
-            .padding(.top, 24)
-            .padding(.bottom, 28)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(DSColor.quietBackground.ignoresSafeArea())
-    }
-
-    private var upgradeContent: some View {
-        VStack(spacing: 20) {
-            Image(systemName: "crown.fill")
-                .font(.system(size: 32, weight: .bold))
-                .foregroundStyle(DSColor.ink)
-                .frame(width: 68, height: 68)
-                .background(DSColor.yellow)
-                .clipShape(Circle())
-
-            VStack(spacing: 7) {
-                Text(trigger.title)
-                    .font(.system(size: 25, weight: .bold, design: .rounded))
-                    .foregroundStyle(DSColor.ink)
-                    .multilineTextAlignment(.center)
-
-                Text(trigger.subtitle)
-                    .font(.system(size: 14))
-                    .foregroundStyle(DSColor.mutedInk)
-                    .multilineTextAlignment(.center)
-            }
-
-            comparisonTable
-
-            VStack(alignment: .leading, spacing: 8) {
-                Text("开发测试兑换")
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(DSColor.mutedInk)
-
-            TextField("输入兑换码", text: $code)
-                .keyboardType(.numberPad)
-                .textContentType(.oneTimeCode)
-                .multilineTextAlignment(.center)
-                .font(.system(size: 22, weight: .semibold))
-                .monospacedDigit()
-                .focused($isCodeFocused)
-                .padding(.horizontal, 16)
-                .frame(height: 58)
-                .background(DSColor.pureSurface)
-                .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 14, style: .continuous)
-                        .stroke(errorMessage == nil ? DSColor.subtleStroke : DSColor.coral, lineWidth: 1.5)
-                )
-            }
-
-            if let errorMessage {
-                Label(errorMessage, systemImage: "exclamationmark.triangle.fill")
-                    .font(.system(size: 13, weight: .medium))
-                    .foregroundStyle(DSColor.coral)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            }
-
-            Button {
-                Task {
-                    isRedeeming = true
-                    errorMessage = nil
-                    let succeeded = await viewModel.redeemPremium(code: code)
-                    isRedeeming = false
-
-                    if succeeded {
-                        isCodeFocused = false
-                        withAnimation(.easeOut(duration: 0.2)) {
-                            isRedeemed = true
-                        }
-                    } else {
-                        errorMessage = viewModel.errorMessage ?? "兑换失败，请稍后重试"
-                    }
-                }
-            } label: {
-                Group {
-                    if isRedeeming {
-                        ProgressView()
-                            .tint(DSColor.ink)
-                    } else {
-                        Label("兑换并开通高级版", systemImage: "sparkles")
-                    }
-                }
-                .font(.system(size: 17, weight: .semibold))
-                .foregroundStyle(DSColor.ink)
-                .frame(maxWidth: .infinity, minHeight: 52)
-                .background(DSColor.yellow)
-                .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-            }
-            .buttonStyle(.plain)
-            .disabled(isRedeeming || code.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-
-            if let onContinueFree {
-                Button("先使用免费额度") {
-                    dismiss()
-                    DispatchQueue.main.async { onContinueFree() }
-                }
-                .font(.system(size: 15, weight: .semibold))
-                .foregroundStyle(DSColor.ink)
-                .frame(maxWidth: .infinity, minHeight: 48)
-                .background(DSColor.pureSurface)
-                .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 14, style: .continuous)
-                        .stroke(DSColor.subtleStroke, lineWidth: 1)
-                )
-            }
-
-            Button("暂不开通", role: .cancel) { dismiss() }
-                .foregroundStyle(DSColor.mutedInk)
-                .disabled(isRedeeming)
-        }
-    }
-
-    private var comparisonTable: some View {
-        VStack(spacing: 0) {
-            comparisonHeader
-            comparisonRow(label: "常用家务", free: "最多 6 项", premium: "不限数量")
-            comparisonRow(label: "自定义家务", free: "最多 2 项", premium: "不限（保护上限 100）")
-            comparisonRow(label: "成员常用区", free: "全家共享", premium: "每人定制")
-            comparisonRow(label: "积分倍率", free: "系统固定", premium: "0.5–2.0x")
-            comparisonRow(label: "家庭共享", free: "不共享", premium: "全家可用")
-        }
-        .background(DSColor.pureSurface.opacity(0.9))
-        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .stroke(DSColor.subtleStroke, lineWidth: 1)
-        )
-    }
-
-    private var comparisonHeader: some View {
-        HStack(spacing: 0) {
-            Text("权益")
-                .frame(maxWidth: .infinity, alignment: .leading)
-            Text("免费版")
-                .frame(width: 82)
-            Text("高级版")
-                .frame(width: 82)
-                .foregroundStyle(DSColor.ink)
-        }
-        .font(.system(size: 13, weight: .bold))
-        .foregroundStyle(DSColor.mutedInk)
-        .padding(.horizontal, 14)
-        .frame(height: 44)
-        .background(DSColor.yellow.opacity(0.34))
-    }
-
-    private func comparisonRow(label: String, free: String, premium: String) -> some View {
-        HStack(spacing: 0) {
-            Text(label)
-                .frame(maxWidth: .infinity, alignment: .leading)
-            Text(free)
-                .foregroundStyle(DSColor.mutedInk)
-                .frame(width: 82)
-            Text(premium)
-                .fontWeight(.semibold)
-                .foregroundStyle(DSColor.ink)
-                .frame(width: 82)
-        }
-        .font(.system(size: 13))
-        .multilineTextAlignment(.center)
-        .padding(.horizontal, 14)
-        .frame(minHeight: 48)
-        .overlay(alignment: .top) {
-            Divider().padding(.leading, 14)
-        }
-    }
-
-    private var successContent: some View {
-        VStack(spacing: 20) {
-            Image(systemName: "checkmark.seal.fill")
-                .font(.system(size: 58, weight: .bold))
-                .foregroundStyle(DSColor.mint)
-
-            VStack(spacing: 8) {
-                Text("家庭高级版已解锁")
-                    .font(.system(size: 25, weight: .bold))
-                    .foregroundStyle(DSColor.ink)
-
-                Text("全家已共享高级权益：常用家务不限数量，可创建 10 项自定义家务；每位成员都能定制常用区，并按实际难度调整积分倍率。")
-                    .font(.system(size: 15))
-                    .foregroundStyle(DSColor.mutedInk)
-                    .multilineTextAlignment(.center)
-            }
-
-            Button("开始使用高级版") {
-                dismiss()
-                DispatchQueue.main.async { onUnlocked?() }
-            }
-            .font(.system(size: 17, weight: .semibold))
-            .foregroundStyle(DSColor.ink)
-            .frame(maxWidth: .infinity, minHeight: 52)
-            .background(DSColor.mint)
-            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-            .buttonStyle(.plain)
-        }
-    }
-}
 
 private struct CustomChoreEditorContext: Identifiable {
     let id: String
