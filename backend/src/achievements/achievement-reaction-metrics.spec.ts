@@ -20,6 +20,20 @@ describe('calculateReactionMetrics', () => {
         receiverUserId: 'a',
         localDateKey: '2026-08-11',
       },
+      {
+        recordId: 'doubt',
+        senderUserId: 'a',
+        receiverUserId: 'b',
+        reactionKey: 'doubt',
+        localDateKey: '2026-08-11',
+      },
+      {
+        recordId: 'high-five',
+        senderUserId: 'a',
+        receiverUserId: 'b',
+        reactionKey: 'high_five',
+        localDateKey: '2026-08-11',
+      },
     ];
 
     expect(calculateReactionMetrics(records, 'a')).toEqual({
@@ -27,6 +41,6 @@ describe('calculateReactionMetrics', () => {
       given: 3,
       received: 0,
     });
-    expect(calculateReactionMetrics(records, 'b').received).toBe(4);
+    expect(calculateReactionMetrics(records, 'b').received).toBe(5);
   });
 });

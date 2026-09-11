@@ -116,7 +116,7 @@ export class ClaimLocalDraftDto {
   timezone?: string;
 
   @IsArray()
-  @ArrayMaxSize(6)
+  @ArrayMaxSize(10)
   @ValidateNested({ each: true })
   @Type(() => LocalDraftChoreDto)
   chores!: LocalDraftChoreDto[];

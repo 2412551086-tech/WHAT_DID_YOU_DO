@@ -51,6 +51,7 @@ export class AchievementReactionService {
         select: {
           recordId: true,
           userId: true,
+          reactionKey: true,
           createdAt: true,
           record: { select: { userId: true } },
         },
@@ -65,6 +66,7 @@ export class AchievementReactionService {
       recordId: reaction.recordId,
       senderUserId: reaction.userId,
       receiverUserId: reaction.record.userId,
+      reactionKey: reaction.reactionKey,
       localDateKey: getLocalDateKeyForTimeZone(reaction.createdAt, family.timezone),
     }));
     const subjects = new Set([senderUserId, receiverUserId]);

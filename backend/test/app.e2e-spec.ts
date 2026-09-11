@@ -347,6 +347,45 @@ describe("MVP API (e2e)", () => {
     });
   });
 
+  it("claims eight catalog and two custom chores but rejects either quota overflow", async () => {
+    const user = await loginAsDev(`draft-capacity-${Date.now()}`);
+    const catalog = await prisma.chore.findMany({
+      where: { familyId: null, catalogKey: { not: null }, isCustom: false, archivedAt: null, isFreeCore: true },
+      orderBy: { sortOrder: "asc" }, take: 9,
+    });
+    expect(catalog).toHaveLength(9);
+    const chores = catalog.map((chore, index) => ({
+      localId: `catalog-${index}`, source: "CATALOG", catalogKey: chore.catalogKey,
+      name: chore.name, category: chore.category, standardMinutes: chore.standardMinutes,
+      difficultyMultiplier: chore.difficultyMultiplier, icon: chore.icon,
+    }));
+    const custom = [1, 2, 3].map((index) => ({
+      localId: `custom-${index}`, source: "CUSTOM", name: `自定义${index}`, category: "清洁",
+      standardMinutes: 10, difficultyMultiplier: 1, icon: "chore_custom_generic_01",
+    }));
+    const payload = {
+      draftId: `capacity-${Date.now()}`, draftCreatedAt: new Date().toISOString(),
+      familyName: "额度测试家庭", identityLabel: "家庭成员", avatarKey: "avatar_01",
+      timezone: "Asia/Shanghai", records: [],
+    };
+    await request(app.getHttpServer()).post("/families/claim-local-draft")
+      .set("Authorization", `Bearer ${user.token}`)
+      .send({ ...payload, chores }).expect(400);
+    await request(app.getHttpServer()).post("/families/claim-local-draft")
+      .set("Authorization", `Bearer ${user.token}`)
+      .send({ ...payload, chores: [...chores.slice(0, 7), ...custom] }).expect(400);
+    const claimed = await request(app.getHttpServer()).post("/families/claim-local-draft")
+      .set("Authorization", `Bearer ${user.token}`)
+      .send({ ...payload, chores: [...chores.slice(0, 8), ...custom.slice(0, 2)] }).expect(201);
+    await expect(prisma.chore.count({ where: { familyId: claimed.body.familyId, isCustom: true } })).resolves.toBe(2);
+    await request(app.getHttpServer()).get(`/families/${claimed.body.familyId}/chore-layout`)
+      .set("Authorization", `Bearer ${user.token}`).expect(200)
+      .expect(({ body }) => {
+        expect(body.selectionLimit).toBe(8);
+        expect(body.choreIds).toHaveLength(8);
+      });
+  });
+
   it("claims a local onboarding draft exactly once without duplicating records", async () => {
     const user = await loginAsDev(`local-draft-${Date.now()}`);
     const draftId = `draft-${Date.now()}`;
@@ -618,7 +657,7 @@ describe("MVP API (e2e)", () => {
         expect(body.isConfigured).toBe(false);
       });
 
-    const freeSelection = choreIds.slice(0, 6);
+    const freeSelection = choreIds.slice(0, 8);
     await request(app.getHttpServer())
       .patch(`/families/${familyId}/chore-layout`)
       .set("Authorization", `Bearer ${owner.token}`)
@@ -633,7 +672,7 @@ describe("MVP API (e2e)", () => {
     await request(app.getHttpServer())
       .patch(`/families/${familyId}/chore-layout`)
       .set("Authorization", `Bearer ${owner.token}`)
-      .send({ choreIds: choreIds.slice(0, 7), pinnedChoreIds: [] })
+      .send({ choreIds: choreIds.slice(0, 9), pinnedChoreIds: [] })
       .expect(400);
 
     const member = await login(`layout-${Date.now()}`);
@@ -662,7 +701,7 @@ describe("MVP API (e2e)", () => {
           choreIds: freeSelection,
           scope: "family",
           canEdit: false,
-          selectionLimit: 6,
+          selectionLimit: 8,
           customChoreLimit: 2,
           isPersonalized: false,
         });
@@ -1455,6 +1494,14 @@ describe("MVP API (e2e)", () => {
         moon_face: 0,
         laugh_cry: 0,
         tease: 0,
+        doubt: 0,
+      },
+      reactionConsensus: {
+        eligibleMemberCount: 2,
+        requiredCount: 2,
+        likeCount: 1,
+        doubtCount: 0,
+        status: "none",
       },
     });
 
@@ -1472,6 +1519,14 @@ describe("MVP API (e2e)", () => {
           moon_face: 0,
           laugh_cry: 0,
           tease: 0,
+          doubt: 0,
+        },
+        reactionConsensus: {
+          eligibleMemberCount: 2,
+          requiredCount: 2,
+          likeCount: 1,
+          doubtCount: 0,
+          status: "none",
         },
       });
 
@@ -1490,6 +1545,14 @@ describe("MVP API (e2e)", () => {
           moon_face: 0,
           laugh_cry: 0,
           tease: 0,
+          doubt: 0,
+        },
+        reactionConsensus: {
+          eligibleMemberCount: 2,
+          requiredCount: 2,
+          likeCount: 0,
+          doubtCount: 0,
+          status: "none",
         },
       });
 
@@ -1559,6 +1622,14 @@ describe("MVP API (e2e)", () => {
         moon_face: 0,
         laugh_cry: 0,
         tease: 0,
+        doubt: 0,
+      },
+      reactionConsensus: {
+        eligibleMemberCount: 2,
+        requiredCount: 2,
+        likeCount: 0,
+        doubtCount: 0,
+        status: "none",
       },
     });
 
@@ -1576,6 +1647,14 @@ describe("MVP API (e2e)", () => {
           moon_face: 0,
           laugh_cry: 0,
           tease: 0,
+          doubt: 0,
+        },
+        reactionConsensus: {
+          eligibleMemberCount: 2,
+          requiredCount: 2,
+          likeCount: 0,
+          doubtCount: 0,
+          status: "none",
         },
       });
 
@@ -2772,7 +2851,7 @@ describe("MVP API (e2e)", () => {
           .every((item: { isUnlocked: boolean }) => item.isUnlocked),
       ).toBe(true);
       expect(ownerJourney.body.capacity).toEqual({
-        common: { base: 6, earned: 2, limit: 8 },
+        common: { base: 8, earned: 2, limit: 10 },
         custom: { base: 2, earned: 1, limit: 3 },
       });
 
@@ -2818,7 +2897,7 @@ describe("MVP API (e2e)", () => {
         .set("Authorization", `Bearer ${owner.token}`)
         .expect(200)
         .expect(({ body }) => {
-          expect(body).toMatchObject({ selectionLimit: 8, customChoreLimit: 3 });
+          expect(body).toMatchObject({ selectionLimit: 10, customChoreLimit: 3 });
         });
 
       const member = await loginAsDev(`e2e-stage-three-member-${Date.now()}`);
@@ -3166,7 +3245,8 @@ describe("MVP API (e2e)", () => {
         .expect(200)
         .expect(({ body }) => {
           const bondItems = body.achievements.filter((item: { track: string }) => item.track === "BOND");
-          expect(bondItems).toHaveLength(17);
+          expect(bondItems).toHaveLength(16);
+          expect(bondItems.some((item: { key: string }) => item.key === "FAMILY_RELAY")).toBe(false);
           expect(bondItems.find((item: { key: string }) => item.key === "PAIR_COOK_AND_CLEAN")).toMatchObject({
             ownerType: "PAIR",
             isUnlocked: true,
@@ -3355,14 +3435,15 @@ describe("MVP API (e2e)", () => {
       })).resolves.toBe(3);
       await expect(prisma.memberAchievement.count({
         where: { familyId, userId: owner.userId, achievementKey: { startsWith: "HIDDEN_" } },
-      })).resolves.toBe(5);
+      })).resolves.toBe(6);
       await request(app.getHttpServer())
         .get(`/families/${familyId}/achievements/me`)
         .set("Authorization", `Bearer ${owner.token}`)
         .expect(200)
         .expect(({ body }) => {
           const hidden = body.achievements.filter((item: { track: string }) => item.track === "HIDDEN");
-          expect(hidden).toHaveLength(5);
+          expect(hidden).toHaveLength(6);
+          expect(hidden.some((item: { key: string }) => item.key === "HIDDEN_WARM_WELCOME")).toBe(true);
           expect(hidden.every((item: { isUnlocked: boolean; visibility: string }) => item.isUnlocked && item.visibility === "PRIVATE")).toBe(true);
         });
 

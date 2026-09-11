@@ -10,6 +10,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { STAGE_THREE_JOURNEY_KEYS } from './achievement-journey.service';
 import { isMasteryRuleEnabled, MASTERY_KEYS } from './achievement-mastery-taxonomy';
 import { AchievementRewardsService } from './achievement-rewards.service';
+import { SCENE_RULES } from './achievement-scene.rules';
 import { STAGE_SIX_BOND_KEYS } from './achievement-bond.constants';
 import {
   HIDDEN_ACHIEVEMENT_KEYS,
@@ -53,12 +54,16 @@ export class AchievementsQueryService {
       this.getItems(user.id, familyId),
       this.getCapacity(familyId),
     ]);
+    const undiscoveredHiddenCount = await this.prisma.achievementDefinition.count({
+      where: { isActive: true, isHidden: true, memberAchievements: { none: { familyId, userId: user.id } } },
+    });
 
     return {
       familyId,
       userId: user.id,
       showAchievementsToFamily: membership.showAchievementsToFamily,
       achievements,
+      undiscoveredHiddenCount,
       capacity,
       updatedAt: new Date(),
     };
@@ -86,9 +91,13 @@ export class AchievementsQueryService {
     await this.assertActiveMember(familyId, user.id);
     const achievement = await this.prisma.memberAchievement.findFirst({
       where: { id: memberAchievementId, familyId, userId: user.id },
+      include: { definition: { select: { isHidden: true } } },
     });
     if (!achievement) {
       throw new NotFoundException('Unlocked achievement not found');
+    }
+    if (achievement.definition.isHidden && visibility !== AchievementVisibility.PRIVATE) {
+      throw new ForbiddenException('Hidden achievements must remain private');
     }
 
     return this.prisma.memberAchievement.update({
@@ -221,11 +230,10 @@ export class AchievementsQueryService {
         })
       : [];
     const enabledThemes = new Set(['daily', ...selectedChores.map((chore) => chore.themeKey)]);
-    const unlockedHidden = await this.prisma.memberAchievement.findMany({
+    const ownedMemberAwards = await this.prisma.memberAchievement.findMany({
       where: {
         familyId,
         userId,
-        achievementKey: { in: [...HIDDEN_ACHIEVEMENT_KEYS] },
       },
       select: { achievementKey: true },
     });
@@ -233,16 +241,13 @@ export class AchievementsQueryService {
       ...STAGE_THREE_JOURNEY_KEYS,
       ...MASTERY_KEYS,
       ...STAGE_SEVEN_VISIBLE_KEYS,
-      ...(family.members.length >= 2 ? STAGE_SIX_BOND_KEYS : []),
-      ...unlockedHidden.map((unlock) => unlock.achievementKey),
+      ...STAGE_SIX_BOND_KEYS,
+      ...SCENE_RULES.filter((rule) => !rule.hidden).map((rule) => rule.key),
+      ...ownedMemberAwards.map((unlock) => unlock.achievementKey),
     ];
     const definitions = (await this.prisma.achievementDefinition.findMany({
       where: { key: { in: visibleKeys }, isActive: true },
     }))
-      .filter((definition) =>
-        !MASTERY_KEYS.includes(definition.key as (typeof MASTERY_KEYS)[number])
-        || isMasteryRuleEnabled(definition.ruleConfigJson, enabledThemes),
-      )
       .sort((left, right) => this.definitionOrder(left.key, left.tier) - this.definitionOrder(right.key, right.tier));
     const definitionIds = definitions.map((definition) => definition.id);
     const [progressRecords, memberUnlocks, familyUnlocks, pairUnlocks] = await Promise.all([
@@ -282,7 +287,14 @@ export class AchievementsQueryService {
     const pairUnlockByDefinition = new Map(
       pairUnlocks.map((unlock) => [unlock.definitionId, unlock]),
     );
-    return definitions.map((definition) => {
+    return definitions.filter((definition) => {
+      const owned = memberUnlockByDefinition.has(definition.id)
+        || familyUnlockByDefinition.has(definition.id) || pairUnlockByDefinition.has(definition.id);
+      if (definition.isHidden) return memberUnlockByDefinition.has(definition.id);
+      if (owned) return true;
+      if (family.members.length < (definition.minimumMemberCount ?? (STAGE_SIX_BOND_KEYS.includes(definition.key as typeof STAGE_SIX_BOND_KEYS[number]) ? 2 : 1))) return false;
+      return isMasteryRuleEnabled(definition.ruleConfigJson, enabledThemes);
+    }).map((definition) => {
       const progress = this.progressForDefinition(
         progressRecords,
         definition.id,
@@ -311,6 +323,7 @@ export class AchievementsQueryService {
       return {
         definitionId: definition.id,
         key: definition.key,
+        isHidden: definition.isHidden,
         nameKey: definition.nameKey,
         descriptionKey: definition.descriptionKey,
         unlockCopyKey: definition.unlockCopyKey,
@@ -326,7 +339,7 @@ export class AchievementsQueryService {
         familyAchievementId: familyUnlock?.id ?? null,
         pairAchievementId: pairUnlock?.id ?? null,
         unlockedAt: unlock?.unlockedAt ?? null,
-        visibility: memberUnlock?.visibility ?? definition.defaultVisibility,
+        visibility: definition.isHidden ? AchievementVisibility.PRIVATE : memberUnlock?.visibility ?? definition.defaultVisibility,
         participantUserIds,
         participantNames,
         participantRoles,
@@ -355,6 +368,8 @@ export class AchievementsQueryService {
       return STAGE_THREE_JOURNEY_KEYS.length + MASTERY_KEYS.length * 3 + STAGE_SIX_BOND_KEYS.length + longTermIndex * 3 + Math.max(0, tierIndex);
     }
     const hiddenIndex = HIDDEN_ACHIEVEMENT_KEYS.indexOf(key as (typeof HIDDEN_ACHIEVEMENT_KEYS)[number]);
+    const sceneIndex = SCENE_RULES.findIndex((rule) => rule.key === key && !rule.hidden);
+    if (sceneIndex >= 0) return 1_000 + sceneIndex;
     return 10_000 + Math.max(0, hiddenIndex);
   }
 

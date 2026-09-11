@@ -2,7 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { AchievementRewardType } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 
-export const FREE_COMMON_CHORE_BASE_LIMIT = 6;
+export const FREE_COMMON_CHORE_BASE_LIMIT = 8;
 export const FREE_CUSTOM_CHORE_BASE_LIMIT = 2;
 export const PREMIUM_CUSTOM_CHORE_PROTECTION_LIMIT = 100;
 

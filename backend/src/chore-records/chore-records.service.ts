@@ -15,6 +15,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { CreateChoreRecordDto } from './dto/create-chore-record.dto';
 import { CHORE_REACTION_KEYS, ChoreReactionKey } from './dto/react-to-chore-record.dto';
 import { UpdateChoreRecordDto } from './dto/update-chore-record.dto';
+import { calculateReactionConsensus } from './reaction-consensus';
 
 type RecordWithDetails = Prisma.ChoreRecordGetPayload<{
   include: {
@@ -189,8 +190,9 @@ export class ChoreRecordsService {
       throw new NotFoundException('Chore record not found');
     }
 
+    const activeMemberUserIds = await this.getActiveMemberUserIds(dto.familyId);
     return {
-      ...this.formatRecord(record, user.id, membership.memberRole),
+      ...this.formatRecord(record, user.id, membership.memberRole, activeMemberUserIds),
       ...this.evaluationResponse(created.event),
     };
   }
@@ -209,27 +211,30 @@ export class ChoreRecordsService {
         : getDayRangeForTimeZone(timezone)
       : null;
 
-    const records = await this.prisma.choreRecord.findMany({
-      where: {
-        familyId,
-        deletedAt: null,
-        ...(dateRange
-          ? {
-              createdAt: {
-                gte: dateRange.start,
-                lt: dateRange.end,
-              },
-            }
-          : {}),
-      },
-      include: this.recordDetailsInclude(familyId),
-      orderBy: {
-        createdAt: 'desc',
-      },
-      take: range === 'recent' ? 30 : undefined,
-    });
+    const [activeMemberUserIds, records] = await Promise.all([
+      this.getActiveMemberUserIds(familyId),
+      this.prisma.choreRecord.findMany({
+        where: {
+          familyId,
+          deletedAt: null,
+          ...(dateRange
+            ? {
+                createdAt: {
+                  gte: dateRange.start,
+                  lt: dateRange.end,
+                },
+              }
+            : {}),
+        },
+        include: this.recordDetailsInclude(familyId),
+        orderBy: {
+          createdAt: 'desc',
+        },
+        take: range === 'recent' ? 30 : undefined,
+      }),
+    ]);
 
-    return records.map((record) => this.formatRecord(record, user.id, membership.memberRole));
+    return records.map((record) => this.formatRecord(record, user.id, membership.memberRole, activeMemberUserIds));
   }
 
   async getMemberActivity(user: AuthUser, familyId: string, memberId: string) {
@@ -250,19 +255,22 @@ export class ChoreRecordsService {
     const start = new Date();
     start.setUTCDate(start.getUTCDate() - 30);
 
-    const records = await this.prisma.choreRecord.findMany({
-      where: {
-        familyId,
-        userId: targetMembership.userId,
-        deletedAt: null,
-        createdAt: { gte: start },
-      },
-      include: this.recordDetailsInclude(familyId),
-      orderBy: { createdAt: 'desc' },
-      take: 100,
-    });
+    const [activeMemberUserIds, records] = await Promise.all([
+      this.getActiveMemberUserIds(familyId),
+      this.prisma.choreRecord.findMany({
+        where: {
+          familyId,
+          userId: targetMembership.userId,
+          deletedAt: null,
+          createdAt: { gte: start },
+        },
+        include: this.recordDetailsInclude(familyId),
+        orderBy: { createdAt: 'desc' },
+        take: 100,
+      }),
+    ]);
 
-    return records.map((record) => this.formatRecord(record, user.id, currentMembership.memberRole));
+    return records.map((record) => this.formatRecord(record, user.id, currentMembership.memberRole, activeMemberUserIds));
   }
 
   async getLeaderboard(
@@ -434,8 +442,9 @@ export class ChoreRecordsService {
       throw new NotFoundException('Chore record not found');
     }
     const membership = await this.familiesService.assertActiveMember(record.familyId, user.id);
+    const activeMemberUserIds = await this.getActiveMemberUserIds(record.familyId);
     return {
-      ...this.formatRecord(updated, user.id, membership.memberRole),
+      ...this.formatRecord(updated, user.id, membership.memberRole, activeMemberUserIds),
       ...this.evaluationResponse(result.event),
     };
   }
@@ -570,7 +579,7 @@ export class ChoreRecordsService {
     });
 
     return {
-      ...(await this.likeState(recordId, user.id)),
+      ...(await this.likeState(recordId, record.familyId, user.id)),
       ...this.evaluationResponse(result.event),
     };
   }
@@ -608,7 +617,7 @@ export class ChoreRecordsService {
     });
 
     return {
-      ...(await this.likeState(recordId, user.id)),
+      ...(await this.likeState(recordId, record.familyId, user.id)),
       ...this.evaluationResponse(result.event),
     };
   }
@@ -634,11 +643,14 @@ export class ChoreRecordsService {
     return record;
   }
 
-  private async likeState(recordId: string, userId: string) {
-    const reactions = await this.prisma.choreRecordLike.findMany({
-      where: { recordId },
-      select: { userId: true, reactionKey: true },
-    });
+  private async likeState(recordId: string, familyId: string, userId: string) {
+    const [reactions, activeMemberUserIds] = await Promise.all([
+      this.prisma.choreRecordLike.findMany({
+        where: { recordId },
+        select: { userId: true, reactionKey: true },
+      }),
+      this.getActiveMemberUserIds(familyId),
+    ]);
     const currentReaction = reactions.find((reaction) => reaction.userId === userId);
 
     return {
@@ -647,6 +659,7 @@ export class ChoreRecordsService {
       likedByMe: Boolean(currentReaction),
       myReaction: currentReaction?.reactionKey ?? null,
       reactionCounts: this.countReactions(reactions),
+      reactionConsensus: calculateReactionConsensus(reactions, activeMemberUserIds),
     };
   }
 
@@ -752,8 +765,10 @@ export class ChoreRecordsService {
       throw new NotFoundException('Chore record not found');
     }
 
+    const activeMemberUserIds = await this.getActiveMemberUserIds(existing.familyId);
+
     return {
-      ...this.formatRecord(record, user.id, memberRole),
+      ...this.formatRecord(record, user.id, memberRole, activeMemberUserIds),
       ...this.evaluationResponse(event),
     };
   }
@@ -775,7 +790,12 @@ export class ChoreRecordsService {
     return Math.round((defaultPoints * actualMinutes) / standardMinutes);
   }
 
-  private formatRecord(record: RecordWithDetails, currentUserId: string, currentMemberRole: MemberRole) {
+  private formatRecord(
+    record: RecordWithDetails,
+    currentUserId: string,
+    currentMemberRole: MemberRole,
+    activeMemberUserIds: ReadonlySet<string>,
+  ) {
     const creatorMembership = record.user.memberships[0];
     const createdBy = {
       id: record.user.id,
@@ -824,6 +844,7 @@ export class ChoreRecordsService {
       likedByMe: Boolean(currentReaction),
       myReaction: currentReaction?.reactionKey ?? null,
       reactionCounts: this.countReactions(record.likes),
+      reactionConsensus: calculateReactionConsensus(record.likes, activeMemberUserIds),
       canDelete: record.userId === currentUserId || currentMemberRole === MemberRole.OWNER,
       canEdit: record.userId === currentUserId,
       occurredAt: record.occurredAt,
@@ -844,5 +865,13 @@ export class ChoreRecordsService {
     }
 
     return counts;
+  }
+
+  private async getActiveMemberUserIds(familyId: string) {
+    const members = await this.prisma.familyMember.findMany({
+      where: { familyId, status: MemberStatus.ACTIVE },
+      select: { userId: true },
+    });
+    return new Set(members.map((member) => member.userId));
   }
 }

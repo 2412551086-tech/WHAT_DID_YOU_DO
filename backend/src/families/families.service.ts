@@ -8,6 +8,8 @@ import {
 import { AchievementEventSourceType, MemberRole, MemberStatus, Prisma } from '@prisma/client';
 import { createHash, randomBytes } from 'node:crypto';
 import { AchievementOutboxService } from '../achievements/achievement-outbox.service';
+import { FREE_COMMON_CHORE_BASE_LIMIT } from '../achievements/achievement-rewards.service';
+import { assertAchievementAvatarOwned } from '../achievements/achievement-characters.service';
 import { AuthUser } from '../auth/auth-user';
 import { DEFAULT_FAMILY_TIMEZONE, isValidTimeZone, normalizeTimeZone } from '../common/timezone-ranges';
 import { PrismaService } from '../prisma/prisma.service';
@@ -25,6 +27,7 @@ export class FamiliesService {
   ) {}
 
   async createFamily(user: AuthUser, dto: CreateFamilyDto) {
+    await assertAchievementAvatarOwned(this.prisma, user.id, dto.avatarKey);
     const identity = this.normalizeIdentityInput(dto.identityLabel, dto.customIdentity);
     const timezone = this.normalizeTimezoneInput(dto.timezone);
     const created = await this.prisma.$transaction(async (transaction) => {
@@ -95,6 +98,7 @@ export class FamiliesService {
   }
 
   async claimLocalDraft(user: AuthUser, dto: ClaimLocalDraftDto) {
+    await assertAchievementAvatarOwned(this.prisma, user.id, dto.avatarKey);
     const payloadDigest = this.payloadDigest(dto);
     const existing = await this.prisma.localDraftClaim.findUnique({
       where: { draftId: dto.draftId },
@@ -112,14 +116,17 @@ export class FamiliesService {
       };
     }
 
-    if (dto.chores.length < 1 || dto.chores.length > 6) {
-      throw new BadRequestException('Local draft must contain 1 to 6 chores');
+    if (dto.chores.length < 1 || dto.chores.length > FREE_COMMON_CHORE_BASE_LIMIT + 2) {
+      throw new BadRequestException('Local draft must contain 1 to 10 chores');
     }
     const localIds = new Set(dto.chores.map((chore) => chore.localId));
     if (localIds.size !== dto.chores.length) {
       throw new BadRequestException('Local chore identifiers must be unique');
     }
     const customChores = dto.chores.filter((chore) => chore.source === 'CUSTOM');
+    if (dto.chores.length - customChores.length > FREE_COMMON_CHORE_BASE_LIMIT) {
+      throw new BadRequestException('Free local drafts support up to 8 catalog chores');
+    }
     if (customChores.length > 2) {
       throw new BadRequestException('Free local drafts support up to 2 custom chores');
     }
@@ -344,6 +351,7 @@ export class FamiliesService {
   }
 
   async createJoinRequest(user: AuthUser, familyId: string, dto: CreateJoinRequestDto) {
+    await assertAchievementAvatarOwned(this.prisma, user.id, dto.avatarKey);
     const identity = this.normalizeIdentityInput(dto.identityLabel, dto.customIdentity);
     const family = await this.prisma.family.findUnique({
       where: { id: familyId },
@@ -743,6 +751,7 @@ export class FamiliesService {
   }
 
   async updateMyAppearance(user: AuthUser, familyId: string, avatarKey: string) {
+    await assertAchievementAvatarOwned(this.prisma, user.id, avatarKey);
     const membership = await this.assertActiveMember(familyId, user.id);
 
     const updatedMembership = await this.prisma.$transaction(async (transaction) => {

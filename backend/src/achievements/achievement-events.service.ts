@@ -67,7 +67,8 @@ export class AchievementEventsService {
             const unlocks = [...unlockBatch.memberUnlocks, ...sharedUnlocks];
             return {
             id: unlockBatch.id,
-            primaryUnlockId: unlockBatch.primaryUnlockId,
+            primaryUnlockId: unlocks.some((unlock) => unlock.id === unlockBatch.primaryUnlockId)
+              ? unlockBatch.primaryUnlockId : unlocks[0]?.id ?? null,
             unlockCount: unlocks.length,
             unlocks,
             rewards,

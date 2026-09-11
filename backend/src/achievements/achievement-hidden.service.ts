@@ -7,7 +7,7 @@ import {
   Prisma,
 } from '@prisma/client';
 import { getLocalDateKeyForTimeZone, getLocalHourForTimeZone } from '../common/timezone-ranges';
-import { HIDDEN_ACHIEVEMENT_KEYS } from './achievement-long-term.constants';
+import { LEGACY_HIDDEN_ACHIEVEMENT_KEYS as HIDDEN_ACHIEVEMENT_KEYS } from './achievement-long-term.constants';
 import { calculateHiddenMetrics, HiddenMetrics, LongTermMetricRecord } from './achievement-long-term-metrics';
 import { classifyMasteryRecord } from './achievement-mastery-taxonomy';
 

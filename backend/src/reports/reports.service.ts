@@ -1,8 +1,10 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
+import { MemberStatus } from '@prisma/client';
 import { AuthUser } from '../auth/auth-user';
 import { getLocalDateKeyForTimeZone, getMonthRangeForTimeZone } from '../common/timezone-ranges';
 import { FamiliesService } from '../families/families.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { calculateReactionConsensus } from '../chore-records/reaction-consensus';
 
 @Injectable()
 export class ReportsService {
@@ -20,7 +22,7 @@ export class ReportsService {
     const previousRange = this.getMonthRange(previousMonth, timezone);
     const trendMonths = Array.from({ length: 6 }, (_, index) => this.monthAtOffset(month, index - 5));
     const trendStart = this.getMonthRange(trendMonths[0], timezone).start;
-    const [records, previousRecords, trendRecords] = await Promise.all([
+    const [records, previousRecords, trendRecords, activeMemberUserIds] = await Promise.all([
       this.prisma.choreRecord.findMany({
         where: {
           familyId,
@@ -33,6 +35,9 @@ export class ReportsService {
         include: {
           chore: true,
           user: true,
+          likes: {
+            select: { userId: true, reactionKey: true },
+          },
         },
         orderBy: {
           createdAt: 'desc',
@@ -67,6 +72,10 @@ export class ReportsService {
           actualMinutes: true,
         },
       }),
+      this.prisma.familyMember.findMany({
+        where: { familyId, status: MemberStatus.ACTIVE },
+        select: { userId: true },
+      }).then((members) => new Set(members.map((member) => member.userId))),
     ]);
 
     const byMember = new Map<
@@ -174,6 +183,7 @@ export class ReportsService {
         minutes: record.minutes,
         actualMinutes: record.actualMinutes,
         createdAt: record.createdAt,
+        reactionConsensus: calculateReactionConsensus(record.likes, activeMemberUserIds),
       })),
     };
   }

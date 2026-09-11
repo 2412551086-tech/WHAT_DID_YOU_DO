@@ -16,7 +16,7 @@ describe('AchievementRewardsService', () => {
     ]);
 
     await expect(service.getFamilyCapacity('family-1', false)).resolves.toEqual({
-      common: { base: 6, earned: 2, limit: 8 },
+      common: { base: 8, earned: 2, limit: 10 },
       custom: { base: 2, earned: 1, limit: 3 },
     });
   });
@@ -28,7 +28,7 @@ describe('AchievementRewardsService', () => {
     ]);
 
     await expect(service.getFamilyCapacity('family-1', true)).resolves.toEqual({
-      common: { base: 6, earned: 2, limit: null },
+      common: { base: 8, earned: 2, limit: null },
       custom: { base: 100, earned: 1, limit: 100 },
     });
   });

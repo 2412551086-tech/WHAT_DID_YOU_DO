@@ -7,6 +7,7 @@ import {
   AchievementWindowType,
   Prisma,
 } from "@prisma/client";
+import { SCENE_RULES } from '../src/achievements/achievement-scene.rules';
 
 export type AchievementDefinitionSeed = {
   key: string;
@@ -369,4 +370,16 @@ export const achievementDefinitions: AchievementDefinitionSeed[] = [
   ...bondDefinitions,
   ...familyMilestoneDefinitions,
   ...hiddenDefinitions,
+  ...SCENE_RULES.map((rule) => definition({
+    key: rule.key,
+    ownerType: AchievementOwnerType.MEMBER,
+    track: rule.hidden ? AchievementTrack.HIDDEN : AchievementTrack.MASTERY,
+    ruleType: AchievementRuleType.PAIR_COMBINATION,
+    ruleConfigJson: { themes: [rule.theme], catalogKeyGroups: rule.groups.map((group) => [...group]), distinctMembers: Boolean(rule.team), requiresOwnerParticipation: true },
+    targetValue: 1,
+    windowType: AchievementWindowType.DAY,
+    minimumMemberCount: rule.team ? 2 : 1,
+    isHidden: Boolean(rule.hidden),
+    defaultVisibility: rule.hidden ? AchievementVisibility.PRIVATE : AchievementVisibility.FAMILY,
+  })),
 ];

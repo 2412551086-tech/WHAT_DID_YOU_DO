@@ -9,6 +9,7 @@ import { AchievementPairService } from './achievement-pair.service';
 import { AchievementReactionService } from './achievement-reaction.service';
 import { AchievementLifecycleService } from './achievement-lifecycle.service';
 import { AchievementRuleRegistry } from './achievement-rule-registry';
+import { AchievementSceneService } from './achievement-scene.service';
 
 @Injectable()
 export class AchievementEventProcessorService {
@@ -22,6 +23,7 @@ export class AchievementEventProcessorService {
     private readonly familyMilestoneService: AchievementFamilyMilestoneService,
     private readonly hiddenService: AchievementHiddenService,
     private readonly lifecycleService: AchievementLifecycleService,
+    private readonly sceneService: AchievementSceneService,
   ) {}
 
   async process(transaction: Prisma.TransactionClient, event: AchievementEvent) {
@@ -51,6 +53,7 @@ export class AchievementEventProcessorService {
     const pair = await this.pairService.process(transaction, event);
     const familyMilestone = await this.familyMilestoneService.process(transaction, event);
     const hidden = await this.hiddenService.process(transaction, event);
+    const scene = await this.sceneService.process(transaction, event);
     const lifecycle = await this.lifecycleService.process(transaction, event);
     await this.finalizeUnlockBatch(transaction, event.id);
 
@@ -67,6 +70,7 @@ export class AchievementEventProcessorService {
         pairProgressUpdateCount: pair.progressUpdateCount,
         familyMilestoneProgressUpdateCount: familyMilestone.progressUpdateCount,
         hiddenProgressUpdateCount: hidden.progressUpdateCount,
+        sceneProgressUpdateCount: scene.progressUpdateCount,
         lifecycleParticipantUpdateCount: lifecycle.participantUpdates,
         lifecyclePairArchiveUpdateCount: lifecycle.pairArchiveUpdates,
         unlockedKeys: [
@@ -77,6 +81,7 @@ export class AchievementEventProcessorService {
           ...pair.unlockedKeys,
           ...familyMilestone.unlockedKeys,
           ...hidden.unlockedKeys,
+          ...scene.unlockedKeys,
         ],
         grantedRewards: journey.grantedRewards,
       } satisfies Prisma.InputJsonValue,

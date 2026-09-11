@@ -2,6 +2,7 @@ export type ReactionMetricRecord = {
   recordId: string;
   senderUserId: string;
   receiverUserId: string;
+  reactionKey?: string;
   localDateKey: string;
 };
 export type ReactionMetrics = {
@@ -27,7 +28,7 @@ export function calculateReactionMetrics(
     );
   }
 
-  const valid = [...unique.values()];
+  const valid = [...unique.values()].filter((record) => record.reactionKey !== 'doubt');
   const sent = valid.filter((record) => record.senderUserId === userId);
   const contributionByRelationshipAndDay = new Map<string, number>();
 

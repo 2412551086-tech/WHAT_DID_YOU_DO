@@ -18,11 +18,16 @@ import { AchievementWorkerService } from './achievement-worker.service';
 import { AchievementsController } from './achievements.controller';
 import { AchievementArchiveController } from './achievement-archive.controller';
 import { AchievementsQueryService } from './achievements-query.service';
+import { AchievementSceneService } from './achievement-scene.service';
+import { AchievementCharactersService } from './achievement-characters.service';
+import { AchievementCharactersController } from './achievement-characters.controller';
 
 @Module({
   imports: [AuthModule, AchievementOutboxModule],
-  controllers: [AchievementsController, AchievementArchiveController],
+  controllers: [AchievementsController, AchievementArchiveController, AchievementCharactersController],
   providers: [
+    AchievementSceneService,
+    AchievementCharactersService,
     AchievementRuleRegistry,
     AchievementJourneyService,
     AchievementMasteryService,
