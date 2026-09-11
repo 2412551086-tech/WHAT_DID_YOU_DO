@@ -13,3 +13,5 @@ local-records
 *.log
 backend/.env
 deploy/production/production.env
+**/.secrets
+**/*.p8

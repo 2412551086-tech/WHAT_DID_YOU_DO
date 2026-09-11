@@ -172,6 +172,19 @@ model User {
   authIdentities              AuthIdentity[]
   authSessions                AuthSession[]
   localDraftClaims            LocalDraftClaim[]
+  achievementCharacters       AchievementCharacter[]
+}
+
+model AchievementCharacter {
+  id                   String   @id @default(cuid())
+  userId               String
+  key                  String
+  // Provenance snapshot survives family/archive deletion; ownership belongs to the user.
+  sourceAchievementId  String
+  claimedAt            DateTime @default(now())
+  user                 User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, key])
 }
 
 model AuthIdentity {
@@ -179,6 +192,7 @@ model AuthIdentity {
   userId          String
   provider        AuthProvider
   providerSubject String
+  appleRefreshTokenEncrypted String?
   verifiedAt      DateTime?
   lastUsedAt      DateTime?
   createdAt       DateTime     @default(now())
@@ -188,6 +202,15 @@ model AuthIdentity {
   @@unique([provider, providerSubject])
   @@unique([userId, provider])
   @@index([userId])
+}
+
+model AppleAuthChallenge {
+  id        String   @id @default(uuid())
+  nonce     String
+  expiresAt DateTime
+  usedAt    DateTime?
+
+  @@index([expiresAt])
 }
 
 model AuthSession {

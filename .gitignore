@@ -15,6 +15,9 @@ xcuserdata/
 DerivedData/
 
 # Environment and secrets
+*.p8
+.secrets/
+production.env
 .env
 .env.*
 !.env.example
