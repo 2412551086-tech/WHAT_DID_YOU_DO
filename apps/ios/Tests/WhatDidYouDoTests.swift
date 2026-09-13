@@ -674,10 +674,13 @@ final class WhatDidYouDoTests: XCTestCase {
         }
     }
 
-    func testLocalOnboardingCanStartWithOnlyACustomChore() async {
+    func testLocalOnboardingRejectsCustomChoresUntilEnteringFamily() async {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
         let viewModel = AppViewModel(
             tokenStore: MockSecureTokenStore(),
             dataMode: .api,
+            localWorkspaceStore: FileLocalWorkspaceStore(fileURL: directory.appendingPathComponent("draft.json")),
             automaticallyRestoreSession: false
         )
         viewModel.beginLocalFamilyOnboarding()
@@ -693,10 +696,45 @@ final class WhatDidYouDoTests: XCTestCase {
         )
         let layoutSaved = await viewModel.saveChoreLayout(choreIDs: [], pinnedIDs: [])
 
-        XCTAssertTrue(customSaved)
-        XCTAssertTrue(layoutSaved)
-        XCTAssertEqual(viewModel.rootScreen, .home)
-        XCTAssertEqual(viewModel.localOnboardingSelectionCount, 1)
+        XCTAssertFalse(customSaved)
+        XCTAssertFalse(layoutSaved)
+        XCTAssertEqual(viewModel.rootScreen, .choreSetup)
+        XCTAssertTrue(viewModel.customChores.isEmpty)
+        XCTAssertEqual(viewModel.localOnboardingSelectionCount, 0)
+    }
+
+    func testLocalOnboardingSubmissionDiscardsLegacyCustomDrafts() async throws {
+        let fixture = makeDefaultsFixture()
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.suiteName) }
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = FileLocalWorkspaceStore(fileURL: directory.appendingPathComponent("draft.json"))
+        let custom = ChoreItem(
+            id: "legacy-custom", name: "擦琴", category: ChoreCategory.cleaning.rawValue,
+            minutes: 15, points: 30, icon: "chore_custom_generic_01", color: DSColor.yellow,
+            themeKey: "custom", difficultyMultiplier: 2, isCustom: true, customSlot: 1
+        )
+        try store.save(LocalDraftFamily(profileConfigured: false, selectedChores: [LocalDraftChore(chore: custom)]))
+        let model = AppViewModel(
+            tokenStore: MockSecureTokenStore(), dataMode: .api, userDefaults: fixture.defaults,
+            localWorkspaceStore: store, automaticallyRestoreSession: true
+        )
+        model.beginLocalFamilyOnboarding()
+        configureLocalFamilyProfile(model)
+        XCTAssertEqual(model.customChores.count, 1)
+        let emptySaved = await model.saveChoreLayout(choreIDs: [], pinnedIDs: [])
+        XCTAssertFalse(emptySaved)
+        XCTAssertEqual(model.rootScreen, .choreSetup)
+
+        let catalogID = try XCTUnwrap(model.routineCatalogChores.first?.id)
+        let saved = await model.saveChoreLayout(choreIDs: [catalogID], pinnedIDs: [catalogID])
+        XCTAssertTrue(saved)
+        XCTAssertEqual(model.rootScreen, .home)
+        XCTAssertTrue(model.customChores.isEmpty)
+        XCTAssertEqual(model.pinnedChoreIDs, [catalogID])
+        let persisted = try XCTUnwrap(store.load())
+        XCTAssertEqual(persisted.selectedChores.map(\.id), [catalogID])
+        XCTAssertTrue(persisted.selectedChores.allSatisfy { $0.source == .catalog })
     }
 
     func testGuestWorkspacePersistsRecordedChoreAcrossLaunches() async throws {
@@ -796,8 +834,6 @@ final class WhatDidYouDoTests: XCTestCase {
             standardMinutes: 10,
             difficultyMultiplier: 1
         )
-        let savedCustomChore = await viewModel.saveCustomChore(custom)
-        XCTAssertTrue(savedCustomChore)
         let catalogIDs = Array(viewModel.routineCatalogChores.prefix(9).map(\.id))
 
         let savedOverLimitLayout = await viewModel.saveChoreLayout(choreIDs: catalogIDs, pinnedIDs: [])
@@ -807,6 +843,9 @@ final class WhatDidYouDoTests: XCTestCase {
             pinnedIDs: []
         )
         XCTAssertTrue(savedAllowedLayout)
+        XCTAssertEqual(viewModel.rootScreen, .home)
+        let savedCustomChore = await viewModel.saveCustomChore(custom)
+        XCTAssertTrue(savedCustomChore)
         XCTAssertEqual(viewModel.localOnboardingSelectionCount, 9)
         let second = await viewModel.saveCustomChore(CustomChoreDraft(
             name: "擦画框", iconKey: "chore_custom_generic_01", category: .cleaning,
@@ -819,6 +858,9 @@ final class WhatDidYouDoTests: XCTestCase {
             standardMinutes: 10, difficultyMultiplier: 1
         ))
         XCTAssertFalse(third)
+        let resavedLayout = await viewModel.saveChoreLayout(choreIDs: Array(catalogIDs.prefix(8)), pinnedIDs: [])
+        XCTAssertTrue(resavedLayout)
+        XCTAssertEqual(viewModel.customChores.count, 2)
     }
 
     func testSubscriptionPlansAndWebsiteLinks() {
@@ -3562,4 +3604,241 @@ private final class AuthURLProtocolStub: URLProtocol, @unchecked Sendable {
     }
 
     override func stopLoading() {}
+}
+
+extension WhatDidYouDoTests {
+    private var borderCorrectedChoreAssets: [String] {
+        [
+            "chore_core_bathroom_clean", "chore_core_trash_recycling", "chore_core_shopping_supplies",
+            "chore_premium_change_bedding", "chore_premium_clean_stove", "chore_catalog_homework_help",
+            "chore_theme_child_sleep", "chore_theme_child_food", "chore_premium_walk_dog",
+            "chore_theme_pet_feeding", "chore_custom_pet", "chore_catalog_walk_child"
+        ]
+    }
+
+    func testChoreIconColorFieldsReachEveryStraightTileEdge() throws {
+        for asset in borderCorrectedChoreAssets {
+            let crop = try XCTUnwrap(DSChoreIconFraming.contentRect(for: asset))
+            XCTAssertTrue(CGRect(x: 0, y: 0, width: 1, height: 1).contains(crop))
+            XCTAssertEqual(crop.width, crop.height)
+            XCTAssertNotNil(UIImage(named: asset))
+            for size: CGFloat in [46, 56, 72] {
+                let renderer = ImageRenderer(content: DSChoreAssetImage(assetName: asset)
+                    .frame(width: size, height: size))
+                renderer.scale = 3
+                let image = try XCTUnwrap(renderer.cgImage)
+                var pixels = [UInt8](repeating: 0, count: image.width * image.height * 4)
+                let context = try XCTUnwrap(CGContext(
+                    data: &pixels, width: image.width, height: image.height,
+                    bitsPerComponent: 8, bytesPerRow: image.width * 4,
+                    space: CGColorSpaceCreateDeviceRGB(),
+                    bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+                ))
+                context.draw(image, in: CGRect(x: 0, y: 0, width: image.width, height: image.height))
+                // Stay on the straight perimeter, away from the rounded tile corners.
+                for coordinate in (image.width / 3)...(image.width * 2 / 3) {
+                    for (x, y) in [(coordinate, 1), (coordinate, image.height - 2),
+                                   (1, coordinate), (image.width - 2, coordinate)] {
+                        let i = (y * image.width + x) * 4
+                        XCTAssertGreaterThan(pixels[i + 3], 250, "Transparent rim: \(asset) at \(size)")
+                        let rgb = Array(pixels[i..<(i + 3)])
+                        XCTAssertGreaterThan(Int(rgb.max()!) - Int(rgb.min()!), 25,
+                                             "White rim: \(asset) at \(size), (\(x), \(y))")
+                    }
+                }
+            }
+        }
+        XCTAssertNil(DSChoreIconFraming.contentRect(for: "chore_core_mop_floor"))
+        XCTAssertEqual(DSChoreIconFraming.contentScale(for: "chore_core_mop_floor"), 1.24)
+    }
+
+    func testChoreIconBorderComparisonRenders() throws {
+        let names = ["卫生间清洁", "倒垃圾", "采购补货", "换床单", "清理灶台", "陪娃写作业",
+                     "哄睡", "准备辅食", "遛狗", "宠物喂食", "宠物照料", "遛娃"]
+        let assets = borderCorrectedChoreAssets
+        let sheet = VStack(spacing: 20) {
+            ForEach(0..<4) { row in
+                HStack(spacing: 24) {
+                    ForEach(0..<3) { column in
+                        let index = row * 3 + column
+                        VStack(spacing: 8) {
+                            HStack(spacing: 8) {
+                                Image(assets[index]).resizable().scaledToFill()
+                                    .scaleEffect(DSChoreIconFraming.contentScale(for: assets[index]))
+                                    .frame(width: 72, height: 72)
+                                    .clipped()
+                                    .clipShape(RoundedRectangle(cornerRadius: 13, style: .continuous))
+                                DSChoreAssetImage(assetName: assets[index])
+                                    .frame(width: 72, height: 72)
+                                    .clipShape(RoundedRectangle(cornerRadius: 13, style: .continuous))
+                            }
+                            Text(names[index]).font(.system(size: 14))
+                        }
+                    }
+                }
+            }
+        }
+        .padding(24)
+        .background(Color(white: 0.94))
+        .foregroundStyle(.black)
+        let renderer = ImageRenderer(content: sheet)
+        renderer.scale = 2
+        let image = try XCTUnwrap(renderer.uiImage)
+        let attachment = XCTAttachment(image: image)
+        attachment.name = "chore-icon-border-before-after"
+        attachment.lifetime = .keepAlways
+        add(attachment)
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("chore-icon-border-before-after.png")
+        try XCTUnwrap(image.pngData()).write(to: url)
+        print("CHORE_ICON_SNAPSHOT: \(url.path)")
+    }
+}
+
+extension WhatDidYouDoTests {
+    func testFlatReactionAssetsHaveTransparentCornersAndInteriorCutouts() throws {
+        let pairs: [(ChoreReaction, String)] = [
+            (.like, "reaction_flat_like"), (.doubt, "reaction_flat_doubt"),
+            (.highFive, "reaction_flat_high_five"), (.moonFace, "reaction_flat_moon_face"),
+            (.laughCry, "reaction_flat_laugh_cry"), (.tease, "reaction_flat_tease")
+        ]
+        for (reaction, name) in pairs {
+            XCTAssertEqual(DSReactionIcon(reaction: reaction).assetName, name)
+            let image = try XCTUnwrap(UIImage(named: name)?.cgImage, "Missing parent-provided asset: \(name)")
+            let pixels = try flatReactionRGBA(image)
+            for (x, y) in [(0, 0), (image.width - 1, 0),
+                           (0, image.height - 1), (image.width - 1, image.height - 1)] {
+                XCTAssertEqual(pixels[(y * image.width + x) * 4 + 3], 0, name)
+            }
+            var opaqueInterior = 0
+            var transparentInterior = 0
+            for y in (image.height / 10)..<(image.height * 9 / 10) {
+                for x in (image.width / 10)..<(image.width * 9 / 10) {
+                    let alpha = pixels[(y * image.width + x) * 4 + 3]
+                    if alpha > 250 { opaqueInterior += 1 }
+                    if alpha == 0 { transparentInterior += 1 }
+                }
+            }
+            XCTAssertGreaterThan(opaqueInterior, 0, "Empty artwork: \(name)")
+            // Hand silhouettes must leave negative space inside the image, not just at its corners.
+            if [.like, .doubt, .highFive].contains(reaction) {
+                XCTAssertGreaterThan(transparentInterior, 0, "Opaque interior backing: \(name)")
+            }
+        }
+    }
+
+    func testFlatReactionIconPreservesOriginalColorAndMutedAlpha() throws {
+        for reaction in ChoreReaction.allCases {
+            let icon = DSReactionIcon(reaction: reaction, size: 28)
+            _ = try XCTUnwrap(UIImage(named: icon.assetName))
+            let normal = try flatReactionRender(icon.foregroundStyle(.red))
+            let reference = try flatReactionRender(
+                Image(icon.assetName).renderingMode(.original).resizable().scaledToFit()
+                    .frame(width: 28, height: 28)
+            )
+            XCTAssertEqual(try flatReactionRGBA(XCTUnwrap(normal.cgImage)),
+                           try flatReactionRGBA(XCTUnwrap(reference.cgImage)))
+            let muted = try flatReactionRender(DSReactionIcon(reaction: reaction, size: 28, isMuted: true))
+            let normalPixels = try flatReactionRGBA(XCTUnwrap(normal.cgImage))
+            let mutedPixels = try flatReactionRGBA(XCTUnwrap(muted.cgImage))
+            for index in stride(from: 3, to: normalPixels.count, by: 4) {
+                XCTAssertEqual(Double(mutedPixels[index]), Double(normalPixels[index]) * 0.58, accuracy: 2)
+            }
+        }
+    }
+
+    func testFlatReactionAvatarBadgeRevealsAvatarWithoutBacking() throws {
+        var revealedAvatarPixels = 0
+        for reaction in ChoreReaction.allCases {
+            let name = DSReactionIcon(reaction: reaction).assetName
+            _ = try XCTUnwrap(UIImage(named: name))
+            let liker = ActivityLiker(id: "flat-preview", displayName: "A",
+                                      avatarKey: "avatar_01", reaction: reaction)
+            let avatar = DSAvatarView(avatarKey: liker.avatarKey, fallbackText: liker.displayName,
+                                      size: 19, presentation: .flat)
+                .frame(width: 26, height: 22, alignment: .topLeading)
+            let asset = Image(name).renderingMode(.original).resizable().scaledToFit()
+                .frame(width: 16, height: 16)
+            let actual = try flatReactionRender(DSReactionAvatarBadge(liker: liker))
+            let expected = try flatReactionRender(avatar.overlay(alignment: .bottomTrailing) { asset })
+            XCTAssertEqual(actual.size, CGSize(width: 26, height: 22))
+            let pixels = try flatReactionRGBA(XCTUnwrap(actual.cgImage))
+            XCTAssertEqual(pixels, try flatReactionRGBA(XCTUnwrap(expected.cgImage)),
+                           "Badge adds pixels beyond the avatar and PNG: \(name)")
+            let avatarPixels = try flatReactionRGBA(XCTUnwrap(flatReactionRender(avatar).cgImage))
+            let mask = try flatReactionRender(
+                Color.clear.frame(width: 26, height: 22)
+                    .overlay(alignment: .bottomTrailing) { asset }
+            )
+            let maskPixels = try flatReactionRGBA(XCTUnwrap(mask.cgImage))
+            let width = try XCTUnwrap(actual.cgImage).width
+            // Only inspect the 16pt overlay region where it intersects the 19pt avatar.
+            for y in 18..<57 {
+                for x in 30..<57 {
+                    let index = (y * width + x) * 4
+                    if maskPixels[index + 3] == 0 && avatarPixels[index + 3] > 250 {
+                        XCTAssertEqual(Array(pixels[index..<(index + 4)]),
+                                       Array(avatarPixels[index..<(index + 4)]), name)
+                        revealedAvatarPixels += 1
+                    }
+                }
+            }
+        }
+        XCTAssertGreaterThan(revealedAvatarPixels, 0, "No avatar visible through PNG negative space")
+    }
+
+    func testFlatReactionBadgeAndPickerSnapshots() throws {
+        for reaction in ChoreReaction.allCases {
+            _ = try XCTUnwrap(UIImage(named: DSReactionIcon(reaction: reaction).assetName))
+        }
+        for scheme in [ColorScheme.light, .dark] {
+            let sheet = VStack(spacing: 20) {
+                HStack(spacing: 16) {
+                    ForEach(ChoreReaction.allCases) { reaction in
+                        DSReactionAvatarBadge(liker: ActivityLiker(
+                            id: reaction.rawValue, displayName: "A",
+                            avatarKey: "avatar_01", reaction: reaction
+                        ))
+                    }
+                }
+                DSReactionPickerBar(selectedReaction: nil, onSelect: { _ in })
+                DSReactionPickerBar(selectedReaction: .doubt, onSelect: { _ in })
+            }
+            .padding(24)
+            .background(scheme == .dark ? Color(white: 0.12) : Color(white: 0.92))
+            .environment(\.colorScheme, scheme)
+            let image = try flatReactionRender(sheet)
+            let name = "reaction-flat-D-\(scheme == .dark ? "dark" : "light")"
+            let attachment = XCTAttachment(image: image)
+            attachment.name = name
+            attachment.lifetime = .keepAlways
+            add(attachment)
+            let url = FileManager.default.temporaryDirectory.appendingPathComponent("\(name).png")
+            try XCTUnwrap(image.pngData()).write(to: url)
+            print("REACTION_FLAT_D_SNAPSHOT: \(url.path)")
+        }
+    }
+
+    private func flatReactionRender<V: View>(_ view: V) throws -> UIImage {
+        let renderer = ImageRenderer(content: view)
+        renderer.scale = 3
+        renderer.isOpaque = false
+        return try XCTUnwrap(renderer.uiImage)
+    }
+
+    private func flatReactionRGBA(_ image: CGImage) throws -> [UInt8] {
+        var pixels = [UInt8](repeating: 0, count: image.width * image.height * 4)
+        try pixels.withUnsafeMutableBytes { buffer in
+            let context = try XCTUnwrap(CGContext(
+                data: buffer.baseAddress, width: image.width, height: image.height,
+                bitsPerComponent: 8, bytesPerRow: image.width * 4,
+                space: CGColorSpaceCreateDeviceRGB(),
+                bitmapInfo: CGBitmapInfo.byteOrder32Big.rawValue | CGImageAlphaInfo.premultipliedLast.rawValue
+            ))
+            // Normalize rows to top-left coordinates for badge overlap sampling.
+            context.translateBy(x: 0, y: CGFloat(image.height))
+            context.scaleBy(x: 1, y: -1)
+            context.draw(image, in: CGRect(x: 0, y: 0, width: image.width, height: image.height))
+        }
+        return pixels
+    }
 }

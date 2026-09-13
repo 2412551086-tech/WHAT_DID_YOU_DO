@@ -597,15 +597,51 @@ struct DSChoreAssetImage: View {
     let assetName: String
 
     var body: some View {
-        Image(assetName)
-            .resizable()
-            .scaledToFill()
-            .scaleEffect(DSChoreIconFraming.contentScale(for: assetName))
+        if let crop = DSChoreIconFraming.contentRect(for: assetName) {
+            GeometryReader { geometry in
+                Image(assetName)
+                    .resizable()
+                    .frame(width: geometry.size.width / crop.width, height: geometry.size.height / crop.height)
+                    .offset(
+                        x: -geometry.size.width * crop.minX / crop.width,
+                        y: -geometry.size.height * crop.minY / crop.height
+                    )
+            }
             .clipped()
+        } else {
+            Image(assetName)
+                .resizable()
+                .scaledToFill()
+                .scaleEffect(DSChoreIconFraming.contentScale(for: assetName))
+                .clipped()
+        }
     }
 }
 
 enum DSChoreIconFraming {
+    // The colored tiles have different, sometimes asymmetric baked-in borders.
+    // Crop to the color field, preserving the illustration's own white outline.
+    static func contentRect(for assetName: String) -> CGRect? {
+        let bounds: (x: CGFloat, y: CGFloat, side: CGFloat, source: CGFloat)
+        switch assetName {
+        case "chore_core_bathroom_clean": bounds = (18, 25, 208, 256)
+        case "chore_core_trash_recycling": bounds = (20, 16, 194, 256)
+        case "chore_core_shopping_supplies": bounds = (18, 16, 194, 256)
+        case "chore_premium_change_bedding": bounds = (69, 69, 368, 512)
+        case "chore_premium_clean_stove": bounds = (59, 56, 390, 512)
+        case "chore_premium_walk_dog": bounds = (79, 75, 354, 512)
+        case "chore_custom_pet": bounds = (68, 68, 888, 1024)
+        case "chore_catalog_homework_help", "chore_catalog_walk_child",
+             "chore_theme_child_sleep", "chore_theme_child_food", "chore_theme_pet_feeding":
+            bounds = (4, 4, 248, 256)
+        default: return nil
+        }
+        return CGRect(
+            x: bounds.x / bounds.source, y: bounds.y / bounds.source,
+            width: bounds.side / bounds.source, height: bounds.side / bounds.source
+        )
+    }
+
     static func contentScale(for assetName: String) -> CGFloat {
         if assetName == "chore_premium_walk_dog" {
             return 1.32
@@ -923,7 +959,7 @@ struct DSActivityRow: View {
 
 }
 
-private struct DSReactionAvatarBadge: View {
+struct DSReactionAvatarBadge: View {
     let liker: ActivityLiker
 
     var body: some View {
@@ -936,14 +972,7 @@ private struct DSReactionAvatarBadge: View {
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
 
-            DSReactionIcon(reaction: liker.reaction, size: 13)
-                .padding(1.5)
-                .background {
-                    Circle()
-                        .fill(DSColor.floatingSurface)
-                        .overlay(Circle().stroke(DSColor.floatingStroke, lineWidth: 0.6))
-                }
-                .shadow(color: Color.black.opacity(0.08), radius: 2, y: 1)
+            DSReactionIcon(reaction: liker.reaction, size: 16)
         }
         .frame(width: 26, height: 22)
         .accessibilityElement(children: .ignore)
@@ -1040,7 +1069,6 @@ private struct DSReactionConsensusBadge: View {
 private enum DSReactionBrand {
     static let yellow = Color(red: 254.0 / 255.0, green: 207.0 / 255.0, blue: 46.0 / 255.0)
     static let pink = Color(red: 249.0 / 255.0, green: 151.0 / 255.0, blue: 192.0 / 255.0)
-    static let ink = Color(red: 0.08, green: 0.08, blue: 0.07)
 }
 
 struct DSReactionIcon: View {
@@ -1048,185 +1076,25 @@ struct DSReactionIcon: View {
     var size: CGFloat = 28
     var isMuted = false
 
-    var body: some View {
-        Canvas(rendersAsynchronously: false) { context, canvasSize in
-            context.scaleBy(x: canvasSize.width / 32, y: canvasSize.height / 32)
-            draw(reaction, in: &context)
-        }
-        .frame(width: size, height: size)
-        .opacity(isMuted ? 0.58 : 1)
-        .accessibilityHidden(true)
-    }
-
-    private func draw(_ reaction: ChoreReaction, in context: inout GraphicsContext) {
+    var assetName: String {
         switch reaction {
-        case .like:
-            drawLike(in: &context)
-        case .doubt:
-            drawDoubt(in: &context)
-        case .highFive:
-            drawHighFive(in: &context)
-        case .moonFace:
-            drawMoonFace(in: &context)
-        case .laughCry:
-            drawLaughCry(in: &context)
-        case .tease:
-            drawTease(in: &context)
+        case .like: return "reaction_flat_like"
+        case .doubt: return "reaction_flat_doubt"
+        case .highFive: return "reaction_flat_high_five"
+        case .moonFace: return "reaction_flat_moon_face"
+        case .laughCry: return "reaction_flat_laugh_cry"
+        case .tease: return "reaction_flat_tease"
         }
     }
 
-    private func drawLike(in context: inout GraphicsContext) {
-        var hand = Path()
-        hand.move(to: CGPoint(x: 9, y: 15))
-        hand.addLine(to: CGPoint(x: 13, y: 15))
-        hand.addLine(to: CGPoint(x: 16, y: 8))
-        hand.addCurve(to: CGPoint(x: 19, y: 5), control1: CGPoint(x: 16, y: 5), control2: CGPoint(x: 18, y: 4))
-        hand.addCurve(to: CGPoint(x: 21, y: 8), control1: CGPoint(x: 21, y: 5), control2: CGPoint(x: 21, y: 6))
-        hand.addLine(to: CGPoint(x: 19.5, y: 13))
-        hand.addLine(to: CGPoint(x: 25, y: 13))
-        hand.addCurve(to: CGPoint(x: 28, y: 16), control1: CGPoint(x: 28, y: 13), control2: CGPoint(x: 28.5, y: 14.5))
-        hand.addCurve(to: CGPoint(x: 25, y: 25), control1: CGPoint(x: 27, y: 20), control2: CGPoint(x: 26, y: 23))
-        hand.addCurve(to: CGPoint(x: 21, y: 28), control1: CGPoint(x: 24.5, y: 28), control2: CGPoint(x: 22.5, y: 28.5))
-        hand.addLine(to: CGPoint(x: 13, y: 27.5))
-        hand.addCurve(to: CGPoint(x: 9, y: 25), control1: CGPoint(x: 11, y: 27.5), control2: CGPoint(x: 9, y: 27))
-        hand.closeSubpath()
-        fillAndStroke(hand, fill: DSReactionBrand.yellow, in: &context)
-
-        let cuff = Path(roundedRect: CGRect(x: 3, y: 14, width: 7, height: 13), cornerRadius: 2.5)
-        fillAndStroke(cuff, fill: DSReactionBrand.pink, in: &context)
-    }
-
-    private func drawDoubt(in context: inout GraphicsContext) {
-        var hand = Path()
-        hand.move(to: CGPoint(x: 9, y: 17))
-        hand.addLine(to: CGPoint(x: 13, y: 17))
-        hand.addLine(to: CGPoint(x: 16, y: 24))
-        hand.addCurve(to: CGPoint(x: 19, y: 27), control1: CGPoint(x: 16, y: 27), control2: CGPoint(x: 18, y: 28))
-        hand.addCurve(to: CGPoint(x: 21, y: 24), control1: CGPoint(x: 21, y: 27), control2: CGPoint(x: 21, y: 26))
-        hand.addLine(to: CGPoint(x: 19.5, y: 19))
-        hand.addLine(to: CGPoint(x: 25, y: 19))
-        hand.addCurve(to: CGPoint(x: 28, y: 16), control1: CGPoint(x: 28, y: 19), control2: CGPoint(x: 28.5, y: 17.5))
-        hand.addCurve(to: CGPoint(x: 25, y: 7), control1: CGPoint(x: 27, y: 12), control2: CGPoint(x: 26, y: 9))
-        hand.addCurve(to: CGPoint(x: 21, y: 4), control1: CGPoint(x: 24.5, y: 4), control2: CGPoint(x: 22.5, y: 3.5))
-        hand.addLine(to: CGPoint(x: 13, y: 4.5))
-        hand.addCurve(to: CGPoint(x: 9, y: 7), control1: CGPoint(x: 11, y: 4.5), control2: CGPoint(x: 9, y: 5))
-        hand.closeSubpath()
-        fillAndStroke(hand, fill: DSReactionBrand.yellow, in: &context)
-
-        let cuff = Path(roundedRect: CGRect(x: 3, y: 5, width: 7, height: 13), cornerRadius: 2.5)
-        fillAndStroke(cuff, fill: DSReactionBrand.pink, in: &context)
-    }
-
-    private func drawHighFive(in context: inout GraphicsContext) {
-        var left = Path()
-        left.move(to: CGPoint(x: 4, y: 27))
-        left.addLine(to: CGPoint(x: 8, y: 13))
-        left.addLine(to: CGPoint(x: 10, y: 5))
-        left.addCurve(to: CGPoint(x: 13, y: 7), control1: CGPoint(x: 11, y: 3), control2: CGPoint(x: 14, y: 4))
-        left.addLine(to: CGPoint(x: 13, y: 14))
-        left.addLine(to: CGPoint(x: 17, y: 10))
-        left.addCurve(to: CGPoint(x: 19, y: 13), control1: CGPoint(x: 20, y: 9), control2: CGPoint(x: 21, y: 11))
-        left.addLine(to: CGPoint(x: 14, y: 21))
-        left.addLine(to: CGPoint(x: 12, y: 28))
-        left.closeSubpath()
-        fillAndStroke(left, fill: DSReactionBrand.yellow, in: &context)
-
-        var right = Path()
-        right.move(to: CGPoint(x: 28, y: 27))
-        right.addLine(to: CGPoint(x: 24, y: 13))
-        right.addLine(to: CGPoint(x: 22, y: 5))
-        right.addCurve(to: CGPoint(x: 19, y: 7), control1: CGPoint(x: 21, y: 3), control2: CGPoint(x: 18, y: 4))
-        right.addLine(to: CGPoint(x: 19, y: 14))
-        right.addLine(to: CGPoint(x: 15, y: 10))
-        right.addCurve(to: CGPoint(x: 13, y: 13), control1: CGPoint(x: 12, y: 9), control2: CGPoint(x: 11, y: 11))
-        right.addLine(to: CGPoint(x: 18, y: 21))
-        right.addLine(to: CGPoint(x: 20, y: 28))
-        right.closeSubpath()
-        fillAndStroke(right, fill: DSReactionBrand.pink, in: &context)
-    }
-
-    private func drawMoonFace(in context: inout GraphicsContext) {
-        let face = Path(ellipseIn: CGRect(x: 3, y: 3, width: 26, height: 26))
-        fillAndStroke(face, fill: DSReactionBrand.pink, in: &context)
-        drawEye(at: CGPoint(x: 11, y: 13), color: DSReactionBrand.ink, in: &context)
-        drawEye(at: CGPoint(x: 21, y: 13), color: DSReactionBrand.ink, in: &context)
-        var smile = Path()
-        smile.move(to: CGPoint(x: 10, y: 21))
-        smile.addCurve(to: CGPoint(x: 23, y: 19), control1: CGPoint(x: 15, y: 24), control2: CGPoint(x: 20, y: 23))
-        context.stroke(smile, with: .color(DSReactionBrand.ink), style: strokeStyle(width: 2))
-    }
-
-    private func drawLaughCry(in context: inout GraphicsContext) {
-        let face = Path(ellipseIn: CGRect(x: 4, y: 4, width: 24, height: 24))
-        fillAndStroke(face, fill: DSReactionBrand.yellow, in: &context)
-        drawHappyEye(from: CGPoint(x: 9, y: 13), to: CGPoint(x: 14, y: 11), in: &context)
-        drawHappyEye(from: CGPoint(x: 18, y: 11), to: CGPoint(x: 23, y: 13), in: &context)
-        let mouth = Path(roundedRect: CGRect(x: 10, y: 17, width: 12, height: 7), cornerRadius: 4)
-        fillAndStroke(mouth, fill: DSReactionBrand.ink, in: &context)
-        drawTear(at: CGPoint(x: 4, y: 18), mirrored: false, in: &context)
-        drawTear(at: CGPoint(x: 28, y: 18), mirrored: true, in: &context)
-    }
-
-    private func drawTease(in context: inout GraphicsContext) {
-        let face = Path(ellipseIn: CGRect(x: 4, y: 4, width: 24, height: 24))
-        fillAndStroke(face, fill: DSReactionBrand.pink, in: &context)
-        drawEye(at: CGPoint(x: 11, y: 14), color: DSReactionBrand.ink, in: &context)
-        var wink = Path()
-        wink.move(to: CGPoint(x: 18, y: 14))
-        wink.addCurve(to: CGPoint(x: 24, y: 13), control1: CGPoint(x: 20, y: 11), control2: CGPoint(x: 22, y: 11))
-        context.stroke(wink, with: .color(DSReactionBrand.ink), style: strokeStyle(width: 2))
-        var mouth = Path()
-        mouth.move(to: CGPoint(x: 10, y: 20))
-        mouth.addCurve(to: CGPoint(x: 22, y: 20), control1: CGPoint(x: 14, y: 24), control2: CGPoint(x: 19, y: 24))
-        context.stroke(mouth, with: .color(DSReactionBrand.ink), style: strokeStyle(width: 2))
-        let tongue = Path(ellipseIn: CGRect(x: 14, y: 21, width: 7, height: 6))
-        fillAndStroke(tongue, fill: DSReactionBrand.yellow, in: &context)
-    }
-
-    private func fillAndStroke(
-        _ path: Path,
-        fill: Color,
-        in context: inout GraphicsContext,
-        lineWidth: CGFloat = 2
-    ) {
-        context.fill(path, with: .color(fill))
-        context.stroke(path, with: .color(DSReactionBrand.ink), style: strokeStyle(width: lineWidth))
-    }
-
-    private func drawEye(at point: CGPoint, color: Color, in context: inout GraphicsContext) {
-        let eye = Path(ellipseIn: CGRect(x: point.x - 1.5, y: point.y - 2, width: 3, height: 4))
-        context.fill(eye, with: .color(color))
-    }
-
-    private func drawHappyEye(from start: CGPoint, to end: CGPoint, in context: inout GraphicsContext) {
-        var eye = Path()
-        eye.move(to: start)
-        eye.addCurve(
-            to: end,
-            control1: CGPoint(x: start.x + 1.5, y: start.y - 2),
-            control2: CGPoint(x: end.x - 1.5, y: end.y - 2)
-        )
-        context.stroke(eye, with: .color(DSReactionBrand.ink), style: strokeStyle(width: 2))
-    }
-
-    private func drawTear(at point: CGPoint, mirrored: Bool, in context: inout GraphicsContext) {
-        var tear = Path()
-        tear.move(to: CGPoint(x: point.x, y: point.y - 3))
-        tear.addCurve(
-            to: CGPoint(x: point.x, y: point.y + 5),
-            control1: CGPoint(x: point.x + (mirrored ? 5 : -5), y: point.y),
-            control2: CGPoint(x: point.x + (mirrored ? 3 : -3), y: point.y + 5)
-        )
-        tear.addCurve(
-            to: CGPoint(x: point.x, y: point.y - 3),
-            control1: CGPoint(x: point.x + (mirrored ? -2 : 2), y: point.y + 5),
-            control2: CGPoint(x: point.x + (mirrored ? -2 : 2), y: point.y)
-        )
-        fillAndStroke(tear, fill: DSReactionBrand.pink, in: &context)
-    }
-
-    private func strokeStyle(width: CGFloat) -> StrokeStyle {
-        StrokeStyle(lineWidth: width, lineCap: .round, lineJoin: .round)
+    var body: some View {
+        Image(assetName)
+            .renderingMode(.original)
+            .resizable()
+            .scaledToFit()
+            .frame(width: size, height: size)
+            .opacity(isMuted ? 0.58 : 1)
+            .accessibilityHidden(true)
     }
 }
 

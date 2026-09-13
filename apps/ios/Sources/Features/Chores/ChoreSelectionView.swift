@@ -1294,7 +1294,7 @@ struct ChoreRoutineEditorView: View {
                 title: "从哪些小事开始？", illustration: "chores", step: 5, total: 5,
                 actionTitle: viewModel.isGuestWorkspace ? "开始体验" : "保存并进入家庭",
                 isBusy: isSaving || viewModel.isLoading,
-                canContinue: selectionCount > 0 || (viewModel.isGuestWorkspace && !viewModel.customChores.isEmpty),
+                canContinue: selectionCount > 0,
                 allowsBack: viewModel.isGuestWorkspace || viewModel.hasSubmittedFamilyWizard,
                 onBack: { viewModel.returnFromInitialChoreSetup() },
                 onNext: saveInitialSelection
@@ -1316,24 +1316,10 @@ struct ChoreRoutineEditorView: View {
                         .accessibilityAddTraits(selectedTheme == theme ? .isSelected : [])
                     }
                 }
-                Text("已选 \(selectionCount + (viewModel.isGuestWorkspace ? viewModel.customChores.count : 0)) 项")
+                Text("已选 \(selectionCount) 项")
                     .font(.headline)
                     .accessibilityAddTraits(.updatesFrequently)
                 onboardingCatalog
-                if viewModel.isGuestWorkspace {
-                    ForEach(viewModel.customChores) { chore in
-                        Label(chore.name, systemImage: "checkmark.circle.fill")
-                            .font(.body)
-                    }
-                    if viewModel.availableCustomChoreSlots > 0 {
-                        Button {
-                            customEditorContext = .init(id: "new-\(UUID().uuidString)", chore: nil)
-                        } label: {
-                            Label("添加自定义家务", systemImage: "plus.circle")
-                                .frame(minHeight: 44)
-                        }
-                    }
-                }
                 if let message = localMessage ?? viewModel.errorMessage {
                     DSErrorBanner(message: message)
                 }

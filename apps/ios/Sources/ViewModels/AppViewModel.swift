@@ -1473,7 +1473,8 @@ final class AppViewModel: ObservableObject {
             return false
         }
 
-        let selectedChoreCount = choreIDs.count + (isGuestWorkspace ? customChores.count : 0)
+        let isInitialSetup = rootScreen == .choreSetup
+        let selectedChoreCount = choreIDs.count + (isGuestWorkspace && !isInitialSetup ? customChores.count : 0)
         guard selectedChoreCount > 0, Set(choreIDs).count == choreIDs.count else {
             errorMessage = "请至少选择 1 项常用家务。"
             return false
@@ -1492,9 +1493,13 @@ final class AppViewModel: ObservableObject {
 
         let normalizedPinned = pinnedIDs.intersection(Set(choreIDs))
         if isGuestWorkspace {
-            guard choreIDs.count <= 8, customChores.count <= 2 else {
+            guard choreIDs.count <= 8, isInitialSetup || customChores.count <= 2 else {
                 errorMessage = "免费体验支持 8 项常用家务和 2 项自定义家务。"
                 return false
+            }
+            // Older wizard drafts may contain custom chores; creation only submits catalog selections.
+            if isInitialSetup {
+                chores.removeAll { $0.isCustom }
             }
             choreOrder = choreIDs
             pinnedChoreIDs = normalizedPinned
@@ -2347,6 +2352,10 @@ final class AppViewModel: ObservableObject {
     @discardableResult
     func saveCustomChore(_ draft: CustomChoreDraft, editing chore: ChoreItem? = nil) async -> Bool {
         clearError()
+        guard rootScreen != .createFamily, rootScreen != .choreSetup else {
+            errorMessage = "请先进入家庭，再添加自定义家务。"
+            return false
+        }
         guard chore != nil || availableCustomChoreSlots > 0 else {
             errorMessage = "免费版最多可以创建 2 个自定义家务。"
             return false
